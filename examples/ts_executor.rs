@@ -158,7 +158,7 @@ Requirements:
         #[cfg(feature = "remote")]
         {
             let api_key = std::env::var("FIRECRACKER_API_KEY").ok();
-            let mut builder = RemoteSandbox::new(&firecracker_url).timeout_ms(60_000); // 60s (no npm install needed)
+            let mut builder = RemoteSandbox::builder(&firecracker_url).timeout_ms(60_000); // 60s (no npm install needed)
             if let Some(key) = api_key {
                 builder = builder.api_key(key);
             }

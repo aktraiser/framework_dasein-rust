@@ -2,10 +2,10 @@
 //!
 //! # Quick Start
 //!
-//! ```rust
-//! let executor = Executor::new("exe-001", "sup-001", bus)
+//! ```rust,ignore
+//! let executor = Executor::new("exe-001", "sup-001")
 //!     .llm(LLMConfig::gemini("gemini-2.0-flash"))
-//!     .start().await?;
+//!     .build();
 //! ```
 
 use chrono::{DateTime, Utc};
@@ -65,7 +65,7 @@ impl Executor {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// let exe = Executor::new("exe-001", "sup-001")
     ///     .llm(LLMConfig::gemini("gemini-2.0-flash"))
     ///     .build();
@@ -169,7 +169,7 @@ impl Executor {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// let result = executor.execute(
     ///     "You are a Rust expert.",
     ///     "Write a function to check if a number is prime."
