@@ -37,6 +37,7 @@
 //! }
 //! ```
 
+mod builder;
 mod context;
 mod edge;
 mod executor;
@@ -63,6 +64,10 @@ pub use edge::{
     SelectionFn, SwitchFn,
 };
 
+// PR #4: WorkflowBuilder
+pub use builder::{
+    validate_workflow, ExecutorMetadata, ValidationReport, WorkflowBuilder, WorkflowDefinition,
+};
+
 // Future PRs will add:
-// - PR #4: WorkflowBuilder
 // - PR #5: Workflow with Superstep execution

@@ -501,6 +501,7 @@ impl<T: Send + Sync + 'static> fmt::Debug for Edge<T> {
 // ============================================================================
 
 /// A collection of edges for a workflow.
+#[derive(Debug)]
 pub struct EdgeCollection<T: Send + Sync + 'static> {
     edges: Vec<Edge<T>>,
 }

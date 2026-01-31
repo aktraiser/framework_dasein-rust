@@ -104,6 +104,9 @@ pub enum GraphError {
     #[error("Invalid graph: {0}")]
     InvalidGraph(String),
 
+    #[error("Validation error: {0}")]
+    ValidationError(String),
+
     #[error("Type mismatch: {0}")]
     TypeMismatch(String),
 
