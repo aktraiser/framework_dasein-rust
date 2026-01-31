@@ -1,3 +1,5 @@
+
+
 [workspace]
 resolver = "2"
 members = [
@@ -194,10 +196,10 @@ redundant_closure_for_method_calls = "allow"
 # Dead code detection - will be cleaned up during refactoring
 collection_is_never_read = "allow"
 
-# Type complexity - acceptable for now
-type_complexity = "allow"
-cloned_instead_of_copied = "allow"
+# Pre-existing issues in orchestrator
 or_fun_call = "allow"
+cloned_instead_of_copied = "allow"
+type_complexity = "allow"
 
 # =============================================================================
 # KEPT AS WARNINGS - Important for code quality
