@@ -38,6 +38,7 @@
 //! ```
 
 mod context;
+mod edge;
 mod executor;
 #[cfg(test)]
 mod integration_test;
@@ -56,7 +57,12 @@ pub use context::{
     WorkflowContextBuilder, WorkflowEvent,
 };
 
+// PR #3: Edge Types
+pub use edge::{
+    AggregationFn, ConditionFn, Edge, EdgeCollection, EdgeId, EdgeKind, EdgeSource, EdgeTarget,
+    SelectionFn, SwitchFn,
+};
+
 // Future PRs will add:
-// - PR #3: Edge types (Direct, Conditional, Switch, FanOut, FanIn)
 // - PR #4: WorkflowBuilder
 // - PR #5: Workflow with Superstep execution

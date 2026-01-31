@@ -7,8 +7,8 @@ mod tests {
     use async_trait::async_trait;
 
     use crate::distributed::graph::{
-        Executor, ExecutorContext, ExecutorError, ExecutorId, ExecutorKind, TaskId, ValidationResult,
-        WorkflowContext, WorkflowId,
+        Executor, ExecutorContext, ExecutorError, ExecutorId, ExecutorKind, TaskId,
+        ValidationResult, WorkflowContext, WorkflowId,
     };
 
     // ========================================================================
@@ -133,8 +133,10 @@ mod tests {
             let result = if errors.is_empty() {
                 ValidationResult::success()
             } else {
-                ValidationResult::failure(errors)
-                    .with_feedback(format!("String length must be between {} and {}", self.min_length, self.max_length))
+                ValidationResult::failure(errors).with_feedback(format!(
+                    "String length must be between {} and {}",
+                    self.min_length, self.max_length
+                ))
             };
 
             // Send validation result to next executor
@@ -163,8 +165,8 @@ mod tests {
     #[async_trait]
     impl Executor for SplitOrchestrator {
         type Input = String;
-        type Message = String;  // Each word becomes a message
-        type Output = usize;    // Output is word count
+        type Message = String; // Each word becomes a message
+        type Output = usize; // Output is word count
 
         fn id(&self) -> &ExecutorId {
             &self.id
@@ -296,8 +298,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_shared_state_between_contexts() {
-        use std::sync::Arc;
         use crate::distributed::graph::InMemoryStateBackend;
+        use std::sync::Arc;
 
         // Shared state backend (simulates what would be NATS KV in production)
         let shared_backend = Arc::new(InMemoryStateBackend::new());
@@ -362,7 +364,10 @@ mod tests {
         assert_eq!(executor.id().as_str(), "my-executor");
         assert_eq!(executor.kind(), ExecutorKind::Worker);
         assert_eq!(executor.name(), "UppercaseExecutor");
-        assert_eq!(executor.description(), Some("Transforms input to uppercase"));
+        assert_eq!(
+            executor.description(),
+            Some("Transforms input to uppercase")
+        );
     }
 
     #[tokio::test]
