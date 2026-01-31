@@ -32,7 +32,7 @@ pub struct ExecutionResult {
 impl ExecutionResult {
     /// Check if execution was successful.
     #[must_use]
-    pub fn is_success(&self) -> bool {
+    pub const fn is_success(&self) -> bool {
         self.exit_code == 0
     }
 }

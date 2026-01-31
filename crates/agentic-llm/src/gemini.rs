@@ -43,14 +43,14 @@ impl GeminiAdapter {
 
     /// Set the temperature for generation.
     #[must_use]
-    pub fn with_temperature(mut self, temperature: f32) -> Self {
+    pub const fn with_temperature(mut self, temperature: f32) -> Self {
         self.temperature = temperature;
         self
     }
 
     /// Set the maximum tokens for generation.
     #[must_use]
-    pub fn with_max_tokens(mut self, max_tokens: u32) -> Self {
+    pub const fn with_max_tokens(mut self, max_tokens: u32) -> Self {
         self.max_tokens = Some(max_tokens);
         self
     }
@@ -87,9 +87,9 @@ impl GeminiAdapter {
             .filter(|m| m.role != Role::System)
             .map(|m| GeminiContent {
                 role: match m.role {
-                    Role::User => "user".to_string(),
                     Role::Assistant => "model".to_string(),
-                    Role::System => "user".to_string(), // Should not happen
+                    // System filtered above, but fallback to user if encountered
+                    Role::User | Role::System => "user".to_string(),
                 },
                 parts: vec![GeminiPart {
                     text: m.content.clone(),
@@ -156,6 +156,7 @@ struct GeminiCandidate {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(clippy::struct_field_names)] // Field names match Gemini API response
 struct GeminiUsageMetadata {
     prompt_token_count: u32,
     candidates_token_count: u32,
@@ -174,7 +175,7 @@ struct GeminiErrorDetail {
 
 #[async_trait]
 impl LLMAdapter for GeminiAdapter {
-    fn provider(&self) -> &str {
+    fn provider(&self) -> &'static str {
         "gemini"
     }
 
@@ -229,11 +230,9 @@ impl LLMAdapter for GeminiAdapter {
             .parts
             .iter()
             .map(|p| p.text.clone())
-            .collect::<Vec<_>>()
-            .join("");
+            .collect::<String>();
 
         let finish_reason = match candidate.finish_reason.as_deref() {
-            Some("STOP") => FinishReason::Stop,
             Some("MAX_TOKENS") => FinishReason::Length,
             _ => FinishReason::Stop,
         };
@@ -287,7 +286,7 @@ impl LLMAdapter for GeminiAdapter {
 
             let status = response.status();
             if !status.is_success() {
-                Err(LLMError::ApiError(format!("API returned status {}", status)))?;
+                Err(LLMError::ApiError(format!("API returned status {status}")))?;
             }
 
             let mut stream = response.bytes_stream();
@@ -329,13 +328,11 @@ impl LLMAdapter for GeminiAdapter {
                                     .parts
                                     .iter()
                                     .map(|p| p.text.clone())
-                                    .collect::<Vec<_>>()
-                                    .join("");
+                                    .collect::<String>();
 
                                 let done = candidate.finish_reason.is_some();
                                 let finish_reason = candidate.finish_reason.as_ref().map(|r| {
                                     match r.as_str() {
-                                        "STOP" => FinishReason::Stop,
                                         "MAX_TOKENS" => FinishReason::Length,
                                         _ => FinishReason::Stop,
                                     }

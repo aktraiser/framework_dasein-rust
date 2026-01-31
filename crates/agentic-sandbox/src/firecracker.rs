@@ -13,7 +13,11 @@
 use async_trait::async_trait;
 use std::path::PathBuf;
 use std::time::Duration;
-use tracing::{debug, info, instrument, warn};
+#[cfg(feature = "firecracker")]
+use tracing::info;
+#[cfg(not(feature = "firecracker"))]
+use tracing::warn;
+use tracing::{debug, instrument};
 
 use crate::{
     error::SandboxError,
@@ -66,21 +70,21 @@ impl FirecrackerConfig {
 
     /// Set vCPU count.
     #[must_use]
-    pub fn vcpus(mut self, count: u8) -> Self {
+    pub const fn vcpus(mut self, count: u8) -> Self {
         self.vcpu_count = count;
         self
     }
 
     /// Set memory size in MiB.
     #[must_use]
-    pub fn memory(mut self, mib: u32) -> Self {
+    pub const fn memory(mut self, mib: u32) -> Self {
         self.mem_size_mib = mib;
         self
     }
 
     /// Set timeout.
     #[must_use]
-    pub fn timeout(mut self, timeout: Duration) -> Self {
+    pub const fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
         self
     }
@@ -93,7 +97,7 @@ impl FirecrackerConfig {
     }
 }
 
-/// Firecracker MicroVM sandbox.
+/// Firecracker `MicroVM` sandbox.
 ///
 /// Provides strong isolation using Firecracker microVMs.
 /// Each execution spawns a new microVM, executes code, and destroys it.
@@ -113,7 +117,7 @@ impl FirecrackerSandbox {
 
     /// Create with custom config.
     #[must_use]
-    pub fn with_config(config: FirecrackerConfig) -> Self {
+    pub const fn with_config(config: FirecrackerConfig) -> Self {
         Self { config }
     }
 
@@ -124,12 +128,16 @@ impl FirecrackerSandbox {
     }
 
     /// Check if Firecracker is available on the system.
-    pub async fn check_prerequisites(&self) -> Result<(), SandboxError> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if Firecracker, KVM, kernel or rootfs is not available.
+    pub fn check_prerequisites(&self) -> Result<(), SandboxError> {
         // Check firecracker binary
         if !self.config.firecracker_bin.exists() {
             return Err(SandboxError::NotAvailable(format!(
-                "Firecracker binary not found at {:?}",
-                self.config.firecracker_bin
+                "Firecracker binary not found at {}",
+                self.config.firecracker_bin.display()
             )));
         }
 
@@ -143,16 +151,16 @@ impl FirecrackerSandbox {
         // Check kernel
         if !self.config.kernel_path.exists() {
             return Err(SandboxError::NotAvailable(format!(
-                "Kernel not found at {:?}",
-                self.config.kernel_path
+                "Kernel not found at {}",
+                self.config.kernel_path.display()
             )));
         }
 
         // Check rootfs
         if !self.config.rootfs_path.exists() {
             return Err(SandboxError::NotAvailable(format!(
-                "Rootfs not found at {:?}",
-                self.config.rootfs_path
+                "Rootfs not found at {}",
+                self.config.rootfs_path.display()
             )));
         }
 
@@ -161,7 +169,7 @@ impl FirecrackerSandbox {
 
     /// Execute code using firepilot.
     #[cfg(feature = "firecracker")]
-    async fn execute_with_firepilot(&self, code: &str) -> Result<ExecutionResult, SandboxError> {
+    async fn execute_with_firepilot(&self, _code: &str) -> Result<ExecutionResult, SandboxError> {
         use firepilot::builder::drive::DriveBuilder;
         use firepilot::builder::executor::FirecrackerExecutorBuilder;
         use firepilot::builder::kernel::KernelBuilder;
@@ -178,14 +186,14 @@ impl FirecrackerSandbox {
         let workspace = self.config.workspace.join(&vm_id);
         tokio::fs::create_dir_all(&workspace)
             .await
-            .map_err(|e| SandboxError::ConfigError(format!("Failed to create workspace: {}", e)))?;
+            .map_err(|e| SandboxError::ConfigError(format!("Failed to create workspace: {e}")))?;
 
         // Build kernel configuration
         let kernel = KernelBuilder::new()
             .with_kernel_image_path(self.config.kernel_path.to_string_lossy().to_string())
             .with_boot_args("console=ttyS0 reboot=k panic=1 pci=off".to_string())
             .try_build()
-            .map_err(|e| SandboxError::ConfigError(format!("Kernel config error: {:?}", e)))?;
+            .map_err(|e| SandboxError::ConfigError(format!("Kernel config error: {e:?}")))?;
 
         // Build rootfs drive
         let rootfs = DriveBuilder::new()
@@ -193,14 +201,14 @@ impl FirecrackerSandbox {
             .with_path_on_host(PathBuf::from(&self.config.rootfs_path))
             .as_root_device()
             .try_build()
-            .map_err(|e| SandboxError::ConfigError(format!("Drive config error: {:?}", e)))?;
+            .map_err(|e| SandboxError::ConfigError(format!("Drive config error: {e:?}")))?;
 
         // Build executor
         let executor = FirecrackerExecutorBuilder::new()
             .with_chroot(workspace.to_string_lossy().to_string())
             .with_exec_binary(PathBuf::from(&self.config.firecracker_bin))
             .try_build()
-            .map_err(|e| SandboxError::ConfigError(format!("Executor config error: {:?}", e)))?;
+            .map_err(|e| SandboxError::ConfigError(format!("Executor config error: {e:?}")))?;
 
         // Build full configuration
         let config = Configuration::new(vm_id.clone())
@@ -214,12 +222,12 @@ impl FirecrackerSandbox {
         machine
             .create(config)
             .await
-            .map_err(|e| SandboxError::StartError(format!("Failed to create VM: {:?}", e)))?;
+            .map_err(|e| SandboxError::StartError(format!("Failed to create VM: {e:?}")))?;
 
         machine
             .start()
             .await
-            .map_err(|e| SandboxError::StartError(format!("Failed to start VM: {:?}", e)))?;
+            .map_err(|e| SandboxError::StartError(format!("Failed to start VM: {e:?}")))?;
 
         debug!("MicroVM started, executing code...");
 
@@ -228,7 +236,7 @@ impl FirecrackerSandbox {
         tokio::time::sleep(Duration::from_secs(2)).await;
 
         // For now, simulate execution result
-        let stdout = format!("MicroVM {} executed command", vm_id);
+        let stdout = format!("MicroVM {vm_id} executed command");
         let stderr = String::new();
         let exit_code = 0;
 
@@ -237,6 +245,7 @@ impl FirecrackerSandbox {
         let _ = machine.kill().await;
         let _ = tokio::fs::remove_dir_all(&workspace).await;
 
+        #[allow(clippy::cast_possible_truncation)]
         let execution_time_ms = start.elapsed().as_millis() as u64;
 
         Ok(ExecutionResult {
@@ -266,11 +275,14 @@ impl FirecrackerSandbox {
         .map_err(|_| SandboxError::Timeout)?
         .map_err(SandboxError::IoError)?;
 
+        #[allow(clippy::cast_possible_truncation)]
+        let execution_time_ms = start.elapsed().as_millis() as u64;
+
         Ok(ExecutionResult {
             exit_code: output.status.code().unwrap_or(-1),
             stdout: String::from_utf8_lossy(&output.stdout).to_string(),
             stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-            execution_time_ms: start.elapsed().as_millis() as u64,
+            execution_time_ms,
             artifacts: vec![],
         })
     }
@@ -303,7 +315,7 @@ impl Sandbox for FirecrackerSandbox {
     }
 
     async fn is_ready(&self) -> Result<bool, SandboxError> {
-        self.check_prerequisites().await.map(|_| true)
+        self.check_prerequisites().map(|()| true)
     }
 
     async fn stop(&self) -> Result<(), SandboxError> {
@@ -311,7 +323,7 @@ impl Sandbox for FirecrackerSandbox {
     }
 }
 
-/// Builder for FirecrackerSandbox.
+/// Builder for `FirecrackerSandbox`.
 #[derive(Default)]
 pub struct FirecrackerSandboxBuilder {
     config: FirecrackerConfig,
@@ -349,21 +361,21 @@ impl FirecrackerSandboxBuilder {
 
     /// Set vCPU count.
     #[must_use]
-    pub fn vcpus(mut self, count: u8) -> Self {
+    pub const fn vcpus(mut self, count: u8) -> Self {
         self.config.vcpu_count = count;
         self
     }
 
     /// Set memory in MiB.
     #[must_use]
-    pub fn memory(mut self, mib: u32) -> Self {
+    pub const fn memory(mut self, mib: u32) -> Self {
         self.config.mem_size_mib = mib;
         self
     }
 
     /// Set timeout.
     #[must_use]
-    pub fn timeout(mut self, timeout: Duration) -> Self {
+    pub const fn timeout(mut self, timeout: Duration) -> Self {
         self.config.timeout = timeout;
         self
     }
@@ -411,13 +423,13 @@ mod tests {
         assert_eq!(sandbox.config.mem_size_mib, 512);
     }
 
-    #[tokio::test]
-    async fn test_prerequisites_missing() {
+    #[test]
+    fn test_prerequisites_missing() {
         let sandbox = FirecrackerSandbox::builder()
             .firecracker_bin("/nonexistent/firecracker")
             .build();
 
-        let result = sandbox.check_prerequisites().await;
+        let result = sandbox.check_prerequisites();
         assert!(result.is_err());
     }
 }
