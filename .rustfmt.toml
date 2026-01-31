@@ -1,0 +1,24 @@
+# Rust formatting configuration
+edition = "2021"
+max_width = 100
+tab_spaces = 4
+use_small_heuristics = "Default"
+newline_style = "Unix"
+
+# Imports
+imports_granularity = "Module"
+group_imports = "StdExternalCrate"
+reorder_imports = true
+
+# Comments
+wrap_comments = true
+comment_width = 100
+normalize_comments = true
+
+# Functions
+fn_single_line = false
+fn_params_layout = "Tall"
+
+# Other
+use_field_init_shorthand = true
+use_try_shorthand = true

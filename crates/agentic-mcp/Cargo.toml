@@ -1,0 +1,49 @@
+[package]
+name = "dasein-agentic-mcp"
+description = "MCP (Model Context Protocol) client for tool integration"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/dasein-agentic-mcp"
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = []
+
+[dependencies]
+# Async
+tokio = { workspace = true, features = ["process", "sync"] }
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# HTTP client for MCP calls
+reqwest = { workspace = true }
+
+# UUID for temporary dirs
+uuid = { workspace = true }
+
+# Internal crates
+dasein-agentic-sandbox = { workspace = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+
+[lints]
+workspace = true

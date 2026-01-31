@@ -1,0 +1,294 @@
+
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/agentic-core",
+    "crates/agentic-llm",
+    "crates/agentic-sandbox",
+    "crates/agentic-mcp",
+    "crates/agentic-bus",
+    "crates/agentic-storage",
+    "crates/agentic-orchestrator",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT"
+authors = ["Agentic Team"]
+repository = "https://github.com/aktraiser/framework_dasein-rust"
+homepage = "https://github.com/aktraiser/framework_dasein-rust"
+documentation = "https://docs.rs/agentic-rs"
+keywords = ["ai", "agents", "llm", "multi-agent", "async"]
+categories = ["asynchronous", "api-bindings", "development-tools"]
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1.43", features = ["full"] }
+async-trait = "0.1"
+futures = "0.3"
+async-stream = "0.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Logging/Tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Validation
+validator = { version = "0.19", features = ["derive"] }
+
+# UUID
+uuid = { version = "1.11", features = ["v4", "serde"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json", "stream"] }
+
+# Regex
+regex = "1.11"
+
+# Hashing
+md5 = "0.7"
+
+# LLM SDKs
+async-openai = "0.27"
+
+# MCP
+rmcp = { version = "0.14", features = ["server", "client", "transport-io", "macros"] }
+schemars = "0.8"
+
+# Message Bus
+async-nats = "0.38"
+
+# Storage
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+qdrant-client = "1.13"
+
+# Docker
+bollard = "0.18"
+
+# Firecracker MicroVM
+firepilot = "1.2"
+
+# Testing
+tokio-test = "0.4"
+mockall = "0.13"
+wiremock = "0.6"
+
+# Workspace crates (internal)
+# For local dev: use path. For publish: cargo will use version from crates.io
+dasein-agentic-core = { version = "0.1.0", path = "crates/agentic-core" }
+dasein-agentic-llm = { version = "0.1.0", path = "crates/agentic-llm" }
+dasein-agentic-sandbox = { version = "0.1.0", path = "crates/agentic-sandbox" }
+dasein-agentic-mcp = { version = "0.1.0", path = "crates/agentic-mcp" }
+dasein-agentic-bus = { version = "0.1.0", path = "crates/agentic-bus" }
+dasein-agentic-storage = { version = "0.1.0", path = "crates/agentic-storage" }
+dasein-agentic-orchestrator = { version = "0.1.0", path = "crates/agentic-orchestrator" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "allow"  # Will be enforced when API stabilizes
+
+[workspace.lints.clippy]
+# Base lint groups (warn by default)
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+
+# =============================================================================
+# ALLOWED - Truly pedantic or stylistic (35 lints)
+# =============================================================================
+
+# Documentation - enforce later
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+doc_markdown = "allow"
+
+# Must-use / const fn - too aggressive for iterative dev
+must_use_candidate = "allow"
+return_self_not_must_use = "allow"
+missing_const_for_fn = "allow"
+
+# Casting - noisy, requires careful review
+cast_possible_truncation = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+cast_possible_wrap = "allow"
+cast_lossless = "allow"
+
+# Naming - stylistic preferences
+struct_field_names = "allow"
+module_name_repetitions = "allow"
+similar_names = "allow"
+module_inception = "allow"
+
+# Complexity metrics - subjective
+too_many_lines = "allow"
+cognitive_complexity = "allow"
+type_complexity = "allow"
+
+# Async patterns - often intentional
+future_not_send = "allow"
+
+# Drop behavior - too noisy
+significant_drop_tightening = "allow"
+significant_drop_in_scrutinee = "allow"
+
+# Style - not worth enforcing
+uninlined_format_args = "allow"
+items_after_statements = "allow"
+if_not_else = "allow"
+match_same_arms = "allow"
+option_if_let_else = "allow"
+redundant_pub_crate = "allow"
+use_self = "allow"
+needless_raw_string_hashes = "allow"
+unreadable_literal = "allow"
+single_match_else = "allow"
+match_wildcard_for_single_variants = "allow"
+let_and_return = "allow"
+single_char_pattern = "allow"
+derive_partial_eq_without_eq = "allow"
+unnecessary_literal_bound = "allow"
+collapsible_if = "allow"
+map_unwrap_or = "allow"
+collapsible_str_replace = "allow"
+format_push_string = "allow"
+suboptimal_flops = "allow"
+
+# API design - intentional patterns
+new_ret_no_self = "allow"
+should_implement_trait = "allow"
+needless_pass_by_value = "allow"
+ptr_arg = "allow"
+unused_self = "allow"
+unused_async = "allow"
+to_string_trait_impl = "allow"
+derivable_impls = "allow"
+assigning_clones = "allow"
+manual_strip = "allow"
+ref_option = "allow"
+unnecessary_map_or = "allow"
+needless_range_loop = "allow"
+explicit_iter_loop = "allow"
+
+# =============================================================================
+# WARNINGS KEPT (~15 important lints)
+# =============================================================================
+# Performance:
+#   - redundant_clone, needless_collect, inefficient_to_string
+#   - or_fun_call, regex_creation_in_loops, cloned_instead_of_copied
+#
+# Dead code:
+#   - collection_is_never_read
+#
+# Simplicity:
+#   - redundant_closure, redundant_closure_for_method_calls
+#   - useless_format
+
+# Root package for examples
+[package]
+name = "agentic-rs"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[features]
+default = []
+remote = ["dasein-agentic-sandbox/remote"]
+
+[dependencies]
+dasein-agentic-llm = { path = "crates/agentic-llm", features = ["all"] }
+dasein-agentic-core = { path = "crates/agentic-core" }
+dasein-agentic-sandbox = { path = "crates/agentic-sandbox" }
+dasein-agentic-mcp = { path = "crates/agentic-mcp" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+futures = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+async-trait = { workspace = true }
+uuid = { workspace = true }
+
+[[example]]
+name = "test_gemini"
+path = "examples/test_gemini.rs"
+
+[[example]]
+name = "chat"
+path = "examples/chat.rs"
+
+[[example]]
+name = "grounded_loop"
+path = "examples/grounded_loop.rs"
+
+[[example]]
+name = "code_mode_mcp"
+path = "examples/code_mode_mcp.rs"
+
+[[example]]
+name = "grounded_loop_with_mcp"
+path = "examples/grounded_loop_with_mcp.rs"
+
+[[example]]
+name = "validator_pipeline"
+path = "examples/validator_pipeline.rs"
+
+[[example]]
+name = "validator_pipeline_hard"
+path = "examples/validator_pipeline_hard.rs"
+
+[[example]]
+name = "validator_pipeline_extreme"
+path = "examples/validator_pipeline_extreme.rs"
+
+[[example]]
+name = "multi_executor"
+path = "examples/multi_executor.rs"
+
+[[example]]
+name = "nats_bus_demo"
+path = "examples/nats_bus_demo.rs"
+
+[[example]]
+name = "graph_workflow"
+path = "examples/graph_workflow.rs"
+
+[[example]]
+name = "graph_refactor"
+path = "examples/graph_refactor.rs"
+
+[[example]]
+name = "graph_refactor_python"
+path = "examples/graph_refactor_python.rs"
+
+[[example]]
+name = "graph_persistence_test"
+path = "examples/graph_persistence_test.rs"
+
+[[example]]
+name = "ts_state_machine_graph"
+path = "examples/ts_state_machine_graph.rs"
+
+# ============================================================================
+# BENCHMARKS
+# ============================================================================
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["async_tokio"] }
+
+[[bench]]
+name = "graph_vs_linear"
+harness = false

@@ -1,0 +1,53 @@
+[package]
+name = "dasein-agentic-llm"
+description = "LLM adapters for OpenAI, Anthropic, Gemini, Ollama"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/dasein-agentic-llm"
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = ["openai", "ollama"]
+openai = ["async-openai"]
+ollama = []
+anthropic = []
+gemini = []
+all = ["openai", "ollama", "anthropic", "gemini"]
+
+[dependencies]
+# Async
+tokio = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+async-stream = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# HTTP
+reqwest = { workspace = true }
+
+# LLM SDKs
+async-openai = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+mockall = { workspace = true }
+wiremock = { workspace = true }
+
+[lints]
+workspace = true

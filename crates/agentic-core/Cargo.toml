@@ -1,0 +1,67 @@
+[package]
+name = "dasein-agentic-core"
+description = "Core types, Agent runtime, and Protocol for Agentic Framework"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/dasein-agentic-core"
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = []
+# Enable Redis-backed checkpoint persistence
+redis-persistence = ["redis"]
+
+[dependencies]
+# Async
+tokio = { workspace = true }
+tokio-stream = "0.1"
+async-trait = { workspace = true }
+async-stream = "0.3"
+futures = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Validation
+validator = { workspace = true }
+
+# Utils
+uuid = { workspace = true }
+chrono = { workspace = true }
+regex = { workspace = true }
+md5 = { workspace = true }
+
+# Message Bus
+async-nats = { workspace = true }
+
+# HTTP (for MCP doc validator)
+reqwest = { workspace = true }
+
+# Redis (optional - for persistent checkpoints)
+redis = { workspace = true, optional = true }
+
+# Internal
+dasein-agentic-llm = { workspace = true, features = ["gemini", "openai", "anthropic"] }
+dasein-agentic-sandbox = { workspace = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+mockall = { workspace = true }
+
+[lints]
+workspace = true

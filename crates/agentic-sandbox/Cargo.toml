@@ -1,0 +1,56 @@
+[package]
+name = "dasein-agentic-sandbox"
+description = "Sandboxed code execution: Process, Docker, Firecracker, Gateway"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/dasein-agentic-sandbox"
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = ["process"]
+process = []
+docker = ["bollard"]
+firecracker = ["firepilot"]
+remote = ["reqwest"]
+gateway = ["reqwest"]  # Recommended for Firecracker via Agentic Gateway
+
+[dependencies]
+# Async
+tokio = { workspace = true, features = ["process"] }
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Docker
+bollard = { workspace = true, optional = true }
+
+# Firecracker
+firepilot = { workspace = true, optional = true }
+
+# HTTP client (for remote sandbox)
+reqwest = { workspace = true, optional = true }
+
+# Utils
+uuid = { workspace = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+
+[lints]
+workspace = true
