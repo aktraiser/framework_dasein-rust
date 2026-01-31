@@ -68,7 +68,7 @@ pub trait Sandbox: Send + Sync {
     async fn stop(&self) -> Result<(), SandboxError>;
 }
 
-/// Implementation of Sandbox for Box<dyn Sandbox>.
+/// Implementation of Sandbox for `Box<dyn Sandbox>`.
 /// This allows using trait objects with generic sandbox validators.
 #[async_trait]
 impl Sandbox for Box<dyn Sandbox> {
