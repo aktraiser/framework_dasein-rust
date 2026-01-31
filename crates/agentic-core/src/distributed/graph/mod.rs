@@ -43,7 +43,9 @@ mod edge;
 mod executor;
 #[cfg(test)]
 mod integration_test;
+mod superstep;
 mod types;
+mod workflow;
 
 // PR #1: Executor Trait
 pub use executor::{Executor, ExecutorContext, ExecutorKind, LogLevel, ValidationResult};
@@ -69,5 +71,11 @@ pub use builder::{
     validate_workflow, ExecutorMetadata, ValidationReport, WorkflowBuilder, WorkflowDefinition,
 };
 
-// Future PRs will add:
-// - PR #5: Workflow with Superstep execution
+// PR #5: Superstep Execution
+pub use superstep::{
+    Checkpoint, CheckpointBackend, ExecutorSuperstepResult, InMemoryCheckpointBackend,
+    SuperstepMetrics, SuperstepState,
+};
+pub use workflow::{
+    DynExecutor, ExecutorRegistry, Workflow, WorkflowConfig, WorkflowResult, WorkflowStreamEvent,
+};
