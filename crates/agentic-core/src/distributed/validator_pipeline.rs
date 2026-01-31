@@ -26,7 +26,6 @@
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-// Note: Serialize/Deserialize are needed for ValidatorInput and ValidatorOutput
 
 /// Input to a validator.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -259,32 +258,6 @@ impl Default for ValidatorPipeline {
     }
 }
 
-/// Type alias for a shared, thread-safe validator pipeline.
-/// Use this when multiple executors need to share a pipeline concurrently.
-///
-/// The pipeline is stateless (validate takes &self), so no Mutex is needed.
-pub type SharedValidatorPipeline = std::sync::Arc<ValidatorPipeline>;
-
-impl ValidatorPipeline {
-    /// Convert the pipeline into a shared, thread-safe reference.
-    ///
-    /// Use this when multiple graph executors need to share the pipeline.
-    /// Since `validate(&self)` doesn't mutate state, no Mutex is required.
-    ///
-    /// # Example
-    /// ```ignore
-    /// let pipeline = ValidatorPipeline::new()
-    ///     .add(sandbox_validator)
-    ///     .into_shared();
-    ///
-    /// // Now pipeline can be cloned and shared across executors
-    /// let validator_executor = CodeValidatorExecutor::new(pipeline.clone());
-    /// ```
-    pub fn into_shared(self) -> SharedValidatorPipeline {
-        std::sync::Arc::new(self)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -311,10 +284,11 @@ mod tests {
         }
 
         async fn validate(&self, _input: &ValidatorInput) -> Result<ValidatorOutput, String> {
-            Ok(
-                ValidatorOutput::failure("mock-fail", vec!["Test error".to_string()])
-                    .with_recommendations(vec!["Fix the error".to_string()]),
+            Ok(ValidatorOutput::failure(
+                "mock-fail",
+                vec!["Test error".to_string()],
             )
+            .with_recommendations(vec!["Fix the error".to_string()]))
         }
     }
 

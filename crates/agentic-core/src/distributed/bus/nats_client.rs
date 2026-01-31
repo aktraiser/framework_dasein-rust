@@ -9,8 +9,10 @@
 use async_nats::jetstream::{self, consumer, stream, Context as JetStreamContext};
 use async_nats::{Client, ConnectOptions, Message};
 use serde::{de::DeserializeOwned, Serialize};
+use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, info};
+use tokio::sync::RwLock;
+use tracing::{debug, error, info, warn};
 
 use super::types::BusError;
 
@@ -97,7 +99,7 @@ impl Default for StreamConfig {
             name: "DEFAULT".to_string(),
             subjects: vec![],
             max_messages: 1_000_000,
-            max_bytes: 1024 * 1024 * 1024,                  // 1GB
+            max_bytes: 1024 * 1024 * 1024, // 1GB
             max_age: Duration::from_secs(7 * 24 * 60 * 60), // 7 days
             storage: StreamStorage::File,
             retention: StreamRetention::Limits,
@@ -131,7 +133,7 @@ impl StreamConfig {
 
 /// Real NATS client with JetStream support.
 pub struct NatsClient {
-    _config: NatsConfig,
+    config: NatsConfig,
     client: Client,
     jetstream: Option<JetStreamContext>,
 }
@@ -146,9 +148,12 @@ impl NatsClient {
             .connection_timeout(config.connect_timeout)
             .request_timeout(Some(config.request_timeout));
 
-        let client = async_nats::connect_with_options(config.urls.join(","), options)
-            .await
-            .map_err(|e| BusError::ConnectionFailed(e.to_string()))?;
+        let client = async_nats::connect_with_options(
+            config.urls.join(","),
+            options,
+        )
+        .await
+        .map_err(|e| BusError::ConnectionFailed(e.to_string()))?;
 
         info!("Connected to NATS server");
 
@@ -159,7 +164,7 @@ impl NatsClient {
         };
 
         Ok(Self {
-            _config: config,
+            config,
             client,
             jetstream,
         })
@@ -182,9 +187,7 @@ impl NatsClient {
 
     /// Create or get a JetStream stream.
     pub async fn ensure_stream(&self, config: StreamConfig) -> Result<stream::Stream, BusError> {
-        let js = self
-            .jetstream
-            .as_ref()
+        let js = self.jetstream.as_ref()
             .ok_or_else(|| BusError::StreamNotFound("JetStream not enabled".to_string()))?;
 
         let storage = match config.storage {
@@ -244,9 +247,7 @@ impl NatsClient {
         subject: &str,
         payload: &T,
     ) -> Result<jetstream::context::PublishAckFuture, BusError> {
-        let js = self
-            .jetstream
-            .as_ref()
+        let js = self.jetstream.as_ref()
             .ok_or_else(|| BusError::PublishFailed("JetStream not enabled".to_string()))?;
 
         let data = serde_json::to_vec(payload)
@@ -266,8 +267,7 @@ impl NatsClient {
         let data = serde_json::to_vec(payload)
             .map_err(|e| BusError::SerializationFailed(e.to_string()))?;
 
-        let response = self
-            .client
+        let response = self.client
             .request(subject.to_string(), data.into())
             .await
             .map_err(|e| BusError::PublishFailed(e.to_string()))?;
@@ -303,25 +303,21 @@ impl NatsClient {
         consumer_name: &str,
         filter_subject: Option<&str>,
     ) -> Result<consumer::Consumer<consumer::pull::Config>, BusError> {
-        let js = self
-            .jetstream
-            .as_ref()
+        let js = self.jetstream.as_ref()
             .ok_or_else(|| BusError::SubscribeFailed("JetStream not enabled".to_string()))?;
 
-        let stream = js
-            .get_stream(stream_name)
+        let stream = js.get_stream(stream_name)
             .await
             .map_err(|e| BusError::StreamNotFound(e.to_string()))?;
 
         let config = consumer::pull::Config {
             name: Some(consumer_name.to_string()),
             durable_name: Some(consumer_name.to_string()),
-            filter_subject: filter_subject.map(std::string::ToString::to_string).unwrap_or_default(),
+            filter_subject: filter_subject.map(|s| s.to_string()).unwrap_or_default(),
             ..Default::default()
         };
 
-        stream
-            .create_consumer(config)
+        stream.create_consumer(config)
             .await
             .map_err(|e| BusError::SubscribeFailed(e.to_string()))
     }
@@ -340,7 +336,8 @@ impl NatsClient {
 
 /// Helper to deserialize a NATS message.
 pub fn deserialize_message<T: DeserializeOwned>(msg: &Message) -> Result<T, BusError> {
-    serde_json::from_slice(&msg.payload).map_err(|e| BusError::DeserializationFailed(e.to_string()))
+    serde_json::from_slice(&msg.payload)
+        .map_err(|e| BusError::DeserializationFailed(e.to_string()))
 }
 
 #[cfg(test)]

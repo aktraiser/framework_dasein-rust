@@ -67,8 +67,8 @@
 //! # Usage
 //!
 //! ```rust,ignore
-//! use dasein_agentic_mcp::{MCPConfig, CodeModeRuntime};
-//! use dasein_agentic_sandbox::FirecrackerSandbox;
+//! use agentic_mcp::{MCPConfig, CodeModeRuntime};
+//! use agentic_sandbox::FirecrackerSandbox;
 //!
 //! // 1. Load MCP server configurations
 //! let config = MCPConfig::from_json(r#"{
@@ -100,10 +100,10 @@
 //! println!("Agent sees: {}", result.stdout);  // Just the summary
 //! ```
 
-pub mod client;
 mod error;
+pub mod client;
 pub mod server;
 
-pub use client::{MCPClientPool, MCPConfig, MCPServerConfig, TransportType};
 pub use error::MCPError;
+pub use client::{MCPConfig, MCPServerConfig, TransportType, MCPClientPool};
 pub use server::ValidatorMCPServer;

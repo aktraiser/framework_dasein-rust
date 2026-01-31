@@ -11,7 +11,7 @@
 //! # Quick Start
 //!
 //! ```rust,no_run
-//! use dasein_agentic_core::distributed::bus::BusCoordinator;
+//! use agentic_core::distributed::bus::BusCoordinator;
 //!
 //! let coordinator = BusCoordinator::connect("nats://localhost:4222").await?;
 //! coordinator.start().await?;
@@ -21,14 +21,16 @@
 //! ```
 
 use std::sync::Arc;
-use tracing::{debug, info};
+use std::time::Duration;
+use tokio::sync::RwLock;
+use tracing::{debug, error, info, warn};
 
 use super::arbiter::{Arbiter, ArbiterConfig, Proposal, ScoredProposal};
 use super::deduplicator::{Deduplicator, DeduplicatorConfig};
 use super::log_collector::{LogCollector, LogCollectorConfig, LogEntry, LogQuery};
-use super::nats_client::{NatsClient, NatsConfig, StreamConfig};
-use super::sequencer::{Sequencer, SequencerConfig};
-use super::types::{BusError, Task};
+use super::nats_client::{NatsClient, NatsConfig, StreamConfig, StreamRetention};
+use super::sequencer::{Sequencer, SequencerConfig, SequencerStats};
+use super::types::{BusError, Task, TaskPriority};
 
 /// Stream names for JetStream.
 pub const STREAM_TASKS: &str = "AGENTIC_TASKS";
@@ -124,12 +126,10 @@ impl BusCoordinator {
             self.create_streams().await?;
         }
 
-        self.running
-            .store(true, std::sync::atomic::Ordering::SeqCst);
+        self.running.store(true, std::sync::atomic::Ordering::SeqCst);
 
         // Log startup
-        self.log(LogEntry::info("bus-coordinator", "Bus Coordinator started"))
-            .await?;
+        self.log(LogEntry::info("bus-coordinator", "Bus Coordinator started")).await?;
 
         info!("Bus Coordinator started successfully");
         Ok(())
@@ -152,20 +152,20 @@ impl BusCoordinator {
         info!("  Created stream: {}", STREAM_TASKS);
 
         // Proposals stream
-        let proposals_config =
-            StreamConfig::new(STREAM_PROPOSALS).subjects(vec![format!("{}.>", SUBJECT_PROPOSALS)]);
+        let proposals_config = StreamConfig::new(STREAM_PROPOSALS)
+            .subjects(vec![format!("{}.>", SUBJECT_PROPOSALS)]);
         self.nats.ensure_stream(proposals_config).await?;
         info!("  Created stream: {}", STREAM_PROPOSALS);
 
         // Logs stream
-        let logs_config =
-            StreamConfig::new(STREAM_LOGS).subjects(vec![format!("{}.>", SUBJECT_LOGS)]);
+        let logs_config = StreamConfig::new(STREAM_LOGS)
+            .subjects(vec![format!("{}.>", SUBJECT_LOGS)]);
         self.nats.ensure_stream(logs_config).await?;
         info!("  Created stream: {}", STREAM_LOGS);
 
         // Audit stream
-        let audit_config =
-            StreamConfig::new(STREAM_AUDIT).subjects(vec![format!("{}.>", SUBJECT_AUDIT)]);
+        let audit_config = StreamConfig::new(STREAM_AUDIT)
+            .subjects(vec![format!("{}.>", SUBJECT_AUDIT)]);
         self.nats.ensure_stream(audit_config).await?;
         info!("  Created stream: {}", STREAM_AUDIT);
 
@@ -175,10 +175,8 @@ impl BusCoordinator {
     /// Stop the coordinator.
     pub async fn stop(&self) -> Result<(), BusError> {
         info!("Stopping Bus Coordinator...");
-        self.running
-            .store(false, std::sync::atomic::Ordering::SeqCst);
-        self.log(LogEntry::info("bus-coordinator", "Bus Coordinator stopped"))
-            .await?;
+        self.running.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.log(LogEntry::info("bus-coordinator", "Bus Coordinator stopped")).await?;
         Ok(())
     }
 
@@ -240,10 +238,7 @@ impl BusCoordinator {
         queue_group: &str,
     ) -> Result<async_nats::Subscriber, BusError> {
         let subject = format!("{}.*.{}", SUBJECT_TASKS, supervisor_id);
-        info!(
-            "Subscribing to tasks with queue group: {} -> {}",
-            subject, queue_group
-        );
+        info!("Subscribing to tasks with queue group: {} -> {}", subject, queue_group);
         self.nats.queue_subscribe(&subject, queue_group).await
     }
 
@@ -252,14 +247,9 @@ impl BusCoordinator {
         &self,
         consumer_name: &str,
         supervisor_id: &str,
-    ) -> Result<
-        async_nats::jetstream::consumer::Consumer<async_nats::jetstream::consumer::pull::Config>,
-        BusError,
-    > {
+    ) -> Result<async_nats::jetstream::consumer::Consumer<async_nats::jetstream::consumer::pull::Config>, BusError> {
         let filter = format!("{}.*.{}", SUBJECT_TASKS, supervisor_id);
-        self.nats
-            .create_consumer(STREAM_TASKS, consumer_name, Some(&filter))
-            .await
+        self.nats.create_consumer(STREAM_TASKS, consumer_name, Some(&filter)).await
     }
 
     /// Mark a task as completed.
@@ -272,9 +262,7 @@ impl BusCoordinator {
             "task_id": task_id,
             "timestamp": chrono::Utc::now()
         });
-        self.nats
-            .publish(&format!("{}.completed", SUBJECT_AUDIT), &event)
-            .await?;
+        self.nats.publish(&format!("{}.completed", SUBJECT_AUDIT), &event).await?;
 
         Ok(())
     }
@@ -295,9 +283,7 @@ impl BusCoordinator {
             "count": count,
             "timestamp": chrono::Utc::now()
         });
-        self.nats
-            .publish(&format!("{}.request", SUBJECT_PROPOSALS), &request)
-            .await?;
+        self.nats.publish(&format!("{}.request", SUBJECT_PROPOSALS), &request).await?;
 
         Ok(request_id)
     }
@@ -314,9 +300,7 @@ impl BusCoordinator {
 
     /// Subscribe to proposal requests.
     pub async fn subscribe_proposal_requests(&self) -> Result<async_nats::Subscriber, BusError> {
-        self.nats
-            .subscribe(&format!("{}.request", SUBJECT_PROPOSALS))
-            .await
+        self.nats.subscribe(&format!("{}.request", SUBJECT_PROPOSALS)).await
     }
 
     /// Subscribe to proposals for a request.
@@ -324,9 +308,7 @@ impl BusCoordinator {
         &self,
         request_id: &str,
     ) -> Result<async_nats::Subscriber, BusError> {
-        self.nats
-            .subscribe(&format!("{}.{}", SUBJECT_PROPOSALS, request_id))
-            .await
+        self.nats.subscribe(&format!("{}.{}", SUBJECT_PROPOSALS, request_id)).await
     }
 
     /// Select the best proposal.
@@ -386,9 +368,7 @@ impl BusCoordinator {
         &self,
         agent_id: &str,
     ) -> Result<async_nats::Subscriber, BusError> {
-        self.nats
-            .subscribe(&format!("{}.{}", SUBJECT_LOGS, agent_id))
-            .await
+        self.nats.subscribe(&format!("{}.{}", SUBJECT_LOGS, agent_id)).await
     }
 
     /// Query local logs.
@@ -405,9 +385,7 @@ impl BusCoordinator {
             "data": data,
             "timestamp": chrono::Utc::now()
         });
-        self.nats
-            .publish(&format!("{}.{}", SUBJECT_AUDIT, event_type), &event)
-            .await
+        self.nats.publish(&format!("{}.{}", SUBJECT_AUDIT, event_type), &event).await
     }
 
     /// Subscribe to audit events.

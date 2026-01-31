@@ -45,7 +45,7 @@ impl OllamaAdapter {
 
     /// Set the temperature for generation.
     #[must_use]
-    pub const fn with_temperature(mut self, temperature: f32) -> Self {
+    pub fn with_temperature(mut self, temperature: f32) -> Self {
         self.temperature = temperature;
         self
     }
@@ -100,7 +100,7 @@ impl From<&LLMMessage> for OllamaMessage {
 
 #[async_trait]
 impl LLMAdapter for OllamaAdapter {
-    fn provider(&self) -> &'static str {
+    fn provider(&self) -> &str {
         "ollama"
     }
 

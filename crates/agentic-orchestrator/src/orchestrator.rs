@@ -6,12 +6,12 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, instrument};
 
-use dasein_agentic_core::{
+use agentic_core::{
     types::{ResultPayload, ResultStatus, TaskPayload},
     Agent,
 };
-use dasein_agentic_llm::LLMAdapter;
-use dasein_agentic_sandbox::Sandbox;
+use agentic_llm::LLMAdapter;
+use agentic_sandbox::Sandbox;
 
 use crate::{
     error::OrchestratorError,
@@ -128,7 +128,11 @@ impl<L: LLMAdapter + 'static, S: Sandbox + 'static> Orchestrator<L, S> {
             // Find steps ready to execute (dependencies satisfied)
             let ready_steps: Vec<_> = pending_steps
                 .iter()
-                .filter(|step| step.depends_on.iter().all(|dep| results.contains_key(dep)))
+                .filter(|step| {
+                    step.depends_on
+                        .iter()
+                        .all(|dep| results.contains_key(dep))
+                })
                 .cloned()
                 .collect();
 

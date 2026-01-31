@@ -16,11 +16,13 @@
 
 use std::collections::HashSet;
 use std::sync::Arc;
+use tokio::sync::RwLock;
+use uuid::Uuid;
 
 use super::allocation::{AllocationGrant, AllocationManager, AllocationRequest};
 use super::config::{Capability, LLMConfig, SandboxConfig, SupervisorConfig};
 use super::executor::Executor;
-use super::pool::ExecutorPool;
+use super::pool::{ExecutorPool, PoolConfig};
 use super::validator::{ValidationRule, Validator};
 
 /// Handle to interact with a supervisor.
@@ -48,7 +50,7 @@ pub struct Supervisor {
     /// Allow borrowing executors
     allow_borrowing: bool,
     /// Config
-    _config: SupervisorConfig,
+    config: SupervisorConfig,
 }
 
 impl Supervisor {
@@ -91,9 +93,12 @@ impl Supervisor {
         // Create multiple validators
         let validators: Vec<Validator> = (0..config.validator_count)
             .map(|i| {
-                Validator::new(format!("val-{}-{:03}", config.id, i), &config.id)
-                    .default_rules()
-                    .build()
+                Validator::new(
+                    format!("val-{}-{:03}", config.id, i),
+                    &config.id,
+                )
+                .default_rules()
+                .build()
             })
             .collect();
 
@@ -109,7 +114,7 @@ impl Supervisor {
             allocations,
             allow_lending: config.allow_lending,
             allow_borrowing: config.allow_borrowing,
-            _config: config,
+            config,
         }
     }
 
@@ -204,8 +209,7 @@ impl Supervisor {
                 to_supervisor.to_string(),
                 grant.lease_id.clone(),
                 grant.expires_at,
-            )
-            .await;
+            ).await;
         }
 
         self.allocations.record_lent(grant.clone()).await;
@@ -259,8 +263,7 @@ impl Supervisor {
 
     /// Validate output using first available validator.
     pub fn validate(&self, output: &str, attempt: u32) -> super::validator::ValidationResult {
-        self.validators
-            .first()
+        self.validators.first()
             .map(|v| v.validate(output, attempt))
             .unwrap_or_else(|| super::validator::ValidationResult {
                 passed: true,
@@ -272,12 +275,7 @@ impl Supervisor {
     }
 
     /// Validate with specific validator.
-    pub fn validate_with(
-        &self,
-        validator_index: usize,
-        output: &str,
-        attempt: u32,
-    ) -> super::validator::ValidationResult {
+    pub fn validate_with(&self, validator_index: usize, output: &str, attempt: u32) -> super::validator::ValidationResult {
         self.get_validator(validator_index)
             .map(|v| v.validate(output, attempt))
             .unwrap_or_else(|| self.validate(output, attempt))
@@ -420,9 +418,7 @@ impl SupervisorBuilder {
             domain: self.domain,
             executor_count: self.executor_count,
             validator_count: self.validator_count,
-            llm: self
-                .llm
-                .unwrap_or_else(|| LLMConfig::gemini("gemini-2.0-flash")),
+            llm: self.llm.unwrap_or_else(|| LLMConfig::gemini("gemini-2.0-flash")),
             sandbox: self.sandbox.unwrap_or_else(SandboxConfig::process),
             capabilities: self.capabilities,
             allow_lending: self.allow_lending,
@@ -461,10 +457,7 @@ macro_rules! create_supervisor {
         Supervisor::new($id).executors($executors).build()
     };
     ($id:expr, $domain:expr, $executors:expr) => {
-        Supervisor::new($id)
-            .domain($domain)
-            .executors($executors)
-            .build()
+        Supervisor::new($id).domain($domain).executors($executors).build()
     };
 }
 

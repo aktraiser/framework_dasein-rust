@@ -50,8 +50,8 @@ impl LLMConfig {
             provider: "gemini".into(),
             model: model.into(),
             api_key: std::env::var("GEMINI_API_KEY").unwrap_or_default(),
-            temperature: 0.2, // Low for reliable code generation
-            max_tokens: 8192, // Increased for larger outputs
+            temperature: 0.2,  // Low for reliable code generation
+            max_tokens: 8192,  // Increased for larger outputs
         }
     }
 
@@ -72,27 +72,24 @@ impl LLMConfig {
             provider: "anthropic".into(),
             model: model.into(),
             api_key: std::env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
-            temperature: 0.2, // Low for reliable code generation
-            max_tokens: 8192, // Claude supports large outputs
+            temperature: 0.2,  // Low for reliable code generation
+            max_tokens: 8192,  // Claude supports large outputs
         }
     }
 
     /// Set temperature.
-    #[must_use]
     pub fn temperature(mut self, temp: f32) -> Self {
         self.temperature = temp;
         self
     }
 
     /// Set max tokens.
-    #[must_use]
     pub fn max_tokens(mut self, tokens: u32) -> Self {
         self.max_tokens = tokens;
         self
     }
 
     /// Set API key.
-    #[must_use]
     pub fn api_key(mut self, key: impl Into<String>) -> Self {
         self.api_key = key.into();
         self
@@ -117,7 +114,6 @@ pub enum SandboxType {
 
 impl SandboxConfig {
     /// No sandbox (generation only).
-    #[must_use]
     pub fn none() -> Self {
         Self {
             sandbox_type: SandboxType::None,
@@ -128,7 +124,6 @@ impl SandboxConfig {
     }
 
     /// Process-based sandbox (fast, less isolated).
-    #[must_use]
     pub fn process() -> Self {
         Self {
             sandbox_type: SandboxType::Process,
@@ -139,7 +134,6 @@ impl SandboxConfig {
     }
 
     /// Docker-based sandbox (slower, fully isolated).
-    #[must_use]
     pub fn docker() -> Self {
         Self {
             sandbox_type: SandboxType::Docker,
@@ -150,14 +144,12 @@ impl SandboxConfig {
     }
 
     /// Set timeout.
-    #[must_use]
     pub fn timeout_ms(mut self, ms: u64) -> Self {
         self.timeout_ms = ms;
         self
     }
 
     /// Set memory limit.
-    #[must_use]
     pub fn memory_limit(mut self, bytes: u64) -> Self {
         self.memory_limit = Some(bytes);
         self

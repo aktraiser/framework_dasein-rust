@@ -303,8 +303,7 @@ impl Default for Arbiter {
 
 /// Default scorer: weighted combination of quality, confidence, and latency.
 fn default_scorer(proposal: &Proposal) -> f64 {
-    proposal.quality_score * 0.5 + proposal.confidence * 100.0 * 0.3
-        - proposal.latency_ms as f64 * 0.001
+    proposal.quality_score * 0.5 + proposal.confidence * 100.0 * 0.3 - proposal.latency_ms as f64 * 0.001
 }
 
 #[cfg(test)]
@@ -324,12 +323,16 @@ mod tests {
 
         // Submit proposals
         arbiter
-            .submit_proposal(Proposal::new(&request_id, "exe-1", "Code A").with_scores(80.0, 0.9))
+            .submit_proposal(
+                Proposal::new(&request_id, "exe-1", "Code A").with_scores(80.0, 0.9),
+            )
             .await
             .unwrap();
 
         arbiter
-            .submit_proposal(Proposal::new(&request_id, "exe-2", "Code B").with_scores(95.0, 0.85))
+            .submit_proposal(
+                Proposal::new(&request_id, "exe-2", "Code B").with_scores(95.0, 0.85),
+            )
             .await
             .unwrap();
 

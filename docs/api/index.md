@@ -17,7 +17,7 @@
 ### Core Types
 
 ```rust
-use dasein_agentic_core::{
+use agentic_core::{
     Agent,           // Main agent struct
     AgentConfig,     // Agent configuration
     TaskPayload,     // Task input
@@ -30,7 +30,7 @@ use dasein_agentic_core::{
 ### LLM Types
 
 ```rust
-use dasein_agentic_llm::{
+use agentic_llm::{
     // Adapters
     OpenAIAdapter,
     AnthropicAdapter,
@@ -53,7 +53,7 @@ use dasein_agentic_llm::{
 ### Sandbox Types
 
 ```rust
-use dasein_agentic_sandbox::{
+use agentic_sandbox::{
     ProcessSandbox,   // Local process execution
     DockerSandbox,    // Container execution
     Sandbox,          // Trait
@@ -65,7 +65,7 @@ use dasein_agentic_sandbox::{
 ### Storage Types
 
 ```rust
-use dasein_agentic_storage::{
+use agentic_storage::{
     RedisStore,       // Key-value state
     QdrantStore,      // Vector search
     StateStore,       // Trait

@@ -17,7 +17,7 @@
 //! # Quick Start
 //!
 //! ```rust,no_run
-//! use dasein_agentic_core::distributed::Supervisor;
+//! use agentic_core::distributed::Supervisor;
 //!
 //! // Create a supervisor with 4 executors
 //! let sup = Supervisor::new("my-sup")
@@ -34,7 +34,7 @@
 //! Use for quick heuristic checks on any output type:
 //!
 //! ```rust
-//! use dasein_agentic_core::distributed::{Validator, ValidationRule};
+//! use agentic_core::distributed::{Validator, ValidationRule};
 //!
 //! let validator = Validator::new("val-001", "sup-001")
 //!     .rule(ValidationRule::OutputNotEmpty)
@@ -48,13 +48,13 @@
 //! }
 //! ```
 //!
-//! ## 2. `SandboxValidator` (Ground truth, for code)
+//! ## 2. SandboxValidator (Ground truth, for code)
 //!
 //! Use for real compilation and test execution:
 //!
 //! ```rust,no_run
-//! use dasein_agentic_core::distributed::SandboxValidator;
-//! use dasein_agentic_sandbox::ProcessSandbox;
+//! use agentic_core::distributed::SandboxValidator;
+//! use agentic_sandbox::ProcessSandbox;
 //!
 //! let sandbox = ProcessSandbox::new();
 //! let validator = SandboxValidator::new(sandbox);
@@ -68,11 +68,11 @@
 //!
 //! # When to Use Which
 //!
-//! | Task Type | Validator | `SandboxValidator` |
+//! | Task Type | Validator | SandboxValidator |
 //! |-----------|-----------|------------------|
 //! | Code generation | ❌ | ✅ Real compile/test |
-//! | Text/docs | Rules | - |
-//! | JSON/config | `ValidJson` | - |
+//! | Text/docs | ✅ Rules | ❌ |
+//! | JSON/config | ✅ ValidJson | ❌ |
 //! | Scripts | ✅ Quick check | ✅ Execute |
 //!
 //! # Grounded Validation Loop
@@ -87,43 +87,39 @@
 //!
 //! See `examples/grounded_loop.rs` for a complete implementation.
 
+mod supervisor;
+mod executor;
+mod validator;
+mod sandbox_validator;
+mod sandbox_pipeline_validator;
+mod validator_pipeline;
+mod mcp_doc_validator;
+mod error_enricher_validator;
+mod task_decomposer;
+mod code_assembler;
+mod liaison_architect;
+mod config;
+mod pool;
 mod allocation;
 pub mod bus;
-mod code_assembler;
-mod config;
-mod error_enricher_validator;
-mod executor;
 pub mod graph;
 pub mod incremental_pipeline;
-mod liaison_architect;
-mod mcp_doc_validator;
-mod pool;
 pub mod repair_engine;
-mod sandbox_pipeline_validator;
-mod sandbox_validator;
-mod supervisor;
-mod task_decomposer;
-mod validator;
-mod validator_pipeline;
 
-pub use allocation::{AllocationGrant, AllocationManager, AllocationRequest};
-pub use code_assembler::{AssemblyError, CodeAssembler};
-pub use config::*;
-pub use error_enricher_validator::ErrorEnricherValidator;
-pub use executor::{ExecutionError, ExecutionResult, Executor, ExecutorBuilder, ExecutorState};
-pub use liaison_architect::{
-    CoherenceIssue, CoherenceReport, IssueCategory, LiaisonArchitect, LiaisonError,
-};
-pub use mcp_doc_validator::{MCPDocConfig, MCPDocValidator};
-pub use pool::{ExecutorPool, PoolConfig};
-pub use sandbox_pipeline_validator::SandboxPipelineValidator;
-pub use sandbox_validator::{Language, SandboxValidationResult, SandboxValidator};
 pub use supervisor::{Supervisor, SupervisorBuilder, SupervisorHandle};
-pub use task_decomposer::{SubTask, SubTaskResult, TaskDecomposer};
-pub use validator::{
-    ValidationAction, ValidationResult, ValidationRule, Validator, ValidatorBuilder,
-};
+pub use executor::{Executor, ExecutorBuilder, ExecutorState, ExecutionResult, ExecutionError};
+pub use validator::{Validator, ValidatorBuilder, ValidationRule, ValidationResult, ValidationAction};
+pub use sandbox_validator::{SandboxValidator, SandboxValidationResult, Language};
+pub use sandbox_pipeline_validator::SandboxPipelineValidator;
 pub use validator_pipeline::{
-    DocSnippet, PipelineResult, PipelineValidator, SharedValidatorPipeline, ValidatorInput,
-    ValidatorOutput, ValidatorPipeline,
+    ValidatorPipeline, PipelineValidator, ValidatorInput, ValidatorOutput,
+    PipelineResult, DocSnippet
 };
+pub use mcp_doc_validator::{MCPDocValidator, MCPDocConfig};
+pub use error_enricher_validator::ErrorEnricherValidator;
+pub use task_decomposer::{TaskDecomposer, SubTask, SubTaskResult};
+pub use code_assembler::{CodeAssembler, AssemblyError};
+pub use liaison_architect::{LiaisonArchitect, CoherenceReport, CoherenceIssue, IssueCategory, LiaisonError};
+pub use config::*;
+pub use pool::{ExecutorPool, PoolConfig};
+pub use allocation::{AllocationRequest, AllocationGrant, AllocationManager};

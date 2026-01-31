@@ -4,11 +4,11 @@
 //!
 //! Run with: CONTEXT7_API_KEY=xxx cargo run --example validator_pipeline_hard
 
-use dasein_agentic_core::distributed::{
-    Executor, MCPDocConfig, MCPDocValidator, PipelineResult, SandboxPipelineValidator,
-    ValidatorInput, ValidatorPipeline,
+use agentic_core::distributed::{
+    Executor, ValidatorPipeline, SandboxPipelineValidator, MCPDocValidator,
+    MCPDocConfig, ValidatorInput, PipelineResult,
 };
-use dasein_agentic_sandbox::ProcessSandbox;
+use agentic_sandbox::ProcessSandbox;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -110,11 +110,7 @@ Return ONLY compilable Rust code, no explanations."#;
         let gen_start = Instant::now();
         let result = executor.execute(system_prompt, &current_prompt).await?;
         let code = clean_code(&result.content);
-        println!(
-            "Generated {} chars in {}ms",
-            code.len(),
-            gen_start.elapsed().as_millis()
-        );
+        println!("Generated {} chars in {}ms", code.len(), gen_start.elapsed().as_millis());
 
         let val_start = Instant::now();
         let input = ValidatorInput::new(&code, "rust").with_task(task);
@@ -125,11 +121,8 @@ Return ONLY compilable Rust code, no explanations."#;
 
         if pipeline_result.passed {
             println!("\n{}", "=".repeat(70));
-            println!(
-                "SUCCESS after {} iterations ({}ms total)",
-                iteration,
-                total_start.elapsed().as_millis()
-            );
+            println!("SUCCESS after {} iterations ({}ms total)",
+                iteration, total_start.elapsed().as_millis());
             println!("{}\n", "=".repeat(70));
 
             // Print code stats

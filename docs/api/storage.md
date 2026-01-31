@@ -14,7 +14,7 @@ agentic-storage = { version = "0.1", features = ["redis", "qdrant"] }
 Key-value state storage with TTL support.
 
 ```rust
-use dasein_agentic_storage::RedisStore;
+use agentic_storage::RedisStore;
 
 let store = RedisStore::connect("redis://localhost:6379").await?;
 
@@ -36,7 +36,7 @@ let exists = store.exists("agent:123:state").await?;
 Vector storage for embeddings and similarity search.
 
 ```rust
-use dasein_agentic_storage::{QdrantStore, VectorPoint};
+use agentic_storage::{QdrantStore, VectorPoint};
 
 let store = QdrantStore::new("http://localhost:6334").await?;
 

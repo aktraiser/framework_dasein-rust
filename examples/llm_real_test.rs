@@ -5,7 +5,7 @@
 //! GEMINI_API_KEY=your-key cargo run --example llm_real_test
 //! ```
 
-use dasein_agentic_core::distributed::{Capability, Supervisor};
+use agentic_core::distributed::{Supervisor, Capability, ValidationRule};
 use std::time::Instant;
 
 #[tokio::main]
@@ -60,9 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     // Get an executor
-    let executor = supervisor
-        .get_executor()
-        .await
+    let executor = supervisor.get_executor().await
         .expect("Should have idle executor");
 
     println!("▶ Executor {} executing task...", executor.id);
@@ -99,47 +97,29 @@ Return only the Rust code, no explanations."#;
 
             // Validator 0: Basic checks
             let result0 = supervisor.validate_with(0, &exec_result.content, 0);
-            println!(
-                "  Validator 0: {} (score: {})",
-                if result0.passed {
-                    "✓ PASS"
-                } else {
-                    "✗ FAIL"
-                },
+            println!("  Validator 0: {} (score: {})",
+                if result0.passed { "✓ PASS" } else { "✗ FAIL" },
                 result0.score
             );
 
             // Validator 1: Code quality checks
             let result1 = supervisor.validate_with(1, &exec_result.content, 0);
-            println!(
-                "  Validator 1: {} (score: {})",
-                if result1.passed {
-                    "✓ PASS"
-                } else {
-                    "✗ FAIL"
-                },
+            println!("  Validator 1: {} (score: {})",
+                if result1.passed { "✓ PASS" } else { "✗ FAIL" },
                 result1.score
             );
 
             // Manual checks for complex requirements
             let has_is_prime = exec_result.content.contains("fn is_prime");
             let has_primes_up_to = exec_result.content.contains("fn primes_up_to");
-            let has_tests =
-                exec_result.content.contains("#[test]") || exec_result.content.contains("fn test_");
+            let has_tests = exec_result.content.contains("#[test]") || exec_result.content.contains("fn test_");
             let has_docs = exec_result.content.contains("///");
-            let no_todos =
-                !exec_result.content.contains("TODO") && !exec_result.content.contains("FIXME");
+            let no_todos = !exec_result.content.contains("TODO") && !exec_result.content.contains("FIXME");
 
             println!();
             println!("▶ Objective Checks:");
-            println!(
-                "  {} has is_prime function",
-                if has_is_prime { "✓" } else { "✗" }
-            );
-            println!(
-                "  {} has primes_up_to function",
-                if has_primes_up_to { "✓" } else { "✗" }
-            );
+            println!("  {} has is_prime function", if has_is_prime { "✓" } else { "✗" });
+            println!("  {} has primes_up_to function", if has_primes_up_to { "✓" } else { "✗" });
             println!("  {} has unit tests", if has_tests { "✓" } else { "✗" });
             println!("  {} has documentation", if has_docs { "✓" } else { "✗" });
             println!("  {} no TODOs/FIXMEs", if no_todos { "✓" } else { "✗" });
@@ -158,10 +138,7 @@ Return only the Rust code, no explanations."#;
                 println!("  {}", line);
             }
             if exec_result.content.lines().count() > 50 {
-                println!(
-                    "  ... ({} more lines)",
-                    exec_result.content.lines().count() - 50
-                );
+                println!("  ... ({} more lines)", exec_result.content.lines().count() - 50);
             }
             println!();
 
@@ -194,10 +171,7 @@ async fn run_mock_demo() {
         .build_async()
         .await;
 
-    println!(
-        "  ✓ Supervisor created with {} executors",
-        supervisor.pool_size().await
-    );
+    println!("  ✓ Supervisor created with {} executors", supervisor.pool_size().await);
 
     // Simulate what would happen with real LLM
     let mock_output = r#"/// Checks if a number is prime.
@@ -278,14 +252,9 @@ mod tests {
     println!();
     println!("▶ [MOCK] Validating output...");
 
-    let result = supervisor.validate(mock_output, 0);
-    println!(
-        "  {} Validation (score: {})",
-        if result.passed {
-            "✓ PASS"
-        } else {
-            "✗ FAIL"
-        },
+    let result = supervisor.validate(&mock_output, 0);
+    println!("  {} Validation (score: {})",
+        if result.passed { "✓ PASS" } else { "✗ FAIL" },
         result.score
     );
 

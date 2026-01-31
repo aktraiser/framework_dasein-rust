@@ -12,16 +12,19 @@
 //! GEMINI_API_KEY=xxx ANTHROPIC_API_KEY=xxx cargo run --example python_executor
 //! ```
 
-use dasein_agentic_core::distributed::{
+use agentic_core::distributed::{
+    Executor, ValidatorPipeline, SandboxPipelineValidator,
+    ValidatorInput, CodeAssembler, ErrorEnricherValidator,
     bus::{
-        BusCoordinator, DecisionRecord, EnrichedError, ErrorFingerprinter, ErrorLocation,
-        ErrorSeverity, GenerationRecord, ModelInfo, ModelTier, PipelineTracer, RollbackDecision,
-        RollbackManager, TokenUsage, ValidationRecord, ValidatorStageRecord,
+        BusCoordinator,
+        RollbackManager, RollbackDecision,
+        ErrorFingerprinter, ModelTier,
+        PipelineTracer, ModelInfo, GenerationRecord, TokenUsage,
+        ValidationRecord, ValidatorStageRecord, DecisionRecord,
+        EnrichedError, ErrorSeverity, ErrorLocation,
     },
-    CodeAssembler, ErrorEnricherValidator, Executor, SandboxPipelineValidator, ValidatorInput,
-    ValidatorPipeline,
 };
-use dasein_agentic_sandbox::FirecrackerSandbox;
+use agentic_sandbox::FirecrackerSandbox;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -80,13 +83,8 @@ The code must be production-quality with proper error handling.
 "#;
 
     // === Setup NATS (optional) ===
-    let nats_url =
-        std::env::var("NATS_URL").unwrap_or_else(|_| "nats://localhost:4222".to_string());
-    let bus = match BusCoordinator::builder()
-        .nats_url(&nats_url)
-        .build_and_start()
-        .await
-    {
+    let nats_url = std::env::var("NATS_URL").unwrap_or_else(|_| "nats://localhost:4222".to_string());
+    let bus = match BusCoordinator::builder().nats_url(&nats_url).build_and_start().await {
         Ok(b) => {
             println!("✓ NATS connected");
             Some(Arc::new(b))
@@ -99,10 +97,7 @@ The code must be production-quality with proper error handling.
 
     // === Setup Pipeline Tracer (unified JSON document) ===
     let tracer = Arc::new(PipelineTracer::new("python", task));
-    println!(
-        "✓ Pipeline Tracer enabled (trace: {})",
-        &tracer.trace_id().await[..8]
-    );
+    println!("✓ Pipeline Tracer enabled (trace: {})", &tracer.trace_id().await[..8]);
 
     let fingerprinter = ErrorFingerprinter::new();
 
@@ -113,30 +108,27 @@ The code must be production-quality with proper error handling.
         .build();
     println!("✓ Fast model: {}", fast_model);
 
-    let smart_model =
-        std::env::var("SMART_MODEL").unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
+    let smart_model = std::env::var("SMART_MODEL").unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
     let smart_executor = Executor::new("py-smart", "supervisor")
         .llm_anthropic(&smart_model)
         .build();
     println!("✓ Smart model: {} (Anthropic)", smart_model);
 
     // Configure tracer with model info
-    tracer
-        .set_models(
-            ModelInfo {
-                provider: "gemini".to_string(),
-                model: fast_model.clone(),
-                temperature: Some(0.2),
-                max_tokens: Some(8192),
-            },
-            ModelInfo {
-                provider: "anthropic".to_string(),
-                model: smart_model.clone(),
-                temperature: Some(0.2),
-                max_tokens: Some(8192),
-            },
-        )
-        .await;
+    tracer.set_models(
+        ModelInfo {
+            provider: "gemini".to_string(),
+            model: fast_model.clone(),
+            temperature: Some(0.2),
+            max_tokens: Some(8192),
+        },
+        ModelInfo {
+            provider: "anthropic".to_string(),
+            model: smart_model.clone(),
+            temperature: Some(0.2),
+            max_tokens: Some(8192),
+        },
+    ).await;
 
     let assembler = CodeAssembler::new();
 
@@ -151,22 +143,23 @@ The code must be production-quality with proper error handling.
         .add(validator)
         .add(ErrorEnricherValidator::new());
 
-    tracer
-        .set_validators(vec!["sandbox".to_string(), "error-enricher".to_string()])
-        .await;
+    tracer.set_validators(vec![
+        "sandbox".to_string(),
+        "error-enricher".to_string(),
+    ]).await;
     tracer.set_max_retries(MAX_RETRIES).await;
     println!("✓ Error Enricher enabled");
 
     // === Generate with full pipeline ===
-    let _total_start = Instant::now();
+    let total_start = Instant::now();
     let system = "You are an expert Python developer. Return ONLY valid Python code. No markdown, no explanations. Include pytest tests at the bottom of the file.";
 
     let mut previous_errors: Vec<String> = vec![];
     let mut previous_code: Option<String> = None;
     let mut rollback = RollbackManager::new();
     let mut current_tier = ModelTier::Fast;
-    let mut total_failures = 0; // Track all failures
-    let mut used_smart = false; // Once we use Smart, don't go back to Fast
+    let mut total_failures = 0;  // Track all failures
+    let mut used_smart = false;  // Once we use Smart, don't go back to Fast
 
     let mut final_code: Option<String> = None;
 
@@ -228,61 +221,52 @@ The code must be production-quality with proper error handling.
         let gen_duration = gen_start.elapsed().as_millis() as u64;
 
         // Record generation in tracer
-        tracer
-            .record_generation(GenerationRecord {
-                model: result.model.clone(),
-                tokens: TokenUsage {
-                    prompt: 0, // Not available from executor
-                    completion: result.tokens_used,
-                    total: result.tokens_used,
-                },
-                chars_generated: result.content.len(),
-                truncated: result.truncated,
-                duration_ms: gen_duration,
-            })
-            .await;
+        tracer.record_generation(GenerationRecord {
+            model: result.model.clone(),
+            tokens: TokenUsage {
+                prompt: 0, // Not available from executor
+                completion: result.tokens_used,
+                total: result.tokens_used,
+            },
+            chars_generated: result.content.len(),
+            truncated: result.truncated,
+            duration_ms: gen_duration,
+        }).await;
 
         // CRITICAL: Check for truncation
         if result.truncated {
             println!("  ⚠️ OUTPUT TRUNCATED (hit max_tokens) - skipping validation");
 
-            tracer
-                .record_validation(ValidationRecord {
+            tracer.record_validation(ValidationRecord {
+                passed: false,
+                score: -1000,
+                stages: vec![ValidatorStageRecord {
+                    validator: "truncation-check".to_string(),
                     passed: false,
-                    score: -1000,
-                    stages: vec![ValidatorStageRecord {
-                        validator: "truncation-check".to_string(),
-                        passed: false,
-                        duration_ms: 0,
-                        errors: vec![EnrichedError {
-                            id: format!("err-trunc-{}", attempt),
-                            severity: ErrorSeverity::Critical,
-                            category: "truncation".to_string(),
-                            location: None,
-                            message: "Output was truncated due to max_tokens limit".to_string(),
-                            analysis: None,
-                            hints: vec!["Increase max_tokens or simplify the task".to_string()],
-                        }],
-                        recommendations: vec![],
-                        documentation: vec![],
-                    }],
                     duration_ms: 0,
-                })
-                .await;
+                    errors: vec![EnrichedError {
+                        id: format!("err-trunc-{}", attempt),
+                        severity: ErrorSeverity::Critical,
+                        category: "truncation".to_string(),
+                        location: None,
+                        message: "Output was truncated due to max_tokens limit".to_string(),
+                        analysis: None,
+                        hints: vec!["Increase max_tokens or simplify the task".to_string()],
+                    }],
+                    recommendations: vec![],
+                    documentation: vec![],
+                }],
+                duration_ms: 0,
+            }).await;
 
-            tracer
-                .record_decision(DecisionRecord::Continue {
-                    reason: "truncated output".to_string(),
-                    next_tier: "smart".to_string(),
-                })
-                .await;
+            tracer.record_decision(DecisionRecord::Continue {
+                reason: "truncated output".to_string(),
+                next_tier: "smart".to_string(),
+            }).await;
 
-            previous_errors = vec![
-                "Output was truncated due to max_tokens limit. Generated code is incomplete."
-                    .to_string(),
-            ];
+            previous_errors = vec!["Output was truncated due to max_tokens limit. Generated code is incomplete.".to_string()];
             previous_code = Some(result.content.clone());
-            total_failures += 1; // Truncation counts as a failure
+            total_failures += 1;  // Truncation counts as a failure
             continue;
         }
 
@@ -299,65 +283,47 @@ The code must be production-quality with proper error handling.
         let val_duration = val_start.elapsed().as_millis() as u64;
 
         // Convert errors to enriched format for tracer
-        let errors: Vec<String> = val_result
-            .results
-            .iter()
-            .flat_map(|r| r.errors.clone())
-            .collect();
-        let enriched_errors: Vec<EnrichedError> = errors
-            .iter()
-            .enumerate()
-            .map(|(i, e)| EnrichedError {
+        let errors: Vec<String> = val_result.results.iter().flat_map(|r| r.errors.clone()).collect();
+        let enriched_errors: Vec<EnrichedError> = errors.iter().enumerate().map(|(i, e)| {
+            EnrichedError {
                 id: format!("err-{}-{}", attempt, i),
-                severity: if e.contains("FAILED") {
-                    ErrorSeverity::Error
-                } else {
-                    ErrorSeverity::Warning
-                },
+                severity: if e.contains("FAILED") { ErrorSeverity::Error } else { ErrorSeverity::Warning },
                 category: categorize_error(e),
                 location: extract_location(e),
                 message: e.clone(),
                 analysis: None,
                 hints: vec![],
-            })
-            .collect();
+            }
+        }).collect();
 
-        let recommendations: Vec<String> = val_result
-            .results
-            .iter()
+        let recommendations: Vec<String> = val_result.results.iter()
             .flat_map(|r| r.recommendations.clone())
             .collect();
 
         // Calculate score
-        let score = if val_result.passed {
-            0
-        } else {
-            -(errors.len() as i32 * 100)
-        };
+        let score = if val_result.passed { 0 } else { -(errors.len() as i32 * 100) };
 
         // Record validation in tracer
-        tracer
-            .record_validation(ValidationRecord {
+        tracer.record_validation(ValidationRecord {
+            passed: val_result.passed,
+            score,
+            stages: vec![ValidatorStageRecord {
+                validator: "sandbox+enricher".to_string(),
                 passed: val_result.passed,
-                score,
-                stages: vec![ValidatorStageRecord {
-                    validator: "sandbox+enricher".to_string(),
-                    passed: val_result.passed,
-                    duration_ms: val_duration,
-                    errors: enriched_errors,
-                    recommendations,
-                    documentation: vec![],
-                }],
                 duration_ms: val_duration,
-            })
-            .await;
+                errors: enriched_errors,
+                recommendations,
+                documentation: vec![],
+            }],
+            duration_ms: val_duration,
+        }).await;
 
         if val_result.passed {
             println!("  ✓ Validation passed!");
 
-            tracer
-                .record_decision(DecisionRecord::Accept { final_score: 0 })
-                .await;
+            tracer.record_decision(DecisionRecord::Accept {
+                final_score: 0,
+            }).await;
 
             final_code = Some(code);
             break;
@@ -370,24 +336,15 @@ The code must be production-quality with proper error handling.
         total_failures += 1;
 
         match decision {
-            RollbackDecision::Rollback {
-                reason,
-                failing_tests,
-                ..
-            } => {
+            RollbackDecision::Rollback { reason, failing_tests, .. } => {
                 println!("  ↩ ROLLBACK: {}", reason);
-                let best_score = rollback
-                    .best()
-                    .map(|b| b.score.quality_score())
-                    .unwrap_or(0);
+                let best_score = rollback.best().map(|b| b.score.quality_score()).unwrap_or(0);
 
-                tracer
-                    .record_decision(DecisionRecord::Rollback {
-                        reason: reason.clone(),
-                        rollback_to_attempt: rollback.best().map(|b| b.number).unwrap_or(1),
-                        best_score,
-                    })
-                    .await;
+                tracer.record_decision(DecisionRecord::Rollback {
+                    reason: reason.clone(),
+                    rollback_to_attempt: rollback.best().map(|b| b.number).unwrap_or(1),
+                    best_score,
+                }).await;
 
                 previous_errors = failing_tests;
                 previous_code = rollback.best().map(|b| b.code.clone());
@@ -403,12 +360,10 @@ The code must be production-quality with proper error handling.
                     current_tier.as_str()
                 };
 
-                tracer
-                    .record_decision(DecisionRecord::Continue {
-                        reason: "progressing".to_string(),
-                        next_tier: next_tier.to_string(),
-                    })
-                    .await;
+                tracer.record_decision(DecisionRecord::Continue {
+                    reason: "progressing".to_string(),
+                    next_tier: next_tier.to_string(),
+                }).await;
 
                 previous_errors = errors;
                 previous_code = Some(code);
@@ -425,18 +380,13 @@ The code must be production-quality with proper error handling.
     // Fallback to best attempt
     if final_code.is_none() {
         if let Some(best) = rollback.best() {
-            println!(
-                "\n  ⚠ Returning best attempt ({} errors)",
-                best.errors.len()
-            );
+            println!("\n  ⚠ Returning best attempt ({} errors)", best.errors.len());
             final_code = Some(best.code.clone());
         }
     }
 
     // Complete the trace
-    let trace = tracer
-        .complete(final_code.is_some(), final_code.as_deref())
-        .await;
+    let trace = tracer.complete(final_code.is_some(), final_code.as_deref()).await;
 
     // Publish to NATS if connected
     if let Some(ref b) = bus {
@@ -452,8 +402,7 @@ The code must be production-quality with proper error handling.
     println!("Trace ID: {}", trace.trace_id);
     println!("Status: {:?}", trace.status);
     println!("Duration: {}ms", trace.metrics.total_duration_ms);
-    println!(
-        "Attempts: {} (fast: {}, smart: {})",
+    println!("Attempts: {} (fast: {}, smart: {})",
         trace.attempts.len(),
         trace.metrics.attempts_by_tier.get("fast").unwrap_or(&0),
         trace.metrics.attempts_by_tier.get("smart").unwrap_or(&0),

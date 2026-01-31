@@ -6,6 +6,7 @@
 //! - Rate limiting
 //! - Work queue semantics (each task delivered to one consumer)
 
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
@@ -77,12 +78,13 @@ impl Sequencer {
         // Check if dependencies are satisfied
         if !task.depends_on.is_empty() {
             let completed = self.completed_tasks.read().await;
-            let has_unsatisfied = task
+            let unsatisfied: Vec<_> = task
                 .depends_on
                 .iter()
-                .any(|dep| !completed.contains(dep));
+                .filter(|dep| !completed.contains(*dep))
+                .collect();
 
-            if has_unsatisfied {
+            if !unsatisfied.is_empty() {
                 // Task is blocked, store it separately
                 let mut blocked = self.blocked_tasks.write().await;
                 blocked.insert(task.id.clone(), task);
@@ -229,9 +231,11 @@ mod tests {
         let seq = Sequencer::new();
 
         // Task B depends on Task A
-        seq.publish(Task::new("b", "sup", json!({})).with_depends_on(vec!["a".to_string()]))
-            .await
-            .unwrap();
+        seq.publish(
+            Task::new("b", "sup", json!({})).with_depends_on(vec!["a".to_string()]),
+        )
+        .await
+        .unwrap();
 
         // B should be blocked
         assert!(seq.next().await.is_none());

@@ -32,7 +32,7 @@ pub struct ExecutionResult {
 impl ExecutionResult {
     /// Check if execution was successful.
     #[must_use]
-    pub const fn is_success(&self) -> bool {
+    pub fn is_success(&self) -> bool {
         self.exit_code == 0
     }
 }
@@ -68,7 +68,7 @@ pub trait Sandbox: Send + Sync {
     async fn stop(&self) -> Result<(), SandboxError>;
 }
 
-/// Implementation of Sandbox for `Box<dyn Sandbox>`.
+/// Implementation of Sandbox for Box<dyn Sandbox>.
 /// This allows using trait objects with generic sandbox validators.
 #[async_trait]
 impl Sandbox for Box<dyn Sandbox> {

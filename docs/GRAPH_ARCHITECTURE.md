@@ -2,97 +2,10 @@
 
 > **Vision**: Passer d'une architecture linéaire (Executor → Validator → Retry) à une architecture **graph dynamique** avec **Executors** (noeuds) et **Edges** (connexions).
 
----
-
-## 📊 STATUS TRACKER (2025-02-04)
-
-### Implémenté ✅
-
-| PR | Feature | Fichier(s) | Status |
-|----|---------|------------|--------|
-| **PR #1** | Executor Trait | `graph/executor.rs` | ✅ Complet |
-| **PR #2** | WorkflowContext | `graph/context.rs` | ✅ Complet |
-| **PR #3** | 5 Edge Types | `graph/edge.rs` | ✅ Complet |
-| **PR #4** | WorkflowBuilder | `graph/builder.rs` | ✅ Complet |
-| **PR #5** | Superstep Execution | `graph/superstep.rs`, `graph/workflow.rs` | ✅ Complet |
-| **PR #6** | Graph Persistence | `graph/persistence.rs` | ✅ Complet |
-
-### En cours 🚧
-
-| Feature | Status | Notes |
-|---------|--------|-------|
-| `Workflow.run_with_resume()` | 🚧 PR #6 | Resume depuis checkpoint |
-| `SharedValidatorPipeline` | 🚧 PR #6 | Arc wrapper pour stateless sharing |
-
-### Implémenté récemment ✅
-
-| Feature | PR/Phase | Notes |
-|---------|----------|-------|
-| **Agent Trait** (`run`, `run_stream`, `tools`) | Phase 6 | `distributed/graph/agent/trait_def.rs` |
-| **AgentThread** (in-memory) | Phase 6 | NATS KV déféré Phase 8 |
-| **ChatAgent** | Phase 6 | `distributed/graph/agent/chat_agent.rs` |
-| **WorkflowAgent** | Phase 6 | `distributed/graph/agent/workflow_agent.rs` |
-| **`workflow.as_agent()`** | Phase 6 | `WorkflowAsAgent` trait |
-| **SequentialBuilder** | Phase 7 | `patterns/sequential.rs` |
-| **ConcurrentBuilder** | Phase 7 | `patterns/concurrent.rs` |
-| **GroupChatBuilder** | Phase 7 | `patterns/group_chat.rs` + selectors |
-| **HandoffBuilder** | Phase 7 | `patterns/handoff.rs` + `HandoffCapable` |
-| **MemoryProvider** | Phase 8 | `agent/memory.rs` - trait + InMemoryProvider |
-| **ChatReducer** | Phase 8 | `agent/reducer.rs` - 4 implémentations |
-| **Memory types** | Phase 8 | `Memory`, `MemoryCategory`, `MemoryContext` |
-| **GatewaySandbox** | Phase 8 | `agentic-sandbox/gateway.rs` - Firecracker via Gateway |
-
-### Non implémenté ❌
-
-| Feature | Priorité | Effort | Section doc |
-|---------|----------|--------|-------------|
-| **AgentThread NATS KV** (persisté) | P1 | 0.5 sem | [Thread](#thread-conversation-persistee-sur-nats) |
-| **NatsMemoryProvider** | P1 | 0.5 sem | [Agent Memory](#agent-memory-court-terme-et-long-terme) |
-| **BedrockProvider** (Converse API) | P1 | 1 sem | [Bedrock Integration](#aws-bedrock-integration) |
-| **BedrockProvider Tool Use** | P1 | 0.5 sem | [Bedrock Tool Use](#tool-use-loop-pattern) |
-| **BedrockAgentExecutor** | P2 | 1 sem | [Bedrock Integration](#aws-bedrock-integration) |
-| **BedrockKnowledgeBaseExecutor** | P2 | 1 sem | [Bedrock KB](#niveau-3-knowledge-bases-direct-access) |
-| **BedrockFlowExecutor** | P3 | 1 sem | [Bedrock Flows](#niveau-4-bedrock-flows) |
-| **BedrockSessionManager** | P2 | 0.5 sem | [Bedrock Sessions](#niveau-5-session-management-multi-turn) |
-| **GuardrailExecutor** | P2 | 0.5 sem | [Bedrock Guardrails](#niveau-6-guardrails-integration) |
-| **BedrockCircuitBreaker** | P2 | 0.5 sem | [Bedrock Retry](#niveau-7-error-handling-et-retry) |
-| **ContinuationToken** | P2 | 1 sem | [Background Responses](#background-responses-taches-longues-avec-continuation) |
-| **MagenticPlanner** | P3 | 2 sem | [Magentic](#pattern-magentic-planner-based) |
-| **llm_selector** | P2 | 0.5 sem | LLM-based speaker selection |
-
-### Architecture actuelle vs cible
-
-```
-ACTUEL (v0.3.0):                          CIBLE (v1.0):
-┌─────────────────────────────┐           ┌─────────────────────────────┐
-│         AGENT LAYER         │           │         AGENT LAYER         │
-│  ✅ trait Agent             │           │  ✅ trait Agent + ChatAgent │
-│  ✅ ChatAgent, WorkflowAgent│  ──────▶  │  + WorkflowAgent + Thread   │
-│  ✅ Memory (in-memory)      │           │  + Memory + Background      │
-│  ✅ ChatReducer (4 types)   │           │  + NatsMemoryProvider       │
-└─────────────────────────────┘           └─────────────────────────────┘
-              │                                         │
-              ▼                                         ▼
-┌─────────────────────────────┐           ┌─────────────────────────────┐
-│       WORKFLOW LAYER        │           │       WORKFLOW LAYER        │
-│  ✅ Executor trait          │           │  ✅ Executor trait          │
-│  ✅ 5 Edge types            │           │  ✅ 5 Edge types            │
-│  ✅ Superstep execution     │           │  ✅ Superstep execution     │
-│  ✅ WorkflowBuilder         │           │  ✅ WorkflowBuilder         │
-│  ✅ Persistence (Redis)     │           │  ✅ Persistence (Redis)     │
-│  ✅ Orchestration Patterns  │           │  ✅ Sequential, Concurrent  │
-│    Sequential, Concurrent   │           │  ✅ GroupChat, Handoff      │
-│    GroupChat, Handoff       │           │  ⏳ MagenticPlanner         │
-└─────────────────────────────┘           └─────────────────────────────┘
-```
-
----
-
 ## TL;DR
 
 | Concept | Description | Inspiré de |
 |---------|-------------|------------|
-| **Agent** | Interface haut-niveau: gère conversation, invoque workflows | [MAF Agents](https://learn.microsoft.com/fr-fr/agent-framework/user-guide/agents/agent-types/) |
 | **Executor** | Noeud générique: Worker, Validator, ou Orchestrator | [MAF Executors](https://learn.microsoft.com/en-us/agent-framework/user-guide/workflows/core-concepts/executors) |
 | **Edge** | Connexion typée: Direct, Conditional, Switch, FanOut, FanIn | [MAF Edges](https://learn.microsoft.com/en-us/agent-framework/user-guide/workflows/core-concepts/edges) |
 | **Workflow** | Orchestration via Supersteps (Bulk Synchronous Parallel) | [Google Pregel](https://research.google/pubs/pub37252/) |
@@ -102,21 +15,13 @@ ACTUEL (v0.3.0):                          CIBLE (v1.0):
 ┌─────────────────────────────────────────────────────────────────┐
 │                        NOTRE ARCHITECTURE                        │
 │                                                                  │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │                      AGENT LAYER                          │  │
-│  │  User ←→ Agent (conversation, tools, streaming)          │  │
-│  └───────────────────────┬───────────────────────────────────┘  │
-│                          │ invoke workflow                       │
-│  ┌───────────────────────▼───────────────────────────────────┐  │
-│  │                    WORKFLOW LAYER                         │  │
-│  │  Executor ─── Edge ─── Executor ─── Edge ─── Executor     │  │
-│  │  (Worker)    (Direct)  (Validator) (Cond)   (Worker)      │  │
-│  └───────────────────────┬───────────────────────────────────┘  │
-│                          │                                       │
-│  ┌───────────────────────▼───────────────────────────────────┐  │
-│  │                      NATS LAYER                           │  │
-│  │              Events + State + Audit + History             │  │
-│  └───────────────────────────────────────────────────────────┘  │
+│   Executor ─── Edge ─── Executor ─── Edge ─── Executor          │
+│   (Worker)    (Direct)  (Validator) (Cond)   (Worker)           │
+│       │                      │                   │               │
+│       └──────────────────────┴───────────────────┘               │
+│                              │                                   │
+│                         NATS BUS                                 │
+│                    (Events + State + Audit)                      │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -146,1064 +51,9 @@ ACTUEL (v0.3.0):                          CIBLE (v1.0):
 
 | Concept | Description |
 |---------|-------------|
-| **Agent** | Interface utilisateur. Gère conversation, outils, streaming |
 | **Executor** | Noeud du graph. Abstraction générique (Worker, Validator, ou Orchestrator) |
 | **Edge** | Connexion entre executors. Transporte data + metadata + conditions |
 | **Graph** | L'ensemble. Peut être récursif (sub-graphs) |
-
----
-
-## Agent Layer: L'Interface Utilisateur
-
-> ✅ **STATUT: IMPLÉMENTÉ (Phase 6)** - `distributed/graph/agent/` module.
-> Le `trait Agent` avec `run()` et `run_stream()` est implémenté.
-> `ChatAgent`, `WorkflowAgent`, `AgentThread` (in-memory), et `Tool` sont disponibles.
-
-Inspiré de [Microsoft Agent Framework - Agent Types](https://learn.microsoft.com/fr-fr/agent-framework/user-guide/agents/agent-types/).
-
-### Agents vs Executors
-
-| Aspect | Agent | Executor |
-|--------|-------|----------|
-| **Niveau** | Haut (interface utilisateur) | Bas (noeud du workflow) |
-| **Rôle** | Gère une conversation multi-tours | Fait une unité de travail atomique |
-| **Lifecycle** | `run()`, `run_stream()` | `handle(input, ctx)` |
-| **État** | Thread de conversation | State dans le graph |
-| **Outils** | Functions, Code Interpreter, MCP | N/A (l'executor EST l'outil) |
-
-### Les 3 Types d'Agents
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                            AGENT TYPES                                      │
-│                                                                             │
-│  1. ChatAgent (Simple)                                                      │
-│     ├─ Wrapper autour d'un service LLM (Anthropic, OpenAI, Gemini...)      │
-│     ├─ Supporte: function tools, streaming, structured output              │
-│     └─ Usage: conversations simples, Q&A                                   │
-│                                                                             │
-│  2. WorkflowAgent (Custom)                                                  │
-│     ├─ Agent qui invoque un Workflow pour les tâches complexes             │
-│     ├─ Délègue la génération de code aux Executors                         │
-│     └─ Usage: génération de code, tâches multi-étapes                      │
-│                                                                             │
-│  3. ProxyAgent (Remote)                                                     │
-│     ├─ Proxy pour agents distants (protocole A2A)                          │
-│     ├─ Communication inter-agents via NATS                                  │
-│     └─ Usage: agents distribués, collaboration                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Trait Agent
-
-```rust
-/// Agent de haut niveau (interface utilisateur)
-/// Inspiré de MAF BaseAgent
-#[async_trait]
-pub trait Agent: Send + Sync {
-    /// Identifiant unique
-    fn id(&self) -> &AgentId;
-
-    /// Exécute une conversation (bloquant)
-    async fn run(
-        &self,
-        messages: Vec<ChatMessage>,
-        thread: &mut AgentThread,
-    ) -> Result<AgentResponse, AgentError>;
-
-    /// Exécute une conversation (streaming)
-    fn run_stream(
-        &self,
-        messages: Vec<ChatMessage>,
-        thread: &mut AgentThread,
-    ) -> Pin<Box<dyn Stream<Item = AgentChunk> + Send>>;
-
-    /// Outils disponibles pour cet agent
-    fn tools(&self) -> &[Tool];
-}
-
-/// Thread de conversation (persisté sur NATS)
-pub struct AgentThread {
-    pub id: ThreadId,
-    pub messages: Vec<ChatMessage>,
-    pub metadata: ThreadMetadata,
-}
-
-/// Réponse d'un agent
-pub struct AgentResponse {
-    pub text: String,
-    pub tool_calls: Vec<ToolCall>,
-    pub usage: TokenUsage,
-}
-
-/// Chunk pour streaming
-pub struct AgentChunk {
-    pub text: Option<String>,
-    pub tool_call: Option<ToolCallChunk>,
-    pub done: bool,
-}
-```
-
-### ChatAgent: Agent Simple
-
-```rust
-/// Agent simple basé sur un LLM
-pub struct ChatAgent {
-    id: AgentId,
-    llm: Arc<dyn LLMAdapter>,
-    instructions: String,
-    tools: Vec<Tool>,
-    nats: Arc<NatsClient>,
-}
-
-#[async_trait]
-impl Agent for ChatAgent {
-    fn id(&self) -> &AgentId { &self.id }
-
-    async fn run(
-        &self,
-        messages: Vec<ChatMessage>,
-        thread: &mut AgentThread,
-    ) -> Result<AgentResponse, AgentError> {
-        // 1. Ajouter les messages au thread
-        thread.messages.extend(messages);
-
-        // 2. Persister le thread sur NATS
-        self.nats.kv_put(&format!("thread.{}", thread.id), thread).await?;
-
-        // 3. Appeler le LLM avec les outils
-        let response = self.llm.chat(
-            &self.instructions,
-            &thread.messages,
-            &self.tools,
-        ).await?;
-
-        // 4. Gérer les tool calls si nécessaire
-        if !response.tool_calls.is_empty() {
-            let tool_results = self.execute_tools(&response.tool_calls).await?;
-            // Recursive call avec les résultats
-            return self.run(tool_results.into_messages(), thread).await;
-        }
-
-        // 5. Ajouter la réponse au thread
-        thread.messages.push(ChatMessage::assistant(&response.text));
-        self.nats.kv_put(&format!("thread.{}", thread.id), thread).await?;
-
-        Ok(response)
-    }
-
-    fn run_stream(&self, messages: Vec<ChatMessage>, thread: &mut AgentThread)
-        -> Pin<Box<dyn Stream<Item = AgentChunk> + Send>>
-    {
-        // Streaming implementation...
-    }
-
-    fn tools(&self) -> &[Tool] { &self.tools }
-}
-```
-
-### WorkflowAgent: Agent + Workflow
-
-```rust
-/// Agent qui délègue à un Workflow pour les tâches complexes
-pub struct WorkflowAgent {
-    id: AgentId,
-    llm: Arc<dyn LLMAdapter>,
-    workflow: Workflow,
-    nats: Arc<NatsClient>,
-}
-
-impl WorkflowAgent {
-    /// Détecte si la tâche nécessite un workflow
-    fn needs_workflow(&self, messages: &[ChatMessage]) -> bool {
-        // Heuristiques: "génère", "crée", "implémente", etc.
-        let last = messages.last().map(|m| m.content.to_lowercase());
-        last.map(|c| {
-            c.contains("génère") || c.contains("crée") ||
-            c.contains("implémente") || c.contains("code")
-        }).unwrap_or(false)
-    }
-}
-
-#[async_trait]
-impl Agent for WorkflowAgent {
-    async fn run(
-        &self,
-        messages: Vec<ChatMessage>,
-        thread: &mut AgentThread,
-    ) -> Result<AgentResponse, AgentError> {
-        thread.messages.extend(messages.clone());
-
-        if self.needs_workflow(&thread.messages) {
-            // Déléguer au Workflow
-            let task = self.extract_task(&thread.messages)?;
-
-            // Publier sur NATS: workflow started
-            self.nats.publish("agentic.agent.workflow.started", &task).await?;
-
-            // Exécuter le workflow (Executors + Edges)
-            let result = self.workflow.run(task).await?;
-
-            // Formater la réponse
-            let response = AgentResponse {
-                text: self.format_workflow_result(&result),
-                tool_calls: vec![],
-                usage: result.total_usage(),
-            };
-
-            thread.messages.push(ChatMessage::assistant(&response.text));
-            return Ok(response);
-        }
-
-        // Sinon, simple chat
-        let response = self.llm.chat(
-            "You are a helpful coding assistant.",
-            &thread.messages,
-            &[],
-        ).await?;
-
-        thread.messages.push(ChatMessage::assistant(&response.text));
-        Ok(response)
-    }
-
-    // ...
-}
-```
-
-### Workflow comme Agent: `workflow.as_agent()`
-
-Inspiré de [MAF Workflows as Agents](https://learn.microsoft.com/fr-fr/agent-framework/user-guide/workflows/as-agents), on peut **convertir un workflow en agent** pour l'exposer via l'API Agent standard.
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    WORKFLOW AS AGENT                                        │
-│                                                                             │
-│  workflow.as_agent("Content Pipeline")                                      │
-│                    │                                                        │
-│                    ▼                                                        │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                    WorkflowAgent (wrapper)                           │   │
-│  │                                                                      │   │
-│  │  impl Agent for WorkflowAgent {                                     │   │
-│  │      fn run() → délègue à workflow.run()                            │   │
-│  │      fn run_stream() → délègue à workflow.run_stream()              │   │
-│  │  }                                                                   │   │
-│  │                                                                      │   │
-│  │  ┌───────────────────────────────────────────────────────────────┐  │   │
-│  │  │                    Workflow interne                            │  │   │
-│  │  │  Researcher → Writer → Reviewer                               │  │   │
-│  │  └───────────────────────────────────────────────────────────────┘  │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                    │                                                        │
-│                    ▼                                                        │
-│  Utilisable comme n'importe quel Agent:                                     │
-│  - Dans un autre workflow                                                   │
-│  - Comme outil d'un autre agent                                            │
-│  - Via une API REST                                                         │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-#### API `as_agent()`
-
-```rust
-impl Workflow {
-    /// Convertit ce workflow en Agent
-    pub fn as_agent(self, name: &str) -> WorkflowAsAgent {
-        WorkflowAsAgent {
-            id: AgentId::new(name),
-            workflow: self,
-        }
-    }
-}
-
-/// Wrapper qui expose un Workflow comme un Agent
-pub struct WorkflowAsAgent {
-    id: AgentId,
-    workflow: Workflow,
-}
-
-#[async_trait]
-impl Agent for WorkflowAsAgent {
-    fn id(&self) -> &AgentId { &self.id }
-
-    async fn run(
-        &self,
-        messages: Vec<ChatMessage>,
-        thread: &mut AgentThread,
-    ) -> Result<AgentResponse, AgentError> {
-        // Extraire le dernier message comme input
-        let input = messages.last()
-            .map(|m| m.content.clone())
-            .unwrap_or_default();
-
-        // Exécuter le workflow
-        let result = self.workflow.run(input).await?;
-
-        // Convertir en AgentResponse
-        Ok(AgentResponse {
-            text: result.get_output::<String>().unwrap_or_default(),
-            messages: result.to_chat_messages(),
-            ..Default::default()
-        })
-    }
-
-    fn run_stream(
-        &self,
-        messages: Vec<ChatMessage>,
-        thread: &mut AgentThread,
-    ) -> Pin<Box<dyn Stream<Item = AgentChunk> + Send>> {
-        let input = messages.last().map(|m| m.content.clone()).unwrap_or_default();
-
-        Box::pin(async_stream::stream! {
-            let mut stream = self.workflow.run_stream(input);
-
-            while let Some(event) = stream.next().await {
-                match event {
-                    WorkflowEvent::AgentResponseUpdate { chunk, executor_id } => {
-                        yield AgentChunk {
-                            text: Some(chunk),
-                            author_name: Some(executor_id.to_string()),
-                            ..Default::default()
-                        };
-                    }
-                    WorkflowEvent::Output { data } => {
-                        yield AgentChunk {
-                            text: Some(serde_json::to_string(&data).unwrap()),
-                            done: true,
-                            ..Default::default()
-                        };
-                    }
-                    _ => {}
-                }
-            }
-        })
-    }
-}
-```
-
-#### Usage
-
-```rust
-// Créer un workflow complexe
-let workflow = SequentialBuilder::new()
-    .participants(vec![researcher, writer, reviewer])
-    .build();
-
-// Convertir en agent
-let content_agent = workflow.as_agent("Content Pipeline");
-
-// Utiliser comme n'importe quel agent
-let thread = content_agent.get_new_thread();
-let response = content_agent.run(
-    vec![ChatMessage::user("Write about quantum computing")],
-    &mut thread
-).await?;
-
-// Ou en streaming
-async for chunk in content_agent.run_stream(messages, &mut thread) {
-    print!("{}", chunk.text.unwrap_or_default());
-}
-```
-
-#### Composition: Workflow d'agents de workflow
-
-```rust
-// Plusieurs workflows convertis en agents
-let research_workflow = research_pipeline.as_agent("Research");
-let writing_workflow = writing_pipeline.as_agent("Writing");
-let review_workflow = review_pipeline.as_agent("Review");
-
-// Orchestrer ces agents de workflow ensemble
-let meta_workflow = SequentialBuilder::new()
-    .participants(vec![
-        research_workflow,   // C'est un workflow!
-        writing_workflow,    // C'est aussi un workflow!
-        review_workflow,     // Encore un workflow!
-    ])
-    .build();
-
-// Le meta-workflow peut aussi être converti en agent
-let super_agent = meta_workflow.as_agent("Super Content Pipeline");
-```
-
-### Articulation Agent ↔ Workflow
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           FLOW COMPLET                                      │
-│                                                                             │
-│  User: "Crée une state machine TypeScript"                                 │
-│                          │                                                  │
-│                          ▼                                                  │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │ WorkflowAgent                                                        │   │
-│  │   1. Reçoit le message                                              │   │
-│  │   2. Détecte: needs_workflow() = true                               │   │
-│  │   3. Extrait la tâche                                               │   │
-│  │   4. Invoque self.workflow.run(task)                                │   │
-│  └──────────────────────────────┬──────────────────────────────────────┘   │
-│                                 │                                           │
-│                                 ▼                                           │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │ Workflow (Supersteps)                                                │   │
-│  │                                                                      │   │
-│  │   Superstep 0: TypeGen, TestGen (parallel)                          │   │
-│  │        │                                                             │   │
-│  │   Superstep 1: ImplGen                                              │   │
-│  │        │                                                             │   │
-│  │   Superstep 2: Assembler                                            │   │
-│  │        │                                                             │   │
-│  │   Superstep 3: CompileValidator → (success) → TestValidator         │   │
-│  │                      │                              │                │   │
-│  │               (failure)                      (failure)               │   │
-│  │                      └──────────────────────────────┘                │   │
-│  │                                 │                                    │   │
-│  │                                 ▼                                    │   │
-│  │                          ImplGen (retry avec feedback)              │   │
-│  └──────────────────────────────┬──────────────────────────────────────┘   │
-│                                 │                                           │
-│                                 ▼                                           │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │ NATS                                                                 │   │
-│  │   - Thread persisté                                                  │   │
-│  │   - Workflow events                                                  │   │
-│  │   - Executor outputs                                                 │   │
-│  │   - Historique pour retry                                           │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                 │                                           │
-│                                 ▼                                           │
-│  User: reçoit le code généré + tests                                       │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Agents wrappés dans Executors
-
-Inspiré de [MAF Using Agents](https://learn.microsoft.com/fr-fr/agent-framework/user-guide/workflows/using-agents), les **Agents sont automatiquement wrappés dans des Executors** pour être utilisés dans les workflows.
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    AGENT WRAPPING                                           │
-│                                                                             │
-│  llm.as_agent("instructions", "name")                                       │
-│                    │                                                        │
-│                    ▼                                                        │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                    AgentExecutor (auto-généré)                       │   │
-│  │  ┌───────────────────────────────────────────────────────────────┐  │   │
-│  │  │                         Agent                                  │  │   │
-│  │  │  - instructions                                               │  │   │
-│  │  │  - name                                                       │  │   │
-│  │  │  - llm adapter                                                │  │   │
-│  │  └───────────────────────────────────────────────────────────────┘  │   │
-│  │                                                                      │   │
-│  │  impl Executor for AgentExecutor {                                  │   │
-│  │      type Input = ChatMessage | Vec<ChatMessage> | String;          │   │
-│  │      type Message = AgentExecutorResponse;                          │   │
-│  │  }                                                                   │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                    │                                                        │
-│                    ▼                                                        │
-│            Utilisable dans WorkflowBuilder                                  │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-#### API simple: `as_agent()`
-
-```rust
-// Créer un agent directement utilisable dans un workflow
-let writer = llm.as_agent(
-    "You are an excellent content writer.",
-    "writer"
-);
-
-let reviewer = llm.as_agent(
-    "You are an excellent content reviewer.",
-    "reviewer"
-);
-
-// Utiliser directement dans le workflow (wrapping automatique)
-let workflow = WorkflowBuilder::new()
-    .set_start_executor(writer)   // Agent auto-wrappé en Executor
-    .add_edge(&writer.id(), &reviewer.id())
-    .build();
-```
-
-#### AgentExecutorResponse
-
-```rust
-/// Réponse d'un agent wrappé dans un executor
-#[derive(Serialize, Deserialize)]
-pub struct AgentExecutorResponse {
-    /// ID de l'executor qui a produit la réponse
-    pub executor_id: ExecutorId,
-    /// Réponse de l'agent
-    pub agent_response: AgentResponse,
-    /// Historique complet de la conversation jusqu'ici
-    pub full_conversation: Vec<ChatMessage>,
-}
-```
-
-#### Executor custom avec Agent
-
-Pour plus de contrôle, créer un executor custom qui contient un agent:
-
-```rust
-/// Executor personnalisé wrappant un agent
-pub struct WriterExecutor {
-    id: ExecutorId,
-    agent: ChatAgent,
-}
-
-impl WriterExecutor {
-    pub fn new(llm: Arc<dyn LLMAdapter>) -> Self {
-        Self {
-            id: ExecutorId::new("writer"),
-            agent: ChatAgent::new(
-                llm,
-                "You are an excellent content writer.",
-            ),
-        }
-    }
-}
-
-#[async_trait]
-impl Executor for WriterExecutor {
-    type Input = ChatMessage;
-    type Message = Vec<ChatMessage>;
-    type Output = Never;
-
-    fn id(&self) -> &ExecutorId { &self.id }
-    fn kind(&self) -> ExecutorKind { ExecutorKind::Worker }
-
-    async fn handle(
-        &self,
-        message: ChatMessage,
-        ctx: &mut WorkflowContext<Vec<ChatMessage>>,
-    ) -> Result<(), ExecutorError> {
-        // Appeler l'agent
-        let response = self.agent.run(vec![message.clone()]).await?;
-
-        // Construire la conversation complète
-        let mut conversation = vec![message];
-        conversation.extend(response.messages);
-
-        // Passer au prochain executor
-        ctx.send_message(conversation).await?;
-
-        Ok(())
-    }
-}
-```
-
-#### Streaming avec Agents
-
-```rust
-// Les agents émettent des événements de streaming
-async for event in workflow.run_stream("Write a blog post about AI").await {
-    match event {
-        WorkflowEvent::AgentResponseUpdate { executor_id, chunk } => {
-            // Chunk de réponse en streaming
-            print!("{}", chunk);
-        }
-        WorkflowEvent::AgentRunCompleted { executor_id, response } => {
-            // Réponse complète
-            println!("\n[{}] Done", executor_id);
-        }
-        _ => {}
-    }
-}
-```
-
-### Thread: Conversation Persistée sur NATS
-
-> ✅ **STATUT: PARTIELLEMENT IMPLÉMENTÉ** - `AgentThread` in-memory implémenté en Phase 6. Persistance NATS KV planifiée pour Phase 8.
-
-> Inspiré de [MAF Multi-turn Conversation](https://learn.microsoft.com/fr-fr/agent-framework/user-guide/agents/multi-turn-conversation)
-
-#### Principe Clé: Agents Stateless, Threads Stateful
-
-Les agents sont **sans état** - ils peuvent gérer plusieurs conversations simultanées.
-C'est le **Thread** qui porte l'état de la conversation.
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        UN AGENT (stateless)                     │
-│                              │                                  │
-│         ┌────────────────────┼────────────────────┐             │
-│         │                    │                    │             │
-│         ▼                    ▼                    ▼             │
-│   ┌──────────┐        ┌──────────┐        ┌──────────┐          │
-│   │ Thread A │        │ Thread B │        │ Thread C │          │
-│   │ User 1   │        │ User 2   │        │ User 1   │          │
-│   │ [msg1,   │        │ [msg1,   │        │ [msg1]   │          │
-│   │  msg2,   │        │  msg2]   │        │          │          │
-│   │  msg3]   │        │          │        │          │          │
-│   └──────────┘        └──────────┘        └──────────┘          │
-│                                                                 │
-│   Chaque thread = conversation isolée, persistée sur NATS KV    │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-#### API Thread
-
-```rust
-impl AgentThread {
-    /// Crée un nouveau thread
-    pub async fn new(nats: &NatsClient) -> Result<Self, ThreadError> {
-        let thread = Self {
-            id: ThreadId::new(),
-            messages: vec![],
-            metadata: ThreadMetadata::default(),
-        };
-        nats.kv_put(&format!("thread.{}", thread.id), &thread).await?;
-        Ok(thread)
-    }
-
-    /// Charge un thread existant depuis NATS
-    pub async fn load(id: &ThreadId, nats: &NatsClient) -> Result<Self, ThreadError> {
-        nats.kv_get(&format!("thread.{}", id)).await?
-            .ok_or(ThreadError::NotFound(id.clone()))
-    }
-
-    /// Sauvegarde le thread sur NATS
-    pub async fn save(&self, nats: &NatsClient) -> Result<(), ThreadError> {
-        nats.kv_put(&format!("thread.{}", self.id), self).await?;
-        Ok(())
-    }
-}
-```
-
-#### Sérialisation / Désérialisation (Persistence)
-
-Le thread peut être sérialisé pour pause/reprise de conversation:
-
-```rust
-impl Agent {
-    /// Crée un nouveau thread pour cet agent
-    pub fn new_thread(&self) -> AgentThread {
-        AgentThread::new_with_agent_id(self.id.clone())
-    }
-}
-
-impl AgentThread {
-    /// Sérialise le thread (pour stockage externe, pause, transfert)
-    pub fn serialize(&self) -> Result<Vec<u8>, SerializeError> {
-        // Utilise serde pour serialiser tout l'état
-        bincode::serialize(self)
-    }
-
-    /// Désérialise un thread (reprise de conversation)
-    pub fn deserialize(data: &[u8]) -> Result<Self, DeserializeError> {
-        bincode::deserialize(data)
-    }
-}
-
-// Exemple: Pause/Reprise d'une conversation
-async fn pause_resume_example(agent: &ChatAgent, nats: &NatsClient) {
-    // 1. Créer et utiliser un thread
-    let mut thread = agent.new_thread();
-    let response = agent.invoke("Bonjour!", &mut thread).await?;
-
-    // 2. Sérialiser pour pause (stockage longue durée)
-    let serialized = thread.serialize()?;
-    nats.kv_put("paused_conversations.user_123", &serialized).await?;
-
-    // ... Plus tard (même process ou autre) ...
-
-    // 3. Reprendre la conversation
-    let data = nats.kv_get("paused_conversations.user_123").await?;
-    let mut restored_thread = AgentThread::deserialize(&data)?;
-
-    // 4. Continuer avec le même agent (stateless!)
-    let response = agent.invoke("On en était où ?", &mut restored_thread).await?;
-    // L'agent a accès à tout l'historique via le thread restauré
-}
-```
-
-#### ChatMessageStore: Factory pour Storage Personnalisé
-
-Pour des besoins spécifiques (base de données, cache, etc.):
-
-```rust
-/// Factory pour créer des message stores personnalisés
-pub trait ChatMessageStoreFactory: Send + Sync {
-    type Store: ChatMessageStore;
-
-    fn create(&self, thread_id: &ThreadId) -> Self::Store;
-}
-
-/// Store par défaut: NATS KV
-pub struct NatsMessageStoreFactory {
-    nats: NatsClient,
-    bucket: String,
-}
-
-impl ChatMessageStoreFactory for NatsMessageStoreFactory {
-    type Store = NatsMessageStore;
-
-    fn create(&self, thread_id: &ThreadId) -> Self::Store {
-        NatsMessageStore {
-            nats: self.nats.clone(),
-            key: format!("{}.{}", self.bucket, thread_id),
-        }
-    }
-}
-
-// Utilisation avec factory personnalisée
-let agent = ChatAgentBuilder::new()
-    .model("gpt-4o")
-    .message_store_factory(NatsMessageStoreFactory::new(nats, "threads"))
-    .build();
-```
-
-#### Compatibilité Thread ↔ Agent
-
-> ⚠️ **Attention**: Un thread créé avec un agent doit être utilisé avec un agent **compatible**.
-
-Critères de compatibilité:
-- Même format de messages (ChatMessage vs autre)
-- Même schéma d'outils (tools disponibles)
-- Même modèle LLM (ou compatible)
-
----
-
-### Background Responses: Tâches Longues avec Continuation
-
-> ⚠️ **STATUT: NON IMPLÉMENTÉ** - Planifié pour Phase 9.
-
-> Inspiré de [MAF Background Responses](https://learn.microsoft.com/fr-fr/agent-framework/user-guide/agents/agent-background-responses)
-
-Pour les tâches de longue durée (raisonnement complexe, génération massive), on utilise un système de **continuation token** permettant de reprendre le traitement.
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    BACKGROUND RESPONSE FLOW                     │
-│                                                                 │
-│  Client                        Agent                            │
-│    │                             │                              │
-│    │──── invoke("long task") ───▶│                              │
-│    │                             │                              │
-│    │◀── ContinuationToken + ─────│  (traitement en cours)       │
-│    │    partial_result           │                              │
-│    │                             │                              │
-│    │ ... poll/wait ...           │  ... processing ...          │
-│    │                             │                              │
-│    │──── resume(token) ─────────▶│                              │
-│    │                             │                              │
-│    │◀── final_result ────────────│  (terminé)                   │
-│    │    token = None             │                              │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-#### API Rust avec NATS
-
-```rust
-/// Jeton de continuation pour reprendre une tâche longue
-#[derive(Serialize, Deserialize, Clone)]
-pub struct ContinuationToken {
-    pub task_id: TaskId,
-    pub checkpoint: Vec<u8>,  // État sérialisé
-    pub created_at: DateTime<Utc>,
-}
-
-/// Réponse d'un agent (peut être partielle ou finale)
-pub enum AgentResponse<T> {
-    /// Tâche terminée
-    Complete(T),
-    /// Tâche en cours, utiliser le token pour reprendre
-    InProgress {
-        partial_result: Option<T>,
-        continuation_token: ContinuationToken,
-    },
-}
-
-impl Agent {
-    /// Invoque avec support background responses
-    pub async fn invoke_with_background(
-        &self,
-        input: &str,
-        thread: &mut AgentThread,
-        options: InvokeOptions,
-    ) -> Result<AgentResponse<String>, AgentError> {
-        // Si un token est fourni, reprendre depuis le checkpoint
-        if let Some(token) = options.continuation_token {
-            return self.resume_from_token(token, thread).await;
-        }
-
-        // Démarrer la tâche
-        let task_id = TaskId::new();
-
-        // Publier sur NATS pour traitement async
-        self.nats.publish(
-            &format!("agent.{}.task.{}", self.id, task_id),
-            &BackgroundTask { input: input.to_string(), thread_id: thread.id.clone() }
-        ).await?;
-
-        // Retourner immédiatement avec token
-        Ok(AgentResponse::InProgress {
-            partial_result: None,
-            continuation_token: ContinuationToken {
-                task_id,
-                checkpoint: vec![],
-                created_at: Utc::now(),
-            },
-        })
-    }
-}
-
-// Exemple: Polling pour tâche longue
-async fn long_task_example(agent: &ChatAgent, thread: &mut AgentThread) {
-    let mut response = agent.invoke_with_background(
-        "Écris un roman très long...",
-        thread,
-        InvokeOptions { allow_background: true, ..Default::default() }
-    ).await?;
-
-    // Polling jusqu'à completion
-    while let AgentResponse::InProgress { continuation_token, .. } = response {
-        tokio::time::sleep(Duration::from_secs(2)).await;
-
-        response = agent.invoke_with_background(
-            "", // Pas de nouveau input, juste reprendre
-            thread,
-            InvokeOptions { continuation_token: Some(continuation_token), ..Default::default() }
-        ).await?;
-    }
-
-    if let AgentResponse::Complete(result) = response {
-        println!("Résultat final: {}", result);
-    }
-}
-```
-
-#### Streaming avec Reprise (via NATS JetStream)
-
-```rust
-// Le token permet aussi de reprendre un stream interrompu
-async fn resumable_stream(agent: &ChatAgent, thread: &mut AgentThread) {
-    let mut stream = agent.invoke_stream_with_background(
-        "Génère du contenu...",
-        thread,
-        InvokeOptions { allow_background: true, ..Default::default() }
-    ).await?;
-
-    let mut last_token = None;
-
-    // Consumer le stream (peut être interrompu)
-    while let Some(update) = stream.next().await {
-        print!("{}", update.text);
-        last_token = update.continuation_token;
-
-        // Simulation d'interruption réseau
-        if some_condition { break; }
-    }
-
-    // Plus tard: reprendre depuis le dernier token
-    if let Some(token) = last_token {
-        let resumed_stream = agent.invoke_stream_with_background(
-            "",
-            thread,
-            InvokeOptions { continuation_token: Some(token), ..Default::default() }
-        ).await?;
-
-        // Continuer à consumer...
-    }
-}
-```
-
----
-
-### Agent Memory: Court Terme et Long Terme
-
-> ✅ **STATUT: PARTIELLEMENT IMPLÉMENTÉ** - Phase 8 complète pour in-memory.
->
-> Implémenté:
-> - `MemoryProvider` trait avec `before_invoke`/`after_invoke`
-> - `InMemoryProvider` et `NoOpMemoryProvider`
-> - `Memory`, `MemoryCategory`, `UserMemories`, `MemoryContext`
-> - `ChatReducer` trait avec 4 implémentations
-> - Example: `examples/memory_demo.rs`
->
-> À faire: `NatsMemoryProvider` (Phase 9)
-
-> Inspiré de [MAF Agent Memory](https://learn.microsoft.com/fr-fr/agent-framework/user-guide/agents/agent-memory)
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      ARCHITECTURE MÉMOIRE                       │
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │                   SHORT-TERM MEMORY                     │    │
-│  │              (Historique de conversation)               │    │
-│  │                                                         │    │
-│  │   Thread = [msg1, msg2, msg3, ...]                      │    │
-│  │                     │                                   │    │
-│  │                     ▼                                   │    │
-│  │   NATS KV: "thread.{id}" → messages sérialisés          │    │
-│  │                                                         │    │
-│  └─────────────────────────────────────────────────────────┘    │
-│                             │                                   │
-│                             ▼                                   │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │                   LONG-TERM MEMORY                      │    │
-│  │            (Souvenirs persistants, RAG)                 │    │
-│  │                                                         │    │
-│  │   MemoryProvider → extraire/injecter des souvenirs      │    │
-│  │                     │                                   │    │
-│  │                     ▼                                   │    │
-│  │   NATS KV: "memory.{agent_id}.{user_id}" → embeddings   │    │
-│  │                                                         │    │
-│  └─────────────────────────────────────────────────────────┘    │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-#### Types de Mémoire
-
-| Type | Durée | Stockage | Cas d'usage |
-|------|-------|----------|-------------|
-| **Short-term** | Session | Thread (NATS KV) | Historique conversation en cours |
-| **Long-term** | Persistant | Memory Store (NATS KV) | Préférences utilisateur, faits mémorisés |
-| **Semantic** | Persistant | Vector Store | RAG, recherche par similarité |
-
-#### API Memory
-
-```rust
-/// Provider de contexte mémoire (injecte/extrait des souvenirs)
-#[async_trait]
-pub trait MemoryProvider: Send + Sync {
-    /// Appelé AVANT chaque invocation - injecte du contexte
-    async fn before_invoke(
-        &self,
-        agent_id: &AgentId,
-        thread: &AgentThread,
-        ctx: &mut MemoryContext,
-    ) -> Result<(), MemoryError>;
-
-    /// Appelé APRÈS chaque invocation - extrait des souvenirs
-    async fn after_invoke(
-        &self,
-        agent_id: &AgentId,
-        thread: &AgentThread,
-        response: &AgentResponse,
-    ) -> Result<(), MemoryError>;
-}
-
-/// Contexte mémoire injectable
-pub struct MemoryContext {
-    /// Instructions additionnelles à injecter
-    pub extra_instructions: Option<String>,
-    /// Messages système à ajouter
-    pub system_messages: Vec<ChatMessage>,
-}
-
-/// Implémentation NATS pour mémoire long-terme
-pub struct NatsMemoryProvider {
-    nats: NatsClient,
-    bucket: String,
-}
-
-impl MemoryProvider for NatsMemoryProvider {
-    async fn before_invoke(
-        &self,
-        agent_id: &AgentId,
-        thread: &AgentThread,
-        ctx: &mut MemoryContext,
-    ) -> Result<(), MemoryError> {
-        // Récupérer les souvenirs de l'utilisateur
-        let user_id = thread.metadata.user_id.as_ref();
-        if let Some(user_id) = user_id {
-            let key = format!("{}.{}.{}", self.bucket, agent_id, user_id);
-            if let Some(memories) = self.nats.kv_get::<UserMemories>(&key).await? {
-                ctx.extra_instructions = Some(format!(
-                    "Souvenirs de l'utilisateur:\n{}",
-                    memories.to_context_string()
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    async fn after_invoke(
-        &self,
-        agent_id: &AgentId,
-        thread: &AgentThread,
-        response: &AgentResponse,
-    ) -> Result<(), MemoryError> {
-        // Extraire et stocker les nouveaux souvenirs
-        // (détection automatique de faits importants)
-        let new_memories = extract_memories_from_response(response)?;
-        if !new_memories.is_empty() {
-            let user_id = thread.metadata.user_id.as_ref().unwrap();
-            let key = format!("{}.{}.{}", self.bucket, agent_id, user_id);
-
-            let mut memories = self.nats.kv_get::<UserMemories>(&key).await?
-                .unwrap_or_default();
-            memories.extend(new_memories);
-            self.nats.kv_put(&key, &memories).await?;
-        }
-        Ok(())
-    }
-}
-```
-
-#### Réduction de l'Historique (Context Window Management)
-
-```rust
-/// Stratégie de réduction de l'historique pour respecter la fenêtre de contexte
-pub trait ChatReducer: Send + Sync {
-    fn reduce(&self, messages: &[ChatMessage]) -> Vec<ChatMessage>;
-}
-
-/// Garde les N derniers messages
-pub struct MessageCountingReducer {
-    max_messages: usize,
-}
-
-impl ChatReducer for MessageCountingReducer {
-    fn reduce(&self, messages: &[ChatMessage]) -> Vec<ChatMessage> {
-        if messages.len() <= self.max_messages {
-            messages.to_vec()
-        } else {
-            // Garde le system message + les N derniers
-            let system = messages.iter()
-                .filter(|m| m.role == Role::System)
-                .cloned()
-                .collect::<Vec<_>>();
-
-            let recent = messages.iter()
-                .filter(|m| m.role != Role::System)
-                .rev()
-                .take(self.max_messages - system.len())
-                .cloned()
-                .rev()
-                .collect::<Vec<_>>();
-
-            [system, recent].concat()
-        }
-    }
-}
-
-/// Résume les anciens messages pour libérer du contexte
-pub struct SummarizingReducer {
-    summarizer: Arc<dyn Agent>,
-    threshold: usize,
-}
-```
-
-#### Builder avec Memory
-
-```rust
-let agent = ChatAgentBuilder::new()
-    .model("gpt-4o")
-    .instructions("Tu es un assistant personnel.")
-    // Mémoire long-terme
-    .memory_provider(NatsMemoryProvider::new(nats.clone(), "memories"))
-    // Réduction automatique de l'historique
-    .chat_reducer(MessageCountingReducer::new(20))
-    .build();
-```
 
 ---
 
@@ -1247,50 +97,6 @@ Un **Executor** est un noeud générique qui peut prendre 3 formes:
 | **Validator** | Vérifie | Data à valider | Pass/Fail + Errors | Compile, test, lint, review |
 | **Orchestrator** | Coordonne | Task + Config | Result du sub-graph | Gère une sous-tâche complexe |
 
-### Point Clé: Un Validator EST un Executor
-
-> **Important**: Contrairement à l'architecture actuelle où les Validators sont des composants **séparés** appelés après l'exécution, dans la nouvelle architecture un Validator est simplement un **Executor avec `kind = Validator`**.
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    TOUS IMPLÉMENTENT LE MÊME TRAIT                          │
-│                                                                             │
-│   impl Executor for CodeGenerator {        // Worker                        │
-│       type Output = GeneratedCode;                                          │
-│       fn kind() -> ExecutorKind::Worker                                     │
-│   }                                                                         │
-│                                                                             │
-│   impl Executor for CompileValidator {     // Validator = Executor aussi!   │
-│       type Output = ValidationResult;      // Output = { passed, errors }   │
-│       fn kind() -> ExecutorKind::Validator                                  │
-│   }                                                                         │
-│                                                                             │
-│   impl Executor for SubWorkflow {          // Orchestrator                  │
-│       type Output = SubTaskResult;                                          │
-│       fn kind() -> ExecutorKind::Orchestrator                               │
-│   }                                                                         │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-**Pourquoi c'est important:**
-
-| Aspect | Avant (séparé) | Après (unifié) |
-|--------|----------------|----------------|
-| **Routing** | `if !validator.validate() { retry() }` manuel | Edge conditionnel automatique |
-| **Feedback loop** | Code custom externe | `add_conditional_edge(validator, worker, \|r\| !r.passed)` |
-| **Dans le graph** | Non, externe | Oui, c'est un noeud comme les autres |
-| **Historique NATS** | Système séparé | Même `ctx.previous_errors()` que les Workers |
-| **Parallélisme** | Séquentiel après worker | Peut être en parallèle dans un superstep |
-
-**Conséquence pratique**: Les edges conditionnels peuvent router selon `passed`:
-```rust
-// Si validation échoue → retour au worker avec feedback
-.add_conditional_edge(compile_validator, impl_generator, |r| !r.passed, "retry_on_failure")
-
-// Si validation réussit → continuer au prochain validator
-.add_conditional_edge(compile_validator, test_validator, |r| r.passed, "continue_on_success")
-```
-
 ### Récursivité: Orchestrator contient un Graph
 
 ```
@@ -1331,9 +137,7 @@ Orchestrator (main task: "Create State Machine")
 pub trait Executor: Send + Sync {
     /// Type d'input accepté
     type Input: Serialize + DeserializeOwned;
-    /// Type d'output (messages vers autres executors)
-    type Message: Serialize + DeserializeOwned;
-    /// Type de sortie finale (visible par le caller du workflow)
+    /// Type d'output produit
     type Output: Serialize + DeserializeOwned;
 
     /// Identifiant unique
@@ -1342,14 +146,12 @@ pub trait Executor: Send + Sync {
     /// Type d'executor (Worker, Validator, Orchestrator)
     fn kind(&self) -> ExecutorKind;
 
-    /// Traite un message et utilise le contexte pour communiquer
-    async fn handle<Ctx>(
+    /// Traite un message et utilise le contexte pour envoyer les résultats
+    async fn handle(
         &self,
         input: Self::Input,
-        ctx: &mut Ctx,
-    ) -> Result<(), ExecutorError>
-    where
-        Ctx: ExecutorContext<Self::Message, Self::Output> + Send;
+        ctx: &mut WorkflowContext<Self::Output>,
+    ) -> Result<(), ExecutorError>;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1363,235 +165,33 @@ pub enum ExecutorKind {
 }
 ```
 
-### MAF Dynamic Dispatch Pattern
-
-> **Important**: Inspiré de [MAF Python Executors](https://learn.microsoft.com/en-us/agent-framework/user-guide/workflows/core-concepts/executors),
-> nos executors utilisent `serde_json::Value` pour le **dynamic dispatch**.
-
-**Problème**: L'`ExecutorRegistry` impose une contrainte de types:
-```rust
-pub struct ExecutorRegistry<TMessage, TOutput> {
-    executors: HashMap<ExecutorId, Arc<dyn Executor<Message = TMessage, Output = TOutput>>>,
-}
-```
-
-Tous les executors d'un workflow DOIVENT avoir les mêmes types `Message` et `Output`.
-
-**Solution MAF**: Type erasure avec `serde_json::Value`:
-
-```rust
-// TOUS les executors built-in utilisent le même pattern:
-impl Executor for LLMGeneratorExecutor {
-    type Input = Value;     // Dynamic dispatch
-    type Message = Value;   // Dynamic dispatch
-    type Output = String;   // Status messages
-
-    async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
-    where
-        Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
-    {
-        // Deserialize dynamically
-        let typed_input: GeneratorInput = serde_json::from_value(input)?;
-
-        // ... process ...
-
-        // Serialize output to Value
-        ctx.send_message(generated.to_value()).await?;
-        Ok(())
-    }
-}
-```
-
-**Avantages**:
-- ✅ Tous les executors compatibles dans un même workflow
-- ✅ Type-safe construction avec helpers (`GeneratorInput`, `CompileInput`, etc.)
-- ✅ Runtime flexibility pour routing dynamique
-- ✅ Matches MAF Python pattern avec `WorkflowContext[T]`
-
-**Trade-off**: Validation des types au runtime plutôt qu'à la compilation.
-
-### Input/Output Schemas
-
-Chaque executor documente son schema JSON:
-
-| Executor | Input Schema | Output Schema |
-|----------|--------------|---------------|
-| `LLMGeneratorExecutor` | `GeneratorInput` → `{prompt, language, context?, previous_errors?}` | `GeneratedCode` → `{code, language, prompt, tokens_used}` |
-| `CompileValidatorExecutor` | `CompileInput` → `{code, language, task?}` | `CompileOutput` → `{code, language, passed, errors, feedback?}` |
-| `TestValidatorExecutor` | `TestInput` → `{code, language, test_filter?, task?}` | `TestOutput` → `{code, language, passed, test_count, tests_passed, tests_failed, errors}` |
-| `CodeAssemblerExecutor` | `AssemblyInput` → `{parts: [{name, code, language, section?}], language}` | `AssembledCode` → `{code, language, part_count, size_bytes}` |
-| `SubWorkflowExecutor` | `SubWorkflowInput` → `{input: any, task_id?}` | `SubWorkflowOutput` → `{outputs, superstep_count, duration_ms, success, error?}` |
-```
-
-### Executors Déclaratifs (Function-based)
-
-Inspiré du pattern `@executor` de MAF Python, on peut créer des executors à partir de fonctions:
-
-```rust
-/// Macro pour créer un executor à partir d'une fonction
-/// Équivalent du décorateur @executor de MAF Python
-#[executor(id = "uppercase")]
-async fn uppercase(text: String, ctx: &mut WorkflowContext<String>) {
-    ctx.send_message(text.to_uppercase()).await;
-}
-
-// Équivalent à:
-pub struct UppercaseExecutor;
-
-#[async_trait]
-impl Executor for UppercaseExecutor {
-    type Input = String;
-    type Message = String;
-    type Output = Never;
-
-    fn id(&self) -> &ExecutorId { &ExecutorId::new("uppercase") }
-    fn kind(&self) -> ExecutorKind { ExecutorKind::Worker }
-
-    async fn handle(&self, text: String, ctx: &mut WorkflowContext<String>)
-        -> Result<(), ExecutorError>
-    {
-        ctx.send_message(text.to_uppercase()).await?;
-        Ok(())
-    }
-}
-```
-
-### Multi-Handler Executors
-
-Un executor peut gérer plusieurs types de messages (routing interne):
-
-```rust
-/// Executor avec plusieurs handlers selon le type de message
-pub struct MultiTypeExecutor {
-    id: ExecutorId,
-}
-
-impl MultiTypeExecutor {
-    /// Handler pour les String
-    async fn handle_string(&self, text: String, ctx: &mut WorkflowContext<String>) {
-        ctx.send_message(text.to_uppercase()).await;
-    }
-
-    /// Handler pour les i32
-    async fn handle_int(&self, num: i32, ctx: &mut WorkflowContext<i32>) {
-        ctx.send_message(num * 2).await;
-    }
-}
-
-// En Rust, on utilise un enum pour le multi-type
-#[derive(Serialize, Deserialize)]
-pub enum MultiInput {
-    Text(String),
-    Number(i32),
-}
-
-#[derive(Serialize, Deserialize)]
-pub enum MultiOutput {
-    Text(String),
-    Number(i32),
-}
-
-#[async_trait]
-impl Executor for MultiTypeExecutor {
-    type Input = MultiInput;
-    type Message = MultiOutput;
-    type Output = Never;
-
-    async fn handle(&self, input: MultiInput, ctx: &mut WorkflowContext<MultiOutput>)
-        -> Result<(), ExecutorError>
-    {
-        match input {
-            MultiInput::Text(s) => {
-                ctx.send_message(MultiOutput::Text(s.to_uppercase())).await?;
-            }
-            MultiInput::Number(n) => {
-                ctx.send_message(MultiOutput::Number(n * 2)).await?;
-            }
-        }
-        Ok(())
-    }
-}
-```
-
 ### WorkflowContext: Communication
-
-Le `WorkflowContext` est générique sur deux types (comme en MAF):
-- `TMessage`: type des messages envoyés aux autres executors (via edges)
-- `TOutput`: type des sorties finales visibles par le caller du workflow
 
 ```rust
 /// Contexte fourni à chaque Executor pour communiquer
-/// Générique: WorkflowContext<TMessage, TOutput>
-pub struct WorkflowContext<TMessage, TOutput = Never> {
+pub struct WorkflowContext<TOutput> {
     /// ID de l'executor courant
     executor_id: ExecutorId,
     /// Client NATS pour mémoire/historique
     nats: Arc<NatsClient>,
     /// Messages à envoyer aux edges sortants
-    outgoing_messages: Vec<TMessage>,
+    outgoing_messages: Vec<TOutput>,
     /// Outputs à retourner au workflow caller
-    outputs: Vec<TOutput>,
+    outputs: Vec<WorkflowOutput>,
     /// Historique (lu depuis NATS)
     history: ExecutorHistory,
 }
-```
 
-### Les 3 méthodes de communication
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    TROIS MÉTHODES, TROIS DESTINATIONS                        │
-│                                                                             │
-│  send_message(msg)        yield_output(out)        add_event(evt)          │
-│       │                        │                        │                   │
-│       ▼                        ▼                        ▼                   │
-│  ┌─────────────┐        ┌─────────────┐        ┌─────────────┐             │
-│  │   EDGES     │        │   CALLER    │        │    NATS     │             │
-│  │  (internes) │        │  (externe)  │        │  (observ.)  │             │
-│  └──────┬──────┘        └─────────────┘        └──────┬──────┘             │
-│         │                                             │                     │
-│         ▼                                             ▼                     │
-│  Autres Executors        Agent/code appelant    Monitoring/Audit            │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-| Méthode | Destination | NATS Subject | Usage |
-|---------|-------------|--------------|-------|
-| `send_message(msg)` | Edges → autres Executors | (interne) | Flux de données dans le workflow |
-| `yield_output(out)` | Caller (Agent, code) | `agentic.workflow.{id}.output` | Résultat visible de l'extérieur |
-| `add_event(evt)` | Stream NATS | `agentic.executor.{id}.event.*` | Observabilité, audit, monitoring |
-
-```rust
-impl<TMessage: Serialize, TOutput: Serialize> WorkflowContext<TMessage, TOutput> {
+impl<TOutput: Serialize> WorkflowContext<TOutput> {
     /// Envoie un message aux executors connectés (via edges)
-    /// → Flux INTERNE au workflow
-    pub async fn send_message(&mut self, message: TMessage) -> Result<(), ContextError> {
+    pub async fn send_message(&mut self, message: TOutput) -> Result<(), ContextError> {
         self.outgoing_messages.push(message);
         Ok(())
     }
 
     /// Produit un output visible par le caller du workflow
-    /// → Flux EXTERNE (résultat final)
-    pub async fn yield_output(&mut self, output: TOutput) -> Result<(), ContextError> {
-        self.outputs.push(output);
-        // Aussi publié sur NATS pour le streaming
-        self.nats.publish(
-            &format!("agentic.workflow.{}.output", self.workflow_id),
-            &output
-        ).await?;
-        Ok(())
-    }
-
-    /// Émet un événement custom (observabilité)
-    /// Inspiré de MAF ctx.add_event()
-    /// → Publié sur NATS pour monitoring/audit
-    pub async fn add_event<E: WorkflowEvent>(&self, event: E) -> Result<(), ContextError> {
-        self.nats.publish(
-            &format!("agentic.executor.{}.event.{}", self.executor_id, E::event_type()),
-            &event
-        ).await?;
-        // Aussi ajouté au stream d'événements du workflow
-        self.events.push(Box::new(event));
+    pub async fn yield_output<O: Serialize>(&mut self, output: O) -> Result<(), ContextError> {
+        self.outputs.push(WorkflowOutput::new(output));
         Ok(())
     }
 
@@ -1610,1762 +210,121 @@ impl<TMessage: Serialize, TOutput: Serialize> WorkflowContext<TMessage, TOutput>
         &self.history.successful_patterns
     }
 
-    /// Log un événement sur NATS (raccourci pour add_event avec LogEvent)
+    /// Log un événement sur NATS
     pub async fn log(&self, level: LogLevel, message: &str) -> Result<(), ContextError> {
-        self.add_event(LogEvent {
-            level,
-            message: message.to_string(),
-            timestamp: Utc::now()
-        }).await
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
-    // SHARED STATE (inspiré MAF) - Stocké dans NATS KV
-    // ══════════════════════════════════════════════════════════════════════
-
-    /// Stocke un état partagé accessible par d'autres executors
-    /// Inspiré de MAF ctx.set_shared_state()
-    /// → Persisté dans NATS KV
-    pub async fn set_shared_state<T: Serialize>(
-        &self,
-        key: &str,
-        value: T,
-    ) -> Result<(), ContextError> {
-        self.nats.kv_put(
-            &format!("workflow.{}.state.{}", self.workflow_id, key),
-            &value
+        self.nats.publish(
+            &format!("agentic.executor.{}.log", self.executor_id),
+            &LogEvent { level, message: message.to_string(), timestamp: Utc::now() }
         ).await?;
         Ok(())
     }
-
-    /// Lit un état partagé stocké par un autre executor
-    /// Inspiré de MAF ctx.get_shared_state()
-    /// → Lu depuis NATS KV
-    pub async fn get_shared_state<T: DeserializeOwned>(
-        &self,
-        key: &str,
-    ) -> Result<Option<T>, ContextError> {
-        self.nats.kv_get(
-            &format!("workflow.{}.state.{}", self.workflow_id, key)
-        ).await
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
-    // REQUEST/RESPONSE (inspiré MAF) - Human-in-the-loop via NATS
-    // ══════════════════════════════════════════════════════════════════════
-
-    /// Envoie une requête externe et attend une réponse
-    /// Utile pour human-in-the-loop, approbations, etc.
-    /// Inspiré de MAF ctx.request_info()
-    /// → Utilise NATS Request-Reply pattern
-    pub async fn request_info<Req: Serialize, Res: DeserializeOwned>(
-        &self,
-        request: Req,
-    ) -> Result<Res, ContextError> {
-        // Publier un événement de requête
-        let request_id = uuid::Uuid::new_v4().to_string();
-
-        self.add_event(RequestInfoEvent {
-            request_id: request_id.clone(),
-            request: serde_json::to_value(&request)?,
-        }).await?;
-
-        // Attendre la réponse via NATS
-        let response: Res = self.nats.request(
-            &format!("agentic.workflow.{}.request.{}", self.workflow_id, request_id),
-            &request
-        ).await?;
-
-        Ok(response)
-    }
 }
 ```
 
-### Shared State: État partagé entre Executors
-
-Inspiré de [MAF Shared States](https://learn.microsoft.com/fr-fr/agent-framework/user-guide/workflows/shared-states), permet à plusieurs executors de partager des données sans passer par les edges.
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         SHARED STATE (via NATS KV)                          │
-│                                                                             │
-│   FileReader                        WordCounter                             │
-│  ┌──────────┐                      ┌──────────┐                            │
-│  │  read()  │                      │  count() │                            │
-│  └────┬─────┘                      └────┬─────┘                            │
-│       │                                 │                                   │
-│       │ set_shared_state               │ get_shared_state                   │
-│       │ ("file_abc", content)          │ ("file_abc")                       │
-│       │                                 │                                   │
-│       ▼                                 ▼                                   │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                         NATS KV                                      │   │
-│  │  workflow.{id}.state.file_abc = "contenu du fichier..."             │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
-│  Usage: gros fichiers, données intermédiaires, cache partagé               │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+### Exemples d'Executors
 
 ```rust
-// Executor qui lit un fichier et stocke dans shared state
-impl Executor for FileReader {
-    async fn handle(&self, path: String, ctx: &mut WorkflowContext<String>) {
-        let content = std::fs::read_to_string(&path)?;
-        let file_id = uuid::Uuid::new_v4().to_string();
-
-        // Stocker dans NATS KV (shared state)
-        ctx.set_shared_state(&file_id, &content).await?;
-
-        // Passer seulement l'ID via edge (pas le contenu!)
-        ctx.send_message(file_id).await?;
-    }
-}
-
-// Executor qui récupère le fichier depuis shared state
-impl Executor for WordCounter {
-    async fn handle(&self, file_id: String, ctx: &mut WorkflowContext<usize>) {
-        // Récupérer depuis NATS KV
-        let content: String = ctx.get_shared_state(&file_id).await?
-            .ok_or(ContextError::StateNotFound)?;
-
-        let word_count = content.split_whitespace().count();
-        ctx.send_message(word_count).await?;
-    }
-}
-```
-
-### Request/Response: Human-in-the-loop
-
-Inspiré de [MAF Requests and Responses](https://learn.microsoft.com/fr-fr/agent-framework/user-guide/workflows/requests-and-responses), permet aux executors de demander une intervention externe (humain, API, etc.).
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    REQUEST/RESPONSE (Human-in-the-loop)                     │
-│                                                                             │
-│   Executor                          External System                         │
-│  ┌──────────┐                      ┌──────────────────┐                    │
-│  │ needs    │ ── request_info ──▶  │  Human / API     │                    │
-│  │ approval │                      │                  │                    │
-│  │          │ ◀── response ──────  │  [Approve/Deny]  │                    │
-│  └──────────┘                      └──────────────────┘                    │
-│       │                                                                     │
-│       ▼                                                                     │
-│  continue workflow                                                          │
-│                                                                             │
-│  Transport: NATS Request-Reply pattern                                      │
-│  Subject: agentic.workflow.{id}.request.{request_id}                       │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-```rust
-/// Requête d'approbation
-#[derive(Serialize, Deserialize)]
-pub struct ApprovalRequest {
-    pub action: String,
-    pub details: String,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct ApprovalResponse {
-    pub approved: bool,
-    pub reason: Option<String>,
-}
-
-// Executor qui demande une approbation
-impl Executor for DeployExecutor {
-    async fn handle(&self, deploy_config: DeployConfig, ctx: &mut WorkflowContext<DeployResult>) {
-        // Demander approbation humaine
-        let response: ApprovalResponse = ctx.request_info(ApprovalRequest {
-            action: "deploy".into(),
-            details: format!("Deploy to {} with config {:?}", deploy_config.env, deploy_config),
-        }).await?;
-
-        if !response.approved {
-            return Err(ExecutorError::Rejected(response.reason.unwrap_or_default()));
-        }
-
-        // Continuer le déploiement
-        let result = self.deploy(&deploy_config).await?;
-        ctx.send_message(result).await?;
-    }
-}
-```
-
-#### Handler de réponses (côté externe)
-
-```rust
-// Côté système externe qui écoute les requêtes
-async fn handle_approval_requests(nats: &NatsClient) {
-    let mut sub = nats.subscribe("agentic.workflow.*.request.*").await?;
-
-    while let Some(msg) = sub.next().await {
-        let request: ApprovalRequest = serde_json::from_slice(&msg.payload)?;
-
-        // Afficher à l'utilisateur et attendre sa décision
-        println!("Approval requested: {}", request.details);
-        let user_input = prompt_user("Approve? (y/n): ");
-
-        let response = ApprovalResponse {
-            approved: user_input == "y",
-            reason: if user_input != "y" { Some("User rejected".into()) } else { None },
-        };
-
-        // Répondre via NATS
-        msg.respond(serde_json::to_vec(&response)?).await?;
-    }
-}
-```
-
-### Événements Custom
-
-Inspiré de MAF, les executors peuvent émettre des événements personnalisés:
-
-```rust
-/// Trait pour les événements custom
-pub trait WorkflowEvent: Serialize + Send + Sync {
-    fn event_type() -> &'static str;
-}
-
-/// Événement custom: progression de génération
-#[derive(Serialize)]
-pub struct GenerationProgressEvent {
-    pub phase: String,
-    pub percent: u8,
-    pub tokens_used: u32,
-}
-
-impl WorkflowEvent for GenerationProgressEvent {
-    fn event_type() -> &'static str { "generation_progress" }
-}
-
-/// Utilisation dans un executor
-impl Executor for CodeGenerator {
-    async fn handle(&self, input: GenerationRequest, ctx: &mut WorkflowContext<GeneratedCode>)
-        -> Result<(), ExecutorError>
-    {
-        // Émettre un événement de progression
-        ctx.add_event(GenerationProgressEvent {
-            phase: "parsing".into(),
-            percent: 10,
-            tokens_used: 0,
-        }).await?;
-
-        let types = self.generate_types(&input).await?;
-
-        ctx.add_event(GenerationProgressEvent {
-            phase: "types_done".into(),
-            percent: 50,
-            tokens_used: 500,
-        }).await?;
-
-        let impl_code = self.generate_impl(&input, &types).await?;
-
-        ctx.add_event(GenerationProgressEvent {
-            phase: "impl_done".into(),
-            percent: 100,
-            tokens_used: 1200,
-        }).await?;
-
-        ctx.send_message(GeneratedCode { types, impl_code }).await?;
-        Ok(())
-    }
-}
-```
-
-### Mapping Events → NATS
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         EVENTS → NATS SUBJECTS                              │
-│                                                                             │
-│  MAF Event                    │  NATS Subject                               │
-│  ─────────────────────────────┼─────────────────────────────────────────    │
-│  ExecutorInvokedEvent         │  agentic.executor.{id}.started              │
-│  ExecutorCompletedEvent       │  agentic.executor.{id}.completed            │
-│  ExecutorFailedEvent          │  agentic.executor.{id}.failed               │
-│  SuperStepStartedEvent        │  agentic.workflow.{id}.superstep.started    │
-│  SuperStepCompletedEvent      │  agentic.workflow.{id}.superstep.completed  │
-│  WorkflowOutputEvent          │  agentic.workflow.{id}.output               │
-│  WorkflowErrorEvent           │  agentic.workflow.{id}.error                │
-│  CustomEvent (via add_event)  │  agentic.executor.{id}.event.{type}         │
-│                                                                             │
-│  Tous les events sont aussi persistés dans:                                 │
-│  - Stream: AGENTIC_EVENTS (pour replay)                                     │
-│  - KV: workflow.{id}.events (pour query)                                    │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Exemples d'usage
-
-```rust
-// Executor qui ne fait que passer des messages (pas de sortie finale)
-impl Executor for CodeGenerator {
-    type Input = GenerationRequest;
-    type Message = GeneratedCode;
-    type Output = Never;  // Pas de yield_output
-
-    async fn handle(&self, input: GenerationRequest, ctx: &mut WorkflowContext<GeneratedCode>) {
-        let code = self.llm.generate(&input).await?;
-        ctx.send_message(code).await?;  // → vers Assembler via edge
-    }
-}
-
-// Executor final qui produit la sortie du workflow
-impl Executor for FinalAssembler {
-    type Input = AllParts;
-    type Message = Never;  // Pas de send_message
-    type Output = FinalResult;
-
-    async fn handle(&self, input: AllParts, ctx: &mut WorkflowContext<Never, FinalResult>) {
-        let result = self.assemble(input)?;
-        ctx.yield_output(result).await?;  // → visible par l'Agent
-    }
-}
-
-// Executor qui fait les deux
-impl Executor for IntermediateProcessor {
-    type Input = RawData;
-    type Message = ProcessedData;
-    type Output = ProgressUpdate;
-
-    async fn handle(&self, input: RawData, ctx: &mut WorkflowContext<ProcessedData, ProgressUpdate>) {
-        // Signaler la progression à l'extérieur
-        ctx.yield_output(ProgressUpdate::Started).await?;
-
-        let processed = self.process(input)?;
-
-        // Envoyer aux executors suivants
-        ctx.send_message(processed).await?;
-
-        ctx.yield_output(ProgressUpdate::Completed).await?;
-    }
-}
-```
-
-### Exemples d'Executors Concrets (MAF Pattern)
-
-> **Note**: Tous les executors utilisent `serde_json::Value` pour Input/Message
-> (MAF dynamic dispatch). Les types helpers (`GeneratorInput`, etc.) sont pour
-> la construction type-safe côté appelant.
-
-```rust
-use serde_json::Value;
-
-// === WORKER: Génère du code avec LLM ===
-pub struct LLMGeneratorExecutor {
+// === WORKER: Génère du code ===
+pub struct CodeGenerator {
     id: ExecutorId,
-    llm: Arc<Mutex<LLMExecutor>>,
+    llm: Arc<dyn LLMAdapter>,
     system_prompt: String,
 }
 
 #[async_trait]
-impl Executor for LLMGeneratorExecutor {
-    type Input = Value;      // MAF: dynamic dispatch
-    type Message = Value;    // MAF: dynamic dispatch
-    type Output = String;    // Status messages
+impl Executor for CodeGenerator {
+    type Input = GenerationRequest;
+    type Output = GeneratedCode;
 
     fn id(&self) -> &ExecutorId { &self.id }
     fn kind(&self) -> ExecutorKind { ExecutorKind::Worker }
 
-    async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
-    where
-        Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
-    {
-        // Deserialize dynamically
-        let typed_input: GeneratorInput = serde_json::from_value(input)?;
+    async fn handle(
+        &self,
+        input: GenerationRequest,
+        ctx: &mut WorkflowContext<GeneratedCode>,
+    ) -> Result<(), ExecutorError> {
+        // Consulter l'historique pour éviter les mêmes erreurs
+        let previous_errors = ctx.previous_errors();
+        let prompt = self.build_prompt_with_context(&input, previous_errors);
 
         // Appeler le LLM
-        let response = self.llm.lock().await.execute(&self.system_prompt, &typed_input.prompt).await?;
+        let response = self.llm.generate(&self.system_prompt, &prompt).await?;
 
-        // Build output
-        let generated = GeneratedCode::new(&response.content, &typed_input.language);
-
-        // Serialize output to Value for next executors
-        ctx.send_message(generated.to_value()).await?;
-
-        // Yield status output
-        ctx.yield_output(format!("Generated {} bytes", response.content.len())).await?;
+        // Envoyer le résultat aux edges sortants
+        ctx.send_message(GeneratedCode {
+            code: response.content,
+            language: input.language,
+        }).await?;
 
         Ok(())
     }
 }
 
 // === VALIDATOR: Vérifie la compilation ===
-pub struct CompileValidatorExecutor<S: Sandbox> {
+pub struct CompileValidator {
     id: ExecutorId,
-    validator: SandboxValidator<S>,
+    sandbox: Arc<dyn Sandbox>,
 }
 
 #[async_trait]
-impl<S: Sandbox + Send + Sync + 'static> Executor for CompileValidatorExecutor<S> {
-    type Input = Value;      // MAF: dynamic dispatch
-    type Message = Value;    // MAF: dynamic dispatch
-    type Output = String;    // Status messages
+impl Executor for CompileValidator {
+    type Input = CodeToValidate;
+    type Output = ValidationResult;
 
     fn id(&self) -> &ExecutorId { &self.id }
     fn kind(&self) -> ExecutorKind { ExecutorKind::Validator }
 
-    async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
-    where
-        Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
-    {
-        // Deserialize dynamically
-        let typed_input: CompileInput = serde_json::from_value(input)?;
-
+    async fn handle(
+        &self,
+        input: CodeToValidate,
+        ctx: &mut WorkflowContext<ValidationResult>,
+    ) -> Result<(), ExecutorError> {
         // Compiler dans le sandbox
-        let result = self.validator.validate_code(&typed_input.code, language).await?;
+        let result = self.sandbox.compile(&input.code, &input.language).await?;
 
-        // Build output
-        let output = CompileOutput {
-            code: typed_input.code.clone(),
-            language: typed_input.language.clone(),
-            passed: result.compiles,
-            errors: result.compiler_errors,
-            feedback: result.feedback,
-            execution_time_ms: result.execution_time_ms,
-        };
-
-        // Serialize to Value (edges conditionnels routeront selon "passed")
-        ctx.send_message(output.to_value()).await?;
-
-        // Yield status
-        let status = if output.passed { "Compilation: PASSED" } else { "Compilation: FAILED" };
-        ctx.yield_output(status.into()).await?;
-
-        Ok(())
-    }
-}
-
-// === WORKER: Assemble code fragments ===
-pub struct CodeAssemblerExecutor {
-    id: ExecutorId,
-    assembler: CodeAssembler,
-}
-
-#[async_trait]
-impl Executor for CodeAssemblerExecutor {
-    type Input = Value;      // MAF: dynamic dispatch
-    type Message = Value;    // MAF: dynamic dispatch
-    type Output = String;    // Final assembled code
-
-    fn id(&self) -> &ExecutorId { &self.id }
-    fn kind(&self) -> ExecutorKind { ExecutorKind::Worker }
-
-    async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
-    where
-        Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
-    {
-        // Deserialize dynamically
-        let typed_input: AssemblyInput = serde_json::from_value(input)?;
-
-        // Assemble code
-        let code = self.assemble_parts(&typed_input);
-        let assembled = AssembledCode::new(&code, &typed_input.language, typed_input.parts.len());
-
-        // Send as Value to next executors
-        ctx.send_message(assembled.to_value()).await?;
-
-        // Yield the final code as workflow output
-        ctx.yield_output(code).await?;
+        // Envoyer le résultat (les edges conditionnels routeront selon passed)
+        ctx.send_message(ValidationResult {
+            passed: result.success,
+            errors: result.errors,
+            feedback: self.build_feedback(&result),
+        }).await?;
 
         Ok(())
     }
 }
 
 // === ORCHESTRATOR: Coordonne un sub-workflow ===
-pub struct SubWorkflowExecutor {
+pub struct SubWorkflowOrchestrator {
     id: ExecutorId,
-    workflow: Arc<Workflow<Value, String>>,  // Child workflow
-    fail_on_child_failure: bool,
+    sub_workflow: Workflow,
 }
 
 #[async_trait]
-impl Executor for SubWorkflowExecutor {
-    type Input = Value;      // MAF: dynamic dispatch
-    type Message = Value;    // MAF: dynamic dispatch
-    type Output = String;    // Status messages
+impl Executor for SubWorkflowOrchestrator {
+    type Input = SubTaskRequest;
+    type Output = SubTaskResult;
 
     fn id(&self) -> &ExecutorId { &self.id }
     fn kind(&self) -> ExecutorKind { ExecutorKind::Orchestrator }
 
-    async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
-    where
-        Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
-    {
-        // Run the child workflow
-        let result = self.workflow.run(input).await?;
-
-        // Convert to output
-        let output = SubWorkflowOutput::from_result(result);
-
-        // Check for failure
-        if self.fail_on_child_failure && !output.success {
-            return Err(ExecutorError::new(self.id.clone(), output.error.unwrap_or_default()));
-        }
-
-        // Yield status
-        ctx.yield_output(format!(
-            "Sub-workflow: {} ({} outputs, {} supersteps)",
-            if output.success { "COMPLETED" } else { "FAILED" },
-            output.outputs.len(),
-            output.superstep_count
-        )).await?;
-
-        // Send output as Value to next executors
-        ctx.send_message(output.to_value()).await?;
-
-        Ok(())
-    }
-}
-```
-
-### Type-Safe Construction Helpers
-
-```rust
-// Input helpers with builder pattern
-let input = GeneratorInput::new("Write fibonacci function", "rust")
-    .with_context("Must be iterative, not recursive")
-    .with_errors(vec!["error[E0308]: type mismatch".into()])
-    .to_value();  // → serde_json::Value
-
-let compile_input = CompileInput::new(code, "rust")
-    .with_task("Implement state machine")
-    .to_value();
-
-let assembly_input = AssemblyInput::new("rust")
-    .add_part(CodePart::new("types", types_code, "rust").with_section("Type Definitions"))
-    .add_part(CodePart::new("impl", impl_code, "rust").with_section("Implementation"))
-    .to_value();
-
-// Workflow usage
-let workflow = WorkflowBuilder::<Value>::new("code-gen")
-    .set_start("generator")
-    .add_executor(LLMGeneratorExecutor::new("generator", llm))
-    .add_executor(CompileValidatorExecutor::new("validator", sandbox))
-    .add_direct_edge("generator", "validator")
-    .build()?;
-
-workflow.run(input).await?;
-```
-
----
-
-## AWS Bedrock Integration
-
-> ⚠️ **STATUT: NON IMPLÉMENTÉ** - Planifié pour Phase 9.
-
-Inspiré de [AWS Multi-Agent Orchestration](https://github.com/aws-samples/agentic-orchestration) et de l'intégration de Bedrock avec LangGraph/CrewAI.
-
-### Architecture: Notre Orchestration + Agents Bedrock
-
-Le pattern recommandé par AWS consiste à **garder notre propre orchestration** et à **appeler les agents Bedrock comme services externes**. C'est ce que font LangGraph et CrewAI avec Bedrock.
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│           Framework Dasein (NOTRE Orchestration)                │
-│                                                                 │
-│   ┌─────────────────────────────────────────────────────────┐  │
-│   │              Workflow / Supervisor                       │  │
-│   │   (Sequential, Concurrent, GroupChat, Handoff)          │  │
-│   └───────────────────────┬─────────────────────────────────┘  │
-│                           │                                     │
-│           ┌───────────────┼───────────────┐                    │
-│           ▼               ▼               ▼                    │
-│   ┌─────────────┐ ┌─────────────┐ ┌─────────────┐             │
-│   │   Agent A   │ │   Agent B   │ │   Agent C   │             │
-│   │  (Bedrock)  │ │  (Bedrock)  │ │   (Local)   │             │
-│   └──────┬──────┘ └──────┬──────┘ └──────┬──────┘             │
-│          │               │               │                      │
-└──────────┼───────────────┼───────────────┼──────────────────────┘
-           │               │               │
-           ▼               ▼               │
-┌─────────────────────────────────────┐    │
-│            AWS Bedrock              │    │
-│   InvokeAgent API / Converse API   │    │
-└─────────────────────────────────────┘    │
-                                           │
-                              ┌────────────▼────────────┐
-                              │   Local LLM / Anthropic │
-                              │   Direct API            │
-                              └─────────────────────────┘
-```
-
-### Sept Niveaux d'Intégration
-
-| Niveau | Composant | Usage | Contrôle |
-|--------|-----------|-------|----------|
-| **1. LLM Provider** | `BedrockProvider` | Modèles Bedrock (Claude, Llama, Mistral) via Converse API | Total |
-| **2. Tool Use** | `BedrockProvider` | Function calling avec boucle agentic | Total |
-| **3. Agent Executor** | `BedrockAgentExecutor` | Agents Bedrock existants avec Knowledge Bases | Partiel |
-| **4. Knowledge Base** | `BedrockKBExecutor` | RAG direct sur Knowledge Bases | Total |
-| **5. Flows** | `BedrockFlowExecutor` | Sous-workflows créés via console AWS | Partiel |
-| **6. Sessions** | `BedrockSessionManager` | Conversations multi-turn persistantes | Total |
-| **7. Guardrails** | `GuardrailExecutor` | Filtrage sécurité input/output | Total |
-
-**Bonus: Error Handling**
-- `BedrockRetryConfig` - Exponential backoff pour throttling
-- `BedrockCircuitBreaker` - Protection contre surcharge
-
-### Niveau 1: BedrockProvider (Converse API)
-
-Utilise les **modèles** Bedrock comme LLM provider, avec **notre orchestration**.
-
-```rust
-use aws_sdk_bedrockruntime::Client;
-
-/// Provider LLM utilisant AWS Bedrock Converse API
-pub struct BedrockProvider {
-    client: Client,
-    model_id: String,  // ex: "anthropic.claude-3-sonnet-20240229-v1:0"
-    region: String,
-}
-
-impl BedrockProvider {
-    pub fn new(model_id: impl Into<String>) -> Self {
-        let config = aws_config::load_from_env().await;
-        Self {
-            client: Client::new(&config),
-            model_id: model_id.into(),
-            region: config.region().unwrap().to_string(),
-        }
-    }
-
-    /// Modèles supportés
-    pub fn claude_sonnet() -> Self {
-        Self::new("anthropic.claude-3-sonnet-20240229-v1:0")
-    }
-
-    pub fn claude_haiku() -> Self {
-        Self::new("anthropic.claude-3-haiku-20240307-v1:0")
-    }
-
-    pub fn llama3_70b() -> Self {
-        Self::new("meta.llama3-70b-instruct-v1:0")
-    }
-
-    pub fn mistral_large() -> Self {
-        Self::new("mistral.mistral-large-2402-v1:0")
-    }
-}
-
-#[async_trait]
-impl LLMAdapter for BedrockProvider {
-    async fn generate(&self, messages: &[LLMMessage]) -> Result<LLMResponse, LLMError> {
-        let response = self.client
-            .converse()
-            .model_id(&self.model_id)
-            .messages(convert_to_bedrock_messages(messages))
-            .send()
-            .await?;
-
-        Ok(LLMResponse {
-            content: extract_text(&response),
-            tokens_used: TokenUsage {
-                input: response.usage().input_tokens() as u32,
-                output: response.usage().output_tokens() as u32,
-            },
-            model: self.model_id.clone(),
-            ..Default::default()
-        })
-    }
-
-    async fn generate_stream(&self, messages: &[LLMMessage])
-        -> Pin<Box<dyn Stream<Item = LLMChunk> + Send>>
-    {
-        let stream = self.client
-            .converse_stream()
-            .model_id(&self.model_id)
-            .messages(convert_to_bedrock_messages(messages))
-            .send()
-            .await
-            .unwrap();
-
-        Box::pin(stream.stream.map(|event| {
-            match event {
-                Ok(ConversationStreamOutput::ContentBlockDelta(delta)) => {
-                    LLMChunk::Text(delta.delta.text().unwrap_or_default().to_string())
-                }
-                Ok(ConversationStreamOutput::MessageStop(_)) => LLMChunk::Done,
-                Err(e) => LLMChunk::Error(e.to_string()),
-                _ => LLMChunk::Empty,
-            }
-        }))
-    }
-
-    fn supports_tools(&self) -> bool { true }
-    fn supports_streaming(&self) -> bool { true }
-
-    async fn generate_with_tools(
+    async fn handle(
         &self,
-        messages: &[LLMMessage],
-        tools: &[ToolDefinition],
-    ) -> Result<LLMResponse, LLMError> {
-        use aws_sdk_bedrockruntime::types::{Tool, ToolSpecification, ToolInputSchema};
+        input: SubTaskRequest,
+        ctx: &mut WorkflowContext<SubTaskResult>,
+    ) -> Result<(), ExecutorError> {
+        // Exécuter le sub-workflow (récursif!)
+        let result = self.sub_workflow.run(input).await?;
 
-        // Convertir nos tools vers le format Bedrock
-        let bedrock_tools: Vec<Tool> = tools.iter().map(|t| {
-            Tool::ToolSpec(
-                ToolSpecification::builder()
-                    .name(&t.name)
-                    .description(&t.description)
-                    .input_schema(ToolInputSchema::Json(
-                        aws_smithy_types::Document::from(t.parameters.clone())
-                    ))
-                    .build()
-                    .unwrap()
-            )
-        }).collect();
-
-        let response = self.client
-            .converse()
-            .model_id(&self.model_id)
-            .messages(convert_to_bedrock_messages(messages))
-            .set_tool_config(Some(
-                aws_sdk_bedrockruntime::types::ToolConfiguration::builder()
-                    .set_tools(Some(bedrock_tools))
-                    .build()
-                    .unwrap()
-            ))
-            .send()
-            .await?;
-
-        // Parser tool_use blocks si présents
-        let tool_calls = extract_tool_calls(&response);
-
-        Ok(LLMResponse {
-            content: extract_text(&response),
-            tool_calls,
-            tokens_used: TokenUsage {
-                input: response.usage().input_tokens() as u32,
-                output: response.usage().output_tokens() as u32,
-            },
-            model: self.model_id.clone(),
-            stop_reason: map_stop_reason(&response),
-        })
-    }
-}
-
-/// Configuration avancée avec Guardrails
-impl BedrockProvider {
-    pub fn with_guardrails(mut self, guardrail_id: &str, version: &str) -> Self {
-        self.guardrail_config = Some(GuardrailConfig {
-            guardrail_id: guardrail_id.to_string(),
-            guardrail_version: version.to_string(),
-        });
-        self
-    }
-
-    pub fn with_inference_config(mut self, config: InferenceConfig) -> Self {
-        self.inference_config = Some(config);
-        self
-    }
-}
-
-#[derive(Clone)]
-pub struct InferenceConfig {
-    pub max_tokens: Option<i32>,
-    pub temperature: Option<f32>,
-    pub top_p: Option<f32>,
-    pub stop_sequences: Vec<String>,
-}
-```
-
-#### Tool Use Loop Pattern
-
-```rust
-/// Boucle d'exécution avec tool use (agentic loop)
-pub async fn run_with_tools(
-    provider: &BedrockProvider,
-    messages: &mut Vec<LLMMessage>,
-    tools: &[ToolDefinition],
-    tool_executor: &impl ToolExecutor,
-) -> Result<String, LLMError> {
-    loop {
-        let response = provider.generate_with_tools(messages, tools).await?;
-
-        // Si pas de tool calls, retourner la réponse
-        if response.tool_calls.is_empty() {
-            return Ok(response.content);
-        }
-
-        // Ajouter la réponse assistant avec tool_use
-        messages.push(LLMMessage::assistant_with_tools(
-            &response.content,
-            &response.tool_calls,
-        ));
-
-        // Exécuter chaque tool call
-        let mut tool_results = Vec::new();
-        for call in &response.tool_calls {
-            let result = tool_executor.execute(&call.name, &call.arguments).await?;
-            tool_results.push(ToolResult {
-                tool_use_id: call.id.clone(),
-                content: result,
-            });
-        }
-
-        // Ajouter les résultats comme message user
-        messages.push(LLMMessage::tool_results(tool_results));
-    }
-}
-```
-
-#### Usage avec nos Agents
-
-```rust
-// Créer un agent avec Bedrock comme LLM
-let bedrock_llm = BedrockProvider::claude_sonnet();
-
-let researcher = ChatAgent::builder()
-    .name("researcher")
-    .llm(Arc::new(bedrock_llm))
-    .system_prompt("Tu es un expert en recherche...")
-    .build();
-
-// Notre workflow, notre orchestration
-let workflow = SequentialBuilder::new("pipeline")
-    .add_participant(researcher)
-    .build();
-```
-
-### Niveau 2: BedrockAgentExecutor (InvokeAgent)
-
-Wrapper pour appeler des **agents Bedrock existants** depuis notre workflow.
-
-```rust
-use aws_sdk_bedrockagentruntime::Client;
-
-/// Executor qui appelle un agent Bedrock managé
-pub struct BedrockAgentExecutor {
-    id: ExecutorId,
-    client: Client,
-    agent_id: String,
-    agent_alias_id: String,
-}
-
-impl BedrockAgentExecutor {
-    pub fn new(
-        id: impl Into<String>,
-        agent_id: impl Into<String>,
-        agent_alias_id: impl Into<String>,
-    ) -> Self {
-        let config = aws_config::load_from_env().await;
-        Self {
-            id: ExecutorId::new(id),
-            client: Client::new(&config),
-            agent_id: agent_id.into(),
-            agent_alias_id: agent_alias_id.into(),
-        }
-    }
-}
-
-#[async_trait]
-impl Executor for BedrockAgentExecutor {
-    type Input = Value;
-    type Message = Value;
-    type Output = String;
-
-    fn id(&self) -> &ExecutorId { &self.id }
-    fn kind(&self) -> ExecutorKind { ExecutorKind::Worker }
-
-    async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
-    where
-        Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
-    {
-        let input_text = input.as_str()
-            .or_else(|| input.get("text").and_then(|v| v.as_str()))
-            .ok_or_else(|| ExecutorError::InvalidInput("Expected text input".into()))?;
-
-        // Générer un session ID unique pour cette invocation
-        let session_id = uuid::Uuid::new_v4().to_string();
-
-        // Appeler l'agent Bedrock
-        let response = self.client
-            .invoke_agent()
-            .agent_id(&self.agent_id)
-            .agent_alias_id(&self.agent_alias_id)
-            .session_id(&session_id)
-            .input_text(input_text)
-            .send()
-            .await
-            .map_err(|e| ExecutorError::External(format!("Bedrock error: {}", e)))?;
-
-        // Collecter la réponse streamée
-        let mut full_response = String::new();
-        let mut completion = response.completion;
-
-        while let Some(event) = completion.recv().await
-            .map_err(|e| ExecutorError::External(format!("Stream error: {}", e)))?
-        {
-            if let Some(chunk) = event.as_chunk() {
-                let text = std::str::from_utf8(chunk.bytes())
-                    .unwrap_or_default();
-                full_response.push_str(text);
-
-                // Émettre un événement de progression
-                ctx.add_event(BedrockChunkEvent {
-                    executor_id: self.id.clone(),
-                    chunk: text.to_string(),
-                }).await?;
-            }
-        }
-
-        // Envoyer le résultat au prochain executor
-        ctx.send_message(json!({
-            "response": full_response,
-            "agent_id": self.agent_id,
-            "session_id": session_id,
-        })).await?;
-
-        // Yield le résultat final
-        ctx.yield_output(full_response).await?;
-
-        Ok(())
-    }
-}
-```
-
-#### Usage: Mix Agents Bedrock + Locaux
-
-```rust
-// Agents Bedrock existants (avec Knowledge Bases, etc.)
-let bedrock_researcher = BedrockAgentExecutor::new(
-    "researcher",
-    "AGENT_ID_ABC123",
-    "ALIAS_ID_XYZ",
-);
-
-let bedrock_analyst = BedrockAgentExecutor::new(
-    "analyst",
-    "AGENT_ID_DEF456",
-    "ALIAS_ID_ABC",
-);
-
-// Agent local (notre contrôle total)
-let local_writer = ChatAgent::builder()
-    .name("writer")
-    .llm(Arc::new(AnthropicProvider::new()))
-    .system_prompt("Tu es un rédacteur technique...")
-    .build();
-
-// NOTRE workflow orchestre tout
-let workflow = SequentialBuilder::new("research-write-pipeline")
-    .add_participant(bedrock_researcher)  // Appelle Bedrock
-    .add_participant(bedrock_analyst)     // Appelle Bedrock
-    .add_participant(local_writer)        // Local
-    .build();
-
-let result = workflow.run("Analyse les tendances AI 2025").await?;
-```
-
-### Niveau 3: Knowledge Bases Direct Access
-
-Accès direct aux Knowledge Bases Bedrock **sans passer par un agent**, utile pour RAG personnalisé.
-
-```rust
-use aws_sdk_bedrockagentruntime::Client as AgentRuntimeClient;
-
-/// Executor pour requêter directement une Knowledge Base Bedrock
-pub struct BedrockKnowledgeBaseExecutor {
-    id: ExecutorId,
-    client: AgentRuntimeClient,
-    knowledge_base_id: String,
-    model_arn: String,  // Modèle pour générer les réponses
-}
-
-impl BedrockKnowledgeBaseExecutor {
-    pub fn new(
-        id: impl Into<String>,
-        knowledge_base_id: impl Into<String>,
-        model_arn: impl Into<String>,
-    ) -> Self {
-        let config = aws_config::load_from_env().await;
-        Self {
-            id: ExecutorId::new(id),
-            client: AgentRuntimeClient::new(&config),
-            knowledge_base_id: knowledge_base_id.into(),
-            model_arn: model_arn.into(),
-        }
-    }
-
-    /// Configuration du retrieval
-    pub fn with_retrieval_config(mut self, config: RetrievalConfig) -> Self {
-        self.retrieval_config = Some(config);
-        self
-    }
-}
-
-#[derive(Clone)]
-pub struct RetrievalConfig {
-    pub number_of_results: i32,           // Nombre de chunks à retourner
-    pub search_type: SearchType,           // HYBRID | SEMANTIC
-    pub metadata_filter: Option<Value>,    // Filtres sur métadonnées
-}
-
-#[async_trait]
-impl Executor for BedrockKnowledgeBaseExecutor {
-    type Input = String;
-    type Message = KBRetrievalResult;
-    type Output = KBResponse;
-
-    async fn handle<Ctx>(&self, query: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
-    where
-        Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
-    {
-        // Option 1: Retrieve only (RAG manuel)
-        let retrieval = self.client
-            .retrieve()
-            .knowledge_base_id(&self.knowledge_base_id)
-            .retrieval_query(
-                RetrievalQuery::builder()
-                    .text(&query)
-                    .build()
-            )
-            .retrieval_configuration(/* ... */)
-            .send()
-            .await?;
-
-        // Envoyer les chunks récupérés
-        for result in retrieval.retrieval_results() {
-            ctx.send_message(KBRetrievalResult {
-                content: result.content().text().to_string(),
-                location: result.location().clone(),
-                score: result.score(),
-                metadata: result.metadata().clone(),
-            }).await?;
-        }
-
-        // Option 2: Retrieve and Generate (réponse complète)
-        let response = self.client
-            .retrieve_and_generate()
-            .knowledge_base_id(&self.knowledge_base_id)
-            .input(
-                RetrieveAndGenerateInput::builder()
-                    .text(&query)
-                    .build()
-            )
-            .retrieve_and_generate_configuration(
-                RetrieveAndGenerateConfiguration::builder()
-                    .r#type(RetrieveAndGenerateType::KnowledgeBase)
-                    .knowledge_base_configuration(
-                        KnowledgeBaseRetrieveAndGenerateConfiguration::builder()
-                            .knowledge_base_id(&self.knowledge_base_id)
-                            .model_arn(&self.model_arn)
-                            .build()
-                    )
-                    .build()
-            )
-            .send()
-            .await?;
-
-        ctx.yield_output(KBResponse {
-            answer: response.output().text().to_string(),
-            citations: extract_citations(&response),
-            session_id: response.session_id().map(|s| s.to_string()),
+        // Envoyer le résultat agrégé
+        ctx.send_message(SubTaskResult {
+            outputs: result.outputs,
+            passed: result.all_passed(),
         }).await?;
 
         Ok(())
     }
 }
-```
-
-#### Usage: RAG Hybride
-
-```rust
-// Knowledge Base pour documentation technique
-let kb_docs = BedrockKnowledgeBaseExecutor::new(
-    "doc-retriever",
-    "KB_ID_DOCS_123",
-    "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0",
-).with_retrieval_config(RetrievalConfig {
-    number_of_results: 5,
-    search_type: SearchType::Hybrid,
-    metadata_filter: Some(json!({"domain": {"equals": "technical"}})),
-});
-
-// Agent local utilise le contexte KB
-let synthesizer = ChatAgent::builder()
-    .name("synthesizer")
-    .system_prompt("Utilise le contexte fourni pour répondre...")
-    .build();
-
-// Pipeline: KB retrieve -> synthesis
-let rag_pipeline = SequentialBuilder::new("rag-pipeline")
-    .add_participant(kb_docs)
-    .add_participant(synthesizer)
-    .build();
-```
-
-### Niveau 4: Bedrock Flows
-
-Intégration avec **Bedrock Flows** (workflows visuels AWS) comme sous-workflow.
-
-```rust
-use aws_sdk_bedrockagentruntime::Client;
-
-/// Executor pour déclencher un Bedrock Flow
-pub struct BedrockFlowExecutor {
-    id: ExecutorId,
-    client: Client,
-    flow_identifier: String,
-    flow_alias_identifier: String,
-}
-
-impl BedrockFlowExecutor {
-    pub fn new(
-        id: impl Into<String>,
-        flow_identifier: impl Into<String>,
-        flow_alias_identifier: impl Into<String>,
-    ) -> Self {
-        let config = aws_config::load_from_env().await;
-        Self {
-            id: ExecutorId::new(id),
-            client: Client::new(&config),
-            flow_identifier: flow_identifier.into(),
-            flow_alias_identifier: flow_alias_identifier.into(),
-        }
-    }
-}
-
-#[async_trait]
-impl Executor for BedrockFlowExecutor {
-    type Input = Value;
-    type Message = FlowEvent;
-    type Output = Value;
-
-    async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
-    where
-        Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
-    {
-        // Préparer les inputs du flow
-        let flow_inputs = vec![
-            FlowInput::builder()
-                .node_name("FlowInputNode")
-                .node_output_name("document")
-                .content(FlowInputContent::Document(
-                    DocumentBlock::builder()
-                        .source(DocumentSource::Bytes(
-                            serde_json::to_vec(&input)?.into()
-                        ))
-                        .build()
-                ))
-                .build()
-        ];
-
-        // Invoquer le flow
-        let mut response = self.client
-            .invoke_flow()
-            .flow_identifier(&self.flow_identifier)
-            .flow_alias_identifier(&self.flow_alias_identifier)
-            .set_inputs(Some(flow_inputs))
-            .send()
-            .await?;
-
-        // Traiter le stream de réponse
-        let mut final_output = Value::Null;
-
-        while let Some(event) = response.response_stream.recv().await? {
-            match event {
-                FlowResponseStream::FlowOutputEvent(output) => {
-                    let content = output.content();
-                    if let FlowOutputContent::Document(doc) = content {
-                        final_output = serde_json::from_slice(doc.bytes())?;
-                    }
-                    ctx.send_message(FlowEvent::Output(final_output.clone())).await?;
-                }
-                FlowResponseStream::FlowCompletionEvent(completion) => {
-                    ctx.send_message(FlowEvent::Completed(
-                        completion.completion_reason().to_string()
-                    )).await?;
-                }
-                FlowResponseStream::FlowTraceEvent(trace) => {
-                    // Optionnel: émettre les traces pour observabilité
-                    ctx.add_event(trace).await?;
-                }
-                _ => {}
-            }
-        }
-
-        ctx.yield_output(final_output).await?;
-        Ok(())
-    }
-}
-```
-
-#### Usage: Orchestration Hiérarchique
-
-```rust
-// Flow Bedrock pour traitement complexe (créé via console AWS)
-let document_flow = BedrockFlowExecutor::new(
-    "doc-processor",
-    "FLOW_ID_ABC123",
-    "FLOW_ALIAS_XYZ",
-);
-
-// Notre workflow orchestre le flow comme un sous-composant
-let pipeline = SequentialBuilder::new("main-pipeline")
-    .add_participant(preprocessor)       // Local
-    .add_participant(document_flow)      // Bedrock Flow
-    .add_participant(postprocessor)      // Local
-    .build();
-```
-
-### Niveau 5: Session Management Multi-Turn
-
-Gestion des sessions pour conversations multi-turn avec agents Bedrock.
-
-```rust
-/// Session manager pour conversations persistantes
-pub struct BedrockSessionManager {
-    sessions: DashMap<String, BedrockSession>,
-}
-
-pub struct BedrockSession {
-    session_id: String,
-    agent_id: String,
-    agent_alias_id: String,
-    memory_id: Option<String>,  // Pour sessions avec mémoire
-    created_at: Instant,
-    last_used: Instant,
-}
-
-impl BedrockSessionManager {
-    /// Créer ou récupérer une session existante
-    pub fn get_or_create_session(
-        &self,
-        user_id: &str,
-        agent_id: &str,
-        agent_alias_id: &str,
-    ) -> BedrockSession {
-        let key = format!("{}:{}", user_id, agent_id);
-
-        self.sessions
-            .entry(key)
-            .or_insert_with(|| BedrockSession {
-                session_id: uuid::Uuid::new_v4().to_string(),
-                agent_id: agent_id.to_string(),
-                agent_alias_id: agent_alias_id.to_string(),
-                memory_id: None,
-                created_at: Instant::now(),
-                last_used: Instant::now(),
-            })
-            .clone()
-    }
-
-    /// Invoquer avec session persistante
-    pub async fn invoke_with_session(
-        &self,
-        client: &Client,
-        session: &BedrockSession,
-        input: &str,
-    ) -> Result<String, BedrockError> {
-        let mut request = client
-            .invoke_agent()
-            .agent_id(&session.agent_id)
-            .agent_alias_id(&session.agent_alias_id)
-            .session_id(&session.session_id)
-            .input_text(input);
-
-        // Activer la mémoire si configurée
-        if let Some(memory_id) = &session.memory_id {
-            request = request.memory_id(memory_id);
-        }
-
-        let response = request.send().await?;
-        collect_response(response).await
-    }
-
-    /// Terminer une session
-    pub async fn end_session(&self, session: &BedrockSession) {
-        // La session Bedrock se termine automatiquement après inactivité
-        // Mais on peut forcer le cleanup local
-        let key = format!("{}:{}", "user", session.agent_id);
-        self.sessions.remove(&key);
-    }
-}
-```
-
-### Niveau 6: Guardrails Integration
-
-Appliquer des Guardrails AWS aux requêtes et réponses.
-
-```rust
-use aws_sdk_bedrockruntime::types::{GuardrailConfiguration, GuardrailStreamConfiguration};
-
-/// Extension BedrockProvider avec Guardrails
-impl BedrockProvider {
-    /// Appliquer un guardrail à toutes les requêtes
-    pub fn with_guardrail(mut self, guardrail_id: &str, version: &str) -> Self {
-        self.guardrail = Some(GuardrailConfiguration::builder()
-            .guardrail_identifier(guardrail_id)
-            .guardrail_version(version)
-            .trace(GuardrailTrace::Enabled)  // Pour debugging
-            .build()
-            .unwrap()
-        );
-        self
-    }
-}
-
-/// Guardrail Executor standalone (pré/post processing)
-pub struct GuardrailExecutor {
-    id: ExecutorId,
-    client: BedrockRuntimeClient,
-    guardrail_id: String,
-    guardrail_version: String,
-}
-
-impl GuardrailExecutor {
-    /// Valider un texte contre le guardrail
-    pub async fn validate(&self, text: &str, source: GuardrailSource) -> GuardrailResult {
-        let response = self.client
-            .apply_guardrail()
-            .guardrail_identifier(&self.guardrail_id)
-            .guardrail_version(&self.guardrail_version)
-            .source(source)  // INPUT ou OUTPUT
-            .content(
-                GuardrailContentBlock::builder()
-                    .text(GuardrailTextBlock::builder().text(text).build())
-                    .build()
-            )
-            .send()
-            .await?;
-
-        GuardrailResult {
-            action: response.action().clone(),  // NONE | GUARDRAIL_INTERVENED
-            outputs: response.outputs().to_vec(),
-            assessments: response.assessments().to_vec(),
-        }
-    }
-}
-
-#[async_trait]
-impl Executor for GuardrailExecutor {
-    type Input = GuardrailInput;
-    type Message = ();
-    type Output = GuardrailResult;
-
-    async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
-    where
-        Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
-    {
-        let result = self.validate(&input.text, input.source).await?;
-
-        // Si guardrail intervient, bloquer le pipeline
-        if result.action == GuardrailAction::GuardrailIntervened {
-            return Err(ExecutorError::GuardrailBlocked {
-                reason: result.assessments.clone(),
-            });
-        }
-
-        ctx.yield_output(result).await?;
-        Ok(())
-    }
-}
-```
-
-#### Usage: Pipeline avec Guardrails
-
-```rust
-// Guardrail pour contenu sensible
-let input_guardrail = GuardrailExecutor::new(
-    "input-filter",
-    "GUARDRAIL_ID_123",
-    "1",
-);
-
-let output_guardrail = GuardrailExecutor::new(
-    "output-filter",
-    "GUARDRAIL_ID_123",
-    "1",
-);
-
-// Pipeline sécurisé
-let secure_pipeline = SequentialBuilder::new("secure-chat")
-    .add_participant(input_guardrail)    // Valide l'entrée
-    .add_participant(chat_agent)          // Traitement
-    .add_participant(output_guardrail)   // Valide la sortie
-    .build();
-```
-
-### Niveau 7: Error Handling et Retry
-
-Patterns robustes pour gérer les erreurs AWS.
-
-```rust
-use aws_sdk_bedrockruntime::error::SdkError;
-use backoff::{ExponentialBackoff, Error as BackoffError};
-
-/// Configuration de retry pour Bedrock
-#[derive(Clone)]
-pub struct BedrockRetryConfig {
-    pub max_retries: u32,
-    pub initial_interval_ms: u64,
-    pub max_interval_ms: u64,
-    pub multiplier: f64,
-    pub retry_throttling: bool,
-    pub retry_model_not_ready: bool,
-}
-
-impl Default for BedrockRetryConfig {
-    fn default() -> Self {
-        Self {
-            max_retries: 3,
-            initial_interval_ms: 1000,
-            max_interval_ms: 30000,
-            multiplier: 2.0,
-            retry_throttling: true,
-            retry_model_not_ready: true,
-        }
-    }
-}
-
-impl BedrockProvider {
-    pub async fn generate_with_retry(
-        &self,
-        messages: &[LLMMessage],
-        retry_config: &BedrockRetryConfig,
-    ) -> Result<LLMResponse, LLMError> {
-        let backoff = ExponentialBackoff {
-            initial_interval: Duration::from_millis(retry_config.initial_interval_ms),
-            max_interval: Duration::from_millis(retry_config.max_interval_ms),
-            multiplier: retry_config.multiplier,
-            max_elapsed_time: Some(Duration::from_secs(120)),
-            ..Default::default()
-        };
-
-        backoff::future::retry(backoff, || async {
-            match self.generate(messages).await {
-                Ok(response) => Ok(response),
-                Err(LLMError::Bedrock(sdk_error)) => {
-                    if is_retryable(&sdk_error, retry_config) {
-                        Err(BackoffError::transient(LLMError::Bedrock(sdk_error)))
-                    } else {
-                        Err(BackoffError::permanent(LLMError::Bedrock(sdk_error)))
-                    }
-                }
-                Err(e) => Err(BackoffError::permanent(e)),
-            }
-        }).await
-    }
-}
-
-fn is_retryable<E>(error: &SdkError<E>, config: &BedrockRetryConfig) -> bool {
-    match error {
-        SdkError::ServiceError(service_err) => {
-            let status = service_err.raw().status().as_u16();
-            match status {
-                429 => config.retry_throttling,  // ThrottlingException
-                503 => config.retry_model_not_ready,  // ModelNotReadyException
-                500 | 502 | 504 => true,  // Server errors
-                _ => false,
-            }
-        }
-        SdkError::TimeoutError(_) => true,
-        SdkError::DispatchFailure(_) => true,  // Network issues
-        _ => false,
-    }
-}
-
-/// Circuit breaker pour éviter de surcharger Bedrock
-pub struct BedrockCircuitBreaker {
-    failure_count: AtomicU32,
-    last_failure: AtomicU64,
-    threshold: u32,
-    reset_timeout_ms: u64,
-    state: AtomicU8,  // 0=Closed, 1=Open, 2=HalfOpen
-}
-
-impl BedrockCircuitBreaker {
-    pub fn should_allow_request(&self) -> bool {
-        match self.state.load(Ordering::SeqCst) {
-            0 => true,  // Closed - allow
-            1 => {      // Open - check if should try again
-                let elapsed = now_ms() - self.last_failure.load(Ordering::SeqCst);
-                if elapsed > self.reset_timeout_ms {
-                    self.state.store(2, Ordering::SeqCst);  // Move to HalfOpen
-                    true
-                } else {
-                    false
-                }
-            }
-            2 => true,  // HalfOpen - allow one request
-            _ => false,
-        }
-    }
-
-    pub fn record_success(&self) {
-        self.failure_count.store(0, Ordering::SeqCst);
-        self.state.store(0, Ordering::SeqCst);  // Close circuit
-    }
-
-    pub fn record_failure(&self) {
-        let failures = self.failure_count.fetch_add(1, Ordering::SeqCst) + 1;
-        self.last_failure.store(now_ms(), Ordering::SeqCst);
-
-        if failures >= self.threshold {
-            self.state.store(1, Ordering::SeqCst);  // Open circuit
-        }
-    }
-}
-```
-
-### Avantages de cette Architecture
-
-| Aspect | Bénéfice |
-|--------|----------|
-| **Orchestration** | 100% contrôlée par Dasein |
-| **Flexibilité** | Mix agents Bedrock + locaux + OpenAI |
-| **Knowledge Bases** | Accès via agents Bedrock |
-| **Observabilité** | Notre tracing, nos events NATS |
-| **Coût** | Choix par agent (Bedrock vs API directe) |
-| **Pas de lock-in** | Swap agents sans changer le workflow |
-
-### Dépendances Cargo
-
-```toml
-[dependencies]
-# AWS SDK pour Bedrock
-aws-config = "1.5"
-aws-sdk-bedrockruntime = "1.60"       # Converse API, Guardrails
-aws-sdk-bedrockagentruntime = "1.60"  # InvokeAgent, KB, Flows
-
-# Utilitaires
-aws-smithy-types = "1.2"              # Document types pour tools
-backoff = { version = "0.4", features = ["tokio"] }  # Retry
-dashmap = "6"                          # Concurrent sessions
-uuid = { version = "1", features = ["v4"] }
-```
-
-### Architecture Complète Bedrock
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          DASEIN FRAMEWORK                                   │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐         │
-│  │ BedrockProvider │    │ BedrockKBExec   │    │ BedrockFlowExec │         │
-│  │ (LLM Adapter)   │    │ (Knowledge Base)│    │ (AWS Flows)     │         │
-│  └────────┬────────┘    └────────┬────────┘    └────────┬────────┘         │
-│           │                      │                      │                   │
-│  ┌────────┼──────────────────────┼──────────────────────┼────────┐         │
-│  │        │         Bedrock      │                      │        │         │
-│  │        ▼         Session      ▼                      ▼        │         │
-│  │  ┌───────────┐   Manager ┌───────────┐        ┌───────────┐   │         │
-│  │  │ Converse  │◄─────────►│ InvokeKB  │        │InvokeFlow │   │         │
-│  │  │ API       │           │ API       │        │ API       │   │         │
-│  │  └─────┬─────┘           └─────┬─────┘        └─────┬─────┘   │         │
-│  │        │                       │                    │         │         │
-│  │        │   ┌───────────────────┼────────────────────┤         │         │
-│  │        │   │                   │                    │         │         │
-│  │        ▼   ▼                   ▼                    ▼         │         │
-│  │  ┌─────────────────────────────────────────────────────────┐  │         │
-│  │  │                  AWS Bedrock Services                   │  │         │
-│  │  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌───────────┐  │  │         │
-│  │  │  │ Models  │  │  KBs    │  │ Agents  │  │ Guardrails│  │  │         │
-│  │  │  │ Claude  │  │ OpenSrch│  │ Action  │  │  Safety   │  │  │         │
-│  │  │  │ Llama   │  │ Pinecone│  │ Groups  │  │  Filters  │  │  │         │
-│  │  │  │ Mistral │  │ Redis   │  │         │  │           │  │  │         │
-│  │  │  └─────────┘  └─────────┘  └─────────┘  └───────────┘  │  │         │
-│  │  └─────────────────────────────────────────────────────────┘  │         │
-│  │                       Circuit Breaker                         │         │
-│  │                       Retry Logic                             │         │
-│  └───────────────────────────────────────────────────────────────┘         │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Références
-
-**AWS SDK Rust:**
-- [AWS SDK for Rust - Bedrock Runtime](https://docs.aws.amazon.com/sdk-for-rust/latest/dg/rust_bedrock-runtime_code_examples.html)
-- [AWS SDK for Rust - Bedrock Agent Runtime](https://docs.aws.amazon.com/sdk-for-rust/latest/dg/rust_bedrock-agent-runtime_code_examples.html)
-- [Bedrock Converse API with Rust - Tool Use](https://levelup.gitconnected.com/aws-bedrock-converse-api-with-rust-tool-use-8d1af829480a)
-
-**Bedrock Features:**
-- [Bedrock Knowledge Bases](https://docs.aws.amazon.com/bedrock/latest/userguide/knowledge-base.html)
-- [Bedrock Flows](https://docs.aws.amazon.com/bedrock/latest/userguide/flows.html)
-- [Bedrock Guardrails](https://docs.aws.amazon.com/bedrock/latest/userguide/guardrails.html)
-- [Bedrock Agents with Memory](https://docs.aws.amazon.com/bedrock/latest/userguide/agents-memory.html)
-
-**Multi-Agent Patterns:**
-- [AWS Multi-Agent Orchestration](https://github.com/aws-samples/agentic-orchestration)
-- [Bedrock + LangGraph Integration](https://aws.amazon.com/blogs/machine-learning/build-multi-agent-systems-with-langgraph-and-amazon-bedrock/)
-- [Bedrock + CrewAI Pattern](https://github.com/aws-samples/amazon-bedrock-samples/tree/main/agents-and-function-calling/bedrock-agents)
-- [Multi-Agent Collaboration](https://aws.amazon.com/blogs/machine-learning/build-a-multi-agent-system-with-amazon-bedrock/)
-
-**Best Practices:**
-- [Bedrock Throttling & Quotas](https://docs.aws.amazon.com/bedrock/latest/userguide/quotas.html)
-- [Bedrock Cross-Region Inference](https://docs.aws.amazon.com/bedrock/latest/userguide/cross-region-inference.html)
-
----
-
-## Sandbox & Gateway Infrastructure
-
-L'exécution de code généré par LLM nécessite une isolation sécurisée. Le framework propose plusieurs backends.
-
-### Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           SANDBOX OPTIONS                                   │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │ agentic-sandbox crate                                               │   │
-│  │                                                                     │   │
-│  │  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────────┐  │   │
-│  │  │ Process    │ │ Docker     │ │ Gateway    │ │ Firecracker    │  │   │
-│  │  │ (default)  │ │            │ │ (recomm.)  │ │ (direct)       │  │   │
-│  │  └─────┬──────┘ └─────┬──────┘ └─────┬──────┘ └───────┬────────┘  │   │
-│  │        │              │              │                │           │   │
-│  │        ▼              ▼              │                ▼           │   │
-│  │   Local shell    Docker API          │           KVM/Firecracker  │   │
-│  │   (dev only)     (isolation)         │           (Linux only)     │   │
-│  └──────────────────────────────────────┼────────────────────────────┘   │
-│                                         │                                 │
-│                                         │ HTTP API                        │
-│                                         ▼                                 │
-│  ┌──────────────────────────────────────────────────────────────────────┐│
-│  │                    Agentic Gateway                                   ││
-│  │  ┌────────────────┐  ┌─────────────────────────────────────────┐   ││
-│  │  │ gateway-llm    │  │ gateway-sandbox                         │   ││
-│  │  │ - OpenAI API   │  │ - Firecracker microVMs                  │   ││
-│  │  │ - Multi-provider│  │ - Pool de VMs warm (<50ms)             │   ││
-│  │  │ - Rate limiting │  │ - Cold start <200ms                    │   ││
-│  │  └────────────────┘  └─────────────────────────────────────────┘   ││
-│  └──────────────────────────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Features agentic-sandbox
-
-| Feature | Backend | Isolation | Usage |
-|---------|---------|-----------|-------|
-| `process` | Shell local | ❌ Aucune | Dev rapide |
-| `docker` | Docker API | ✅ Container | Prod locale |
-| `gateway` | **Agentic Gateway** | ✅ **MicroVM** | **Production** |
-| `firecracker` | Direct (firepilot) | ✅ MicroVM | Linux avec KVM |
-
-### Usage: GatewaySandbox (Recommandé)
-
-```rust
-use dasein_agentic_sandbox::{GatewaySandbox, Sandbox};
-
-// Créer une session sandbox via le Gateway
-let sandbox = GatewaySandbox::builder("http://gateway:8080")
-    .runtime("python")           // python, node, rust, bash
-    .api_key("your-api-key")     // optionnel
-    .memory_mb(512)              // optionnel
-    .timeout_ms(30000)
-    .build()
-    .await?;
-
-// Exécuter du code
-let result = sandbox.execute(r#"
-import json
-data = {"status": "success", "value": 42}
-print(json.dumps(data))
-"#).await?;
-
-println!("stdout: {}", result.stdout);
-println!("exit_code: {}", result.exit_code);
-println!("duration: {}ms", result.execution_time_ms);
-
-// Cleanup automatique à la fin (ou explicite)
-sandbox.cleanup().await?;
-```
-
-### Usage avec Validators
-
-```rust
-use dasein_agentic_sandbox::{GatewaySandbox, Sandbox};
-use dasein_agentic_core::distributed::SandboxValidator;
-
-// Sandbox pour validation de code
-let sandbox = GatewaySandbox::builder("http://gateway:8080")
-    .runtime("rust")
-    .build()
-    .await?;
-
-// Validator qui compile et teste le code
-let validator = SandboxValidator::new(sandbox);
-
-// Dans un workflow
-let compile_executor = CompileValidatorExecutor::new("compiler", validator);
-
-let workflow = WorkflowBuilder::new("code-gen-pipeline")
-    .add_executor(code_gen_executor)      // Génère du code
-    .add_executor(compile_executor)        // Compile via Gateway
-    .connect("code_gen", "compiler")
-    .build();
-```
-
-### Configuration Gateway
-
-Le Gateway se configure via `config.toml`:
-
-```toml
-[server]
-host = "0.0.0.0"
-port = 8080
-
-[sandbox]
-firecracker_path = "/usr/bin/firecracker"
-kernel_path = "/var/lib/firecracker/vmlinux"
-rootfs_path = "/var/lib/firecracker/rootfs.ext4"
-
-[sandbox.pool]
-min_ready = 2      # VMs warm en attente
-max_total = 10     # Max VMs simultanées
-
-[sandbox.limits]
-default_memory_mb = 512
-default_timeout_ms = 30000
-max_memory_mb = 2048
-max_timeout_ms = 120000
-```
-
-### Déploiement
-
-```bash
-# Démarrer le Gateway (sur serveur Linux avec KVM)
-cd gateway
-cargo build --release
-./target/release/gateway-server
-
-# Depuis agentic-rs (n'importe où)
-let sandbox = GatewaySandbox::builder("http://your-server:8080")
-    .runtime("python")
-    .build()
-    .await?;
-```
-
-### Comparaison des backends
-
-| Critère | Process | Docker | Gateway |
-|---------|---------|--------|---------|
-| Isolation | ❌ | ✅ Container | ✅ **MicroVM** |
-| Sécurité | ❌ | ⚠️ Moyen | ✅ **Fort** |
-| Cold start | ~0ms | ~500ms | **<200ms** |
-| Warm start | ~0ms | ~50ms | **<50ms** |
-| Cross-platform | ✅ | ✅ | ✅ (via HTTP) |
-| Scalabilité | ❌ | ⚠️ | ✅ **Pool** |
-
-### Dépendances Cargo
-
-```toml
-[dependencies]
-# Pour utiliser le Gateway (recommandé)
-agentic-sandbox = { version = "0.1", features = ["gateway"] }
-
-# Ou pour Docker local
-agentic-sandbox = { version = "0.1", features = ["docker"] }
-
-# Ou dev rapide (pas d'isolation)
-agentic-sandbox = { version = "0.1" }  # default = process
 ```
 
 ---
@@ -3457,105 +416,34 @@ pub struct EdgeCondition<T> {
 builder.add_edge(type_generator, impl_generator);
 
 // 2. Conditional Edge - seulement si validation OK
-builder.add_edge(
+builder.add_conditional_edge(
     compile_validator,
     test_validator,
-    |result: &ValidationResult| result.passed,  // condition lambda
+    |result| result.passed,
+    "on_compile_success"
 );
 
 // 3. Switch-Case Edge - routing selon le type d'erreur
-builder.add_switch_case_edge(
+builder.add_switch_edge(
     error_analyzer,
     vec![
         Case::new(|e| e.is_type_error(), type_fixer),
         Case::new(|e| e.is_impl_error(), impl_fixer),
-        Case::default(general_fixer),  // Default = quand aucune condition ne match
+        Case::default(general_fixer),
     ]
 );
 
-// 4. Fan-Out Edge - paralléliser la génération (tous les targets)
+// 4. Fan-Out Edge - paralléliser la génération
 builder.add_fan_out_edge(
     task_splitter,
-    vec![type_generator, impl_generator, test_generator],
+    vec![type_generator, test_generator]  // En parallèle!
 );
 
-// 5. Fan-Out Edge avec sélection dynamique (inspiré MAF selection_func)
-builder.add_fan_out_edge_with_selection(
-    priority_router,
-    vec![fast_worker, medium_worker, slow_worker],
-    |message: &Task, target_count: usize| -> Vec<usize> {
-        // Retourne les indices des targets à activer
-        match message.priority {
-            Priority::High => vec![0],              // Juste fast_worker
-            Priority::Normal => vec![0, 1],         // fast + medium
-            Priority::Low => (0..target_count).collect(),  // Tous
-        }
-    }
-);
-
-// 6. Fan-In Edge - agréger les résultats
+// 5. Fan-In Edge - agréger les résultats
 builder.add_fan_in_edge(
     vec![type_generator, impl_generator, test_generator],
-    assembler,
+    assembler
 );
-```
-
-### Fan-Out avec Sélection Dynamique
-
-Le `selection_func` permet de choisir **dynamiquement** quels targets activer selon le message:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    FAN-OUT AVEC SÉLECTION                                   │
-│                                                                             │
-│                         ┌─────────────────────────────────────┐             │
-│                         │         selection_func              │             │
-│                         │  |msg, targets| -> Vec<usize>       │             │
-│                         └──────────────┬──────────────────────┘             │
-│                                        │                                    │
-│                    Message             │                                    │
-│                       │                ▼                                    │
-│                       │     ┌─────────────────────┐                         │
-│   ┌───────────┐       │     │   Priority::High    │──▶ [0]                  │
-│   │  Router   │───────┼────▶│   Priority::Normal  │──▶ [0, 1]               │
-│   └───────────┘       │     │   Priority::Low     │──▶ [0, 1, 2]            │
-│                       │     └─────────────────────┘                         │
-│                       │                │                                    │
-│                       ▼                ▼                                    │
-│              ┌────────────────────────────────────────┐                     │
-│              │  [0]           [1]           [2]       │                     │
-│              │  FastWorker    MediumWorker  SlowWorker│                     │
-│              └────────────────────────────────────────┘                     │
-│                                                                             │
-│   High   → seulement FastWorker                                             │
-│   Normal → FastWorker + MediumWorker                                        │
-│   Low    → Tous les workers                                                 │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-```rust
-/// Signature du selection_func
-pub type SelectionFunc<T> = Box<dyn Fn(&T, usize) -> Vec<usize> + Send + Sync>;
-
-impl WorkflowBuilder {
-    /// Fan-Out avec sélection dynamique des targets
-    pub fn add_fan_out_edge_with_selection<T, F>(
-        &mut self,
-        from: &ExecutorId,
-        targets: Vec<ExecutorId>,
-        selection_func: F,
-    ) -> &mut Self
-    where
-        F: Fn(&T, usize) -> Vec<usize> + Send + Sync + 'static,
-    {
-        self.edges.push(Edge::fan_out_with_selection(
-            from.clone(),
-            targets,
-            Box::new(selection_func),
-        ));
-        self
-    }
-}
 ```
 
 ### Edge avec NATS (persistance)
@@ -3713,258 +601,6 @@ impl Workflow {
 }
 ```
 
-### Workflow Events (Streaming)
-
-Inspiré de MAF, le workflow émet des événements pendant l'exécution:
-
-```rust
-/// Événements émis pendant l'exécution du workflow
-#[derive(Debug, Clone, Serialize)]
-pub enum WorkflowEvent {
-    /// Workflow démarré
-    Started { workflow_id: WorkflowId, input_hash: String },
-
-    /// Nouveau superstep
-    SuperstepStarted { superstep: u32, executor_count: usize },
-
-    /// Un executor a terminé
-    ExecutorCompleted {
-        executor_id: ExecutorId,
-        superstep: u32,
-        duration_ms: u64,
-    },
-
-    /// Un executor a échoué
-    ExecutorFailed {
-        executor_id: ExecutorId,
-        error: String,
-        will_retry: bool,
-    },
-
-    /// Output produit (via yield_output)
-    Output { data: serde_json::Value },
-
-    /// Workflow terminé
-    Completed { duration_ms: u64, superstep_count: u32 },
-
-    /// Workflow échoué
-    Failed { error: String, last_superstep: u32 },
-}
-```
-
-### run vs run_stream
-
-```rust
-impl Workflow {
-    /// Exécution bloquante - attend la fin
-    pub async fn run<T: Serialize>(&self, input: T) -> WorkflowResult {
-        let events = self.run_stream(input).collect::<Vec<_>>().await;
-        WorkflowResult::from_events(events)
-    }
-
-    /// Exécution streaming - émet les événements en temps réel
-    pub fn run_stream<T: Serialize>(
-        &self,
-        input: T,
-    ) -> impl Stream<Item = WorkflowEvent> + '_ {
-        async_stream::stream! {
-            yield WorkflowEvent::Started {
-                workflow_id: self.id.clone(),
-                input_hash: hash(&input),
-            };
-
-            let mut superstep = 0;
-            let mut pending_messages = vec![Message::new(self.start_executor.clone(), input)];
-            let mut outputs = vec![];
-
-            loop {
-                let messages = std::mem::take(&mut pending_messages);
-                if messages.is_empty() { break; }
-
-                yield WorkflowEvent::SuperstepStarted {
-                    superstep,
-                    executor_count: messages.len(),
-                };
-
-                // Exécuter le superstep...
-                let results = self.execute_superstep(messages).await;
-
-                for result in results {
-                    match result {
-                        Ok(exec_result) => {
-                            yield WorkflowEvent::ExecutorCompleted {
-                                executor_id: exec_result.executor_id,
-                                superstep,
-                                duration_ms: exec_result.duration_ms,
-                            };
-
-                            // Collecter les outputs (yield_output)
-                            for output in exec_result.outputs {
-                                yield WorkflowEvent::Output { data: output };
-                                outputs.push(output);
-                            }
-
-                            // Collecter les messages (send_message)
-                            pending_messages.extend(exec_result.messages);
-                        }
-                        Err(e) => {
-                            yield WorkflowEvent::ExecutorFailed {
-                                executor_id: e.executor_id,
-                                error: e.message,
-                                will_retry: e.retriable,
-                            };
-                        }
-                    }
-                }
-
-                superstep += 1;
-            }
-
-            yield WorkflowEvent::Completed {
-                duration_ms: start.elapsed().as_millis() as u64,
-                superstep_count: superstep,
-            };
-        }
-    }
-}
-```
-
-### WorkflowResult
-
-```rust
-/// Résultat final d'un workflow
-pub struct WorkflowResult {
-    /// Tous les outputs produits (via yield_output)
-    outputs: Vec<serde_json::Value>,
-    /// Nombre de supersteps exécutés
-    superstep_count: u32,
-    /// Durée totale
-    duration: Duration,
-    /// Événements (pour debug/audit)
-    events: Vec<WorkflowEvent>,
-}
-
-impl WorkflowResult {
-    /// Récupère tous les outputs
-    pub fn get_outputs(&self) -> &[serde_json::Value] {
-        &self.outputs
-    }
-
-    /// Récupère le premier output (cas commun)
-    pub fn get_output<T: DeserializeOwned>(&self) -> Option<T> {
-        self.outputs.first().and_then(|v| serde_json::from_value(v.clone()).ok())
-    }
-
-    /// Workflow réussi?
-    pub fn is_success(&self) -> bool {
-        self.events.iter().any(|e| matches!(e, WorkflowEvent::Completed { .. }))
-    }
-}
-```
-
-### Exemple d'utilisation
-
-```rust
-// Mode bloquant
-let result = workflow.run(task).await?;
-let code: FinalCode = result.get_output().unwrap();
-println!("Generated {} lines", code.lines().count());
-
-// Mode streaming (afficher la progression)
-let mut stream = workflow.run_stream(task);
-while let Some(event) = stream.next().await {
-    match event {
-        WorkflowEvent::SuperstepStarted { superstep, .. } => {
-            println!("⏳ Superstep {}...", superstep);
-        }
-        WorkflowEvent::ExecutorCompleted { executor_id, .. } => {
-            println!("✅ {} completed", executor_id);
-        }
-        WorkflowEvent::Output { data } => {
-            println!("📤 Output: {:?}", data);
-        }
-        WorkflowEvent::Completed { duration_ms, .. } => {
-            println!("🎉 Done in {}ms", duration_ms);
-        }
-        _ => {}
-    }
-}
-```
-
----
-
-## Graph Persistence: Checkpoints Durables (PR #6)
-
-> ✅ **STATUT: IMPLÉMENTÉ** - `crates/agentic-core/src/distributed/graph/persistence.rs`
-
-Permet aux workflows de survivre aux crashes et de reprendre depuis le dernier checkpoint.
-
-### Cas d'usage: Migration à grande échelle
-
-```text
-Vendredi 18:00: Démarrage migration de 500 services
-    → Checkpoint sauvegardé au superstep 50
-Samedi 02:00: Crash serveur (panne de courant)
-Lundi 09:00: Redémarrage du workflow
-    → Charge le checkpoint du superstep 50
-    → Reprend exactement où il s'était arrêté
-    → Pas de tokens LLM gaspillés, pas de progression perdue
-```
-
-### API Implémentée
-
-```rust
-// Backends disponibles
-use dasein_agentic_core::distributed::graph::{
-    InMemoryPersistentBackend,  // Pour tests
-    RedisCheckpointBackend,      // Pour production (feature "redis-persistence")
-    PersistentCheckpoint,
-    PersistentCheckpointBackend,
-};
-
-// Connexion Redis
-let backend = RedisCheckpointBackend::connect("redis://localhost:6379").await?
-    .with_ttl_days(7);  // Expire après 7 jours
-
-// Workflow avec persistence
-let workflow = Workflow::with_config(definition, registry, config)
-    .with_checkpoint_backend(Arc::new(backend));
-
-// Exécution normale (checkpoints automatiques)
-let result = workflow.run(input).await?;
-
-// OU: Reprise depuis un checkpoint existant
-let result = workflow.run_with_resume(Some("checkpoint-id")).await?;
-
-// OU: Reprise automatique du dernier checkpoint
-let result = workflow.run_with_resume(None).await?;
-```
-
-### PersistentCheckpoint
-
-```rust
-/// Checkpoint étendu avec état partagé pour récupération complète.
-pub struct PersistentCheckpoint {
-    pub checkpoint: Checkpoint,           // Données de base
-    pub shared_state: HashMap<String, Value>,  // État partagé capturé
-    pub schema_version: u32,              // Pour migrations
-    pub workflow_hash: Option<String>,    // Détection changements incompatibles
-}
-```
-
-### Cleanup automatique
-
-```rust
-// Garder seulement les 3 derniers checkpoints
-backend.cleanup_keep_last(&workflow_id, &task_id, 3).await?;
-
-// Supprimer tous les checkpoints d'une tâche
-backend.delete_all(&workflow_id, &task_id).await?;
-
-// Lister les checkpoints (metadata légère)
-let checkpoints = backend.list_metadata(&workflow_id, None).await?;
-```
-
 ---
 
 ## NATS: Le Système Nerveux Central
@@ -3986,38 +622,94 @@ let checkpoints = backend.list_metadata(&workflow_id, None).await?;
               ┌─────────────────────────────┼─────────────────────────────┐
               │                             │                             │
               ▼                             ▼                             ▼
-       ┌─────────────┐              ┌─────────────────────────────────────────┐
-       │ORCHESTRATOR │              │            TOUS LES EXECUTORS           │
-       │             │              │  ┌─────────┐ ┌─────────┐ ┌───────────┐  │
-       │ Reads:      │              │  │ Workers │ │Validators│ │Orchestrat.│  │
-       │ - All events│              │  │(kind=W) │ │(kind=V)  │ │(kind=O)   │  │
-       │ - State     │              │  └─────────┘ └─────────┘ └───────────┘  │
-       │             │              │                                         │
-       │ Writes:     │              │  Tous lisent/écrivent via WorkflowContext│
-       │ - Dispatch  │              │  - ctx.previous_errors()                │
-       │ - Decisions │              │  - ctx.send_message()                   │
-       │ - Graph state│             │  - ctx.log()                            │
-       └─────────────┘              └─────────────────────────────────────────┘
+       ┌─────────────┐              ┌─────────────┐              ┌─────────────┐
+       │ORCHESTRATOR │              │  EXECUTORS  │              │  VALIDATOR  │
+       │             │              │             │              │             │
+       │ Reads:      │              │ Reads:      │              │ Reads:      │
+       │ - All events│              │ - Own past  │              │ - Attempts  │
+       │ - State     │              │ - Deps output│             │ - Patterns  │
+       │             │              │ - Errors    │              │             │
+       │ Writes:     │              │             │              │ Writes:     │
+       │ - Dispatch  │              │ Writes:     │              │ - Results   │
+       │ - Decisions │              │ - Output    │              │ - Feedback  │
+       │ - Graph state│             │ - Progress  │              │             │
+       └─────────────┘              └─────────────┘              └─────────────┘
 ```
 
 ---
 
-## Executors: Implémentation Détaillée
+## Executors
 
-> **Rappel**: Worker, Validator et Orchestrator sont tous des **Executors** (même trait).
-> La différence est sémantique: `kind()` retourne `Worker`, `Validator`, ou `Orchestrator`.
+### Définition
 
-### État d'un Executor
+Un **Executor** est un noeud du graph qui:
+1. Reçoit des inputs via ses **edges entrants**
+2. Fait un travail (LLM call, merge, validation, etc.)
+3. Produit des outputs via ses **edges sortants**
+4. Consulte/publie sur **NATS** pour le contexte et l'historique
+
+### Types d'Executors
 
 ```rust
+/// Un Executor dans le graph
+pub struct GraphExecutor {
+    /// Identifiant unique
+    pub id: ExecutorId,
+    /// Type d'executor
+    pub executor_type: ExecutorType,
+    /// Configuration
+    pub config: ExecutorConfig,
+    /// Client NATS pour mémoire/communication
+    pub nats: Arc<NatsClient>,
+    /// Edges entrants (d'où viennent les inputs)
+    pub inputs: Vec<EdgeId>,
+    /// Edges sortants (où vont les outputs)
+    pub outputs: Vec<EdgeId>,
+    /// État courant
+    pub state: ExecutorState,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ExecutorType {
+    // === Code Generation ===
+    /// Génère types/interfaces
+    TypeGenerator,
+    /// Génère implémentation
+    ImplGenerator,
+    /// Génère tests (INDÉPENDAMMENT du code!)
+    TestGenerator,
+    /// Génère documentation
+    DocGenerator,
+
+    // === Processing ===
+    /// Assemble les morceaux de code
+    Assembler,
+    /// Exécute dans sandbox
+    SandboxRunner,
+
+    // === Validation ===
+    /// Boucle de compilation
+    CompileValidator,
+    /// Boucle de tests
+    TestValidator,
+    /// Boucle de lint
+    LintValidator,
+
+    // === Control ===
+    /// Prend des décisions de routing
+    Router,
+    /// Agrège des résultats
+    Aggregator,
+}
+
 #[derive(Clone)]
 pub enum ExecutorState {
-    /// En attente d'inputs (edges entrants pas encore activés)
+    /// En attente d'inputs
     Waiting,
     /// En cours d'exécution
     Running { started_at: Instant },
     /// Terminé avec succès
-    Completed { output_hash: String },
+    Completed { output: ExecutorOutput },
     /// Échoué
     Failed { error: String, attempts: u32 },
     /// Bloqué (dépendance échouée)
@@ -4103,6 +795,132 @@ impl GraphExecutor {
             dependency_outputs,
             successful_patterns,
         })
+    }
+}
+```
+
+---
+
+## Edges
+
+### Définition
+
+Un **Edge** est une connexion entre deux executors qui:
+1. Transporte des **data** (code, résultats, erreurs)
+2. Porte des **metadata** (timestamps, provenance, validity)
+3. Peut avoir des **conditions** (seulement si X réussi)
+4. Est **persisté sur NATS** pour l'historique
+
+### Structure
+
+```rust
+/// Une connexion entre deux executors
+pub struct Edge {
+    /// Identifiant unique
+    pub id: EdgeId,
+    /// Executor source
+    pub from: ExecutorId,
+    /// Executor destination
+    pub to: ExecutorId,
+    /// Type de données transportées
+    pub data_type: EdgeDataType,
+    /// Condition d'activation
+    pub condition: Option<EdgeCondition>,
+    /// Données actuelles (si activé)
+    pub data: Option<EdgeData>,
+    /// Métadonnées
+    pub metadata: EdgeMetadata,
+}
+
+#[derive(Clone)]
+pub enum EdgeDataType {
+    /// Code source
+    Code { language: String },
+    /// Résultat de validation
+    ValidationResult,
+    /// Erreurs enrichies
+    Errors,
+    /// Feedback pour retry
+    Feedback,
+    /// Signal de contrôle
+    Signal,
+}
+
+#[derive(Clone)]
+pub enum EdgeCondition {
+    /// Toujours actif
+    Always,
+    /// Seulement si source succeeded
+    OnSuccess,
+    /// Seulement si source failed
+    OnFailure,
+    /// Condition custom
+    Custom(String),
+}
+
+#[derive(Clone)]
+pub struct EdgeData {
+    pub id: String,
+    /// Payload
+    pub payload: serde_json::Value,
+    /// Hash pour déduplication
+    pub content_hash: String,
+    /// Timestamp
+    pub created_at: DateTime<Utc>,
+    /// Provenance
+    pub source_executor: ExecutorId,
+    /// Trace ID pour distributed tracing
+    pub trace_id: String,
+}
+
+#[derive(Clone)]
+pub struct EdgeMetadata {
+    /// Nombre de fois que cet edge a été activé
+    pub activation_count: u32,
+    /// Dernière activation
+    pub last_activated: Option<DateTime<Utc>>,
+    /// Latence moyenne
+    pub avg_latency_ms: f64,
+}
+```
+
+### Edge persisté sur NATS
+
+```rust
+impl Edge {
+    /// Active l'edge et transporte les données
+    pub async fn activate(
+        &mut self,
+        data: EdgeData,
+        nats: &NatsClient
+    ) -> Result<(), EdgeError> {
+        // 1. Sauvegarder les données sur NATS
+        nats.kv_put(&format!("edge.{}.data", self.id), &data).await?;
+
+        // 2. Publier l'événement d'activation
+        nats.publish(&format!("agentic.edge.{}.activated", self.id), &EdgeEvent::Activated {
+            edge_id: self.id.clone(),
+            from: self.from.clone(),
+            to: self.to.clone(),
+            data_hash: data.content_hash.clone(),
+        }).await?;
+
+        // 3. Mettre à jour metadata
+        self.metadata.activation_count += 1;
+        self.metadata.last_activated = Some(Utc::now());
+        self.data = Some(data);
+
+        Ok(())
+    }
+
+    /// Vérifie si l'edge doit être activé
+    pub fn should_activate(&self, source_state: &ExecutorState) -> bool {
+        match &self.condition {
+            None | Some(EdgeCondition::Always) => true,
+            Some(EdgeCondition::OnSuccess) => matches!(source_state, ExecutorState::Completed { .. }),
+            Some(EdgeCondition::OnFailure) => matches!(source_state, ExecutorState::Failed { .. }),
+            Some(EdgeCondition::Custom(expr)) => self.evaluate_condition(expr, source_state),
+        }
     }
 }
 ```
@@ -4230,17 +1048,9 @@ impl Orchestrator {
 ### Subjects (pub/sub temps réel)
 
 ```
-# === AGENT LAYER ===
-agentic.agent.{id}.message            # Nouveau message utilisateur
-agentic.agent.{id}.response           # Réponse de l'agent
-agentic.agent.{id}.tool_call          # Appel d'outil
-agentic.agent.{id}.workflow.started   # Workflow démarré par l'agent
-agentic.agent.{id}.workflow.completed # Workflow terminé
-
-# === WORKFLOW LAYER ===
-agentic.workflow.{id}.started         # Workflow démarré
-agentic.workflow.{id}.superstep       # Nouveau superstep
-agentic.workflow.{id}.completed       # Workflow terminé
+agentic.orchestrator.task.started     # Nouvelle tâche
+agentic.orchestrator.task.completed   # Tâche terminée
+agentic.orchestrator.decision         # Décision prise
 
 agentic.executor.{id}.started         # Executor démarre
 agentic.executor.{id}.progress        # Progression
@@ -4258,12 +1068,6 @@ agentic.validator.feedback            # Feedback structuré
 ### KV Store (état courant)
 
 ```
-# === AGENT LAYER ===
-thread.{id}                           # Thread de conversation complet
-thread.{id}.messages                  # Messages du thread
-thread.{id}.metadata                  # Metadata (created_at, agent_id, etc.)
-
-# === WORKFLOW LAYER ===
 executor.{id}.state                   # État d'un executor
 executor.{id}.output                  # Output d'un executor
 executor.{id}.attempts                # Historique attempts
@@ -4272,11 +1076,10 @@ executor.{id}.errors                  # Erreurs accumulées
 edge.{id}.data                        # Données sur un edge
 edge.{id}.metadata                    # Metadata d'un edge
 
-workflow.{id}.state                   # État du workflow
-workflow.{id}.superstep               # Superstep courant
-workflow.{id}.pending_messages        # Messages en attente
+graph.{task_id}.state                 # État du graph
+graph.{task_id}.executors             # Liste executors
+graph.{task_id}.edges                 # Liste edges
 
-# === PATTERNS ===
 patterns.{executor_type}.success      # Patterns qui marchent
 patterns.{executor_type}.failure      # Patterns qui échouent
 ```
@@ -4385,779 +1188,40 @@ AGENTIC_METRICS         # Métriques de performance
 
 ---
 
-## Orchestration Patterns (Prédéfinis)
-
-> ⚠️ **STATUT: NON IMPLÉMENTÉ** - Ces patterns sont planifiés pour Phase 7.
-> Actuellement, vous devez construire les patterns manuellement avec `WorkflowBuilder`.
-
-Inspiré de [MAF Orchestrations](https://learn.microsoft.com/fr-fr/agent-framework/user-guide/workflows/orchestrations/overview), nous proposons des **patterns de workflow prêts à l'emploi**:
-
-### Les 5 Patterns
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        ORCHESTRATION PATTERNS                               │
-│                                                                             │
-│  1. SEQUENTIAL         A ────▶ B ────▶ C ────▶ D                            │
-│     Pipeline           Chaîne linéaire, chaque agent passe au suivant       │
-│                                                                             │
-│  2. CONCURRENT         ┌────▶ B ────┐                                       │
-│     Fan-out/in     A ──┼────▶ C ────┼──▶ Aggregator                         │
-│                        └────▶ D ────┘                                       │
-│                        Tous en parallèle, résultats agrégés                 │
-│                                                                             │
-│  3. GROUP CHAT              ┌─────┐                                         │
-│     Star + Manager    ┌─────│ MGR │─────┐     Manager contrôle qui parle    │
-│                       │     └──┬──┘     │                                   │
-│                       ▼        │        ▼                                   │
-│                      [A]      [B]      [C]                                  │
-│                                                                             │
-│  4. MAGENTIC               ┌──────────┐                                     │
-│     Planner-based          │ PLANNER  │     Planificateur décompose         │
-│                            └────┬─────┘     et assigne dynamiquement        │
-│                       ┌─────────┼─────────┐                                 │
-│                       ▼         ▼         ▼                                 │
-│                      [A]       [B]       [C]                                │
-│                                                                             │
-│  5. HANDOFF            A ◄───▶ B                                            │
-│     Mesh dynamic       │       │         Agents se passent le contrôle      │
-│                        ▼       ▼         dynamiquement (sans manager)       │
-│                        C ◄───▶ D                                            │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Pattern: Sequential
-
-Pipeline linéaire où chaque agent passe son résultat au suivant. Inspiré de [MAF SequentialBuilder](https://learn.microsoft.com/fr-fr/agent-framework/user-guide/workflows/orchestrations/sequential).
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           SEQUENTIAL FLOW                                   │
-│                                                                             │
-│   Input                                                                     │
-│     │                                                                       │
-│     ▼                                                                       │
-│  ┌──────────┐    messages    ┌──────────┐    messages    ┌──────────┐      │
-│  │  Writer  │ ─────────────▶ │ Reviewer │ ─────────────▶ │ Polisher │      │
-│  └──────────┘                └──────────┘                └──────────┘      │
-│                                                                             │
-│  Chaque agent reçoit l'HISTORIQUE COMPLET des messages précédents          │
-│  → Writer voit: [user_input]                                                │
-│  → Reviewer voit: [user_input, writer_response]                             │
-│  → Polisher voit: [user_input, writer_response, reviewer_response]          │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-#### SequentialBuilder (API fluent)
-
-```rust
-/// Builder pour orchestration séquentielle
-pub struct SequentialBuilder {
-    participants: Vec<Box<dyn Executor>>,
-}
-
-impl SequentialBuilder {
-    pub fn new() -> Self {
-        Self { participants: vec![] }
-    }
-
-    /// Ajoute les participants dans l'ordre d'exécution
-    pub fn participants(mut self, agents: Vec<impl Executor + 'static>) -> Self {
-        self.participants = agents.into_iter().map(|a| Box::new(a) as _).collect();
-        self
-    }
-
-    /// Construit le workflow
-    pub fn build(self) -> Workflow {
-        let mut builder = WorkflowBuilder::new();
-
-        // Premier participant = start
-        if let Some(first) = self.participants.first() {
-            builder.set_start_executor(first.clone());
-        }
-
-        // Chaîner: A → B → C → D
-        for window in self.participants.windows(2) {
-            builder.add_edge(&window[0].id(), &window[1].id());
-        }
-
-        builder.build()
-    }
-}
-```
-
-#### Usage simple
-
-```rust
-// Créer les agents
-let writer = llm.as_agent(
-    "You are a concise copywriter. Provide a punchy marketing sentence.",
-    "writer"
-);
-let reviewer = llm.as_agent(
-    "You are a thoughtful reviewer. Give brief feedback on the previous message.",
-    "reviewer"
-);
-
-// Construire le workflow séquentiel
-let workflow = SequentialBuilder::new()
-    .participants(vec![writer, reviewer])
-    .build();
-
-// Exécuter
-let result = workflow.run("Write a tagline for a budget-friendly eBike.").await?;
-
-// Résultat: conversation complète
-for msg in result.get_outputs::<Vec<ChatMessage>>()? {
-    println!("[{}]: {}", msg.author_name, msg.text);
-}
-// [user]: Write a tagline...
-// [writer]: "Ride Far, Spend Less – Your eBike Adventure Awaits!"
-// [reviewer]: Great tagline! Punchy and clear. Maybe add emotion?
-```
-
-#### Avec transformateur custom entre étapes
-
-```rust
-/// Executor qui transforme/résume entre les étapes
-pub struct Summarizer {
-    id: ExecutorId,
-}
-
-#[async_trait]
-impl Executor for Summarizer {
-    type Input = Vec<ChatMessage>;
-    type Message = Vec<ChatMessage>;
-    type Output = Never;
-
-    async fn handle(
-        &self,
-        conversation: Vec<ChatMessage>,
-        ctx: &mut WorkflowContext<Vec<ChatMessage>>,
-    ) -> Result<(), ExecutorError> {
-        // Compter les messages par rôle
-        let user_count = conversation.iter().filter(|m| m.role == Role::User).count();
-        let assistant_count = conversation.iter().filter(|m| m.role == Role::Assistant).count();
-
-        // Ajouter un résumé
-        let mut updated = conversation.clone();
-        updated.push(ChatMessage::assistant(format!(
-            "Summary: {} user messages, {} assistant responses",
-            user_count, assistant_count
-        )));
-
-        ctx.send_message(updated).await?;
-        Ok(())
-    }
-}
-
-// Workflow: content → summarizer
-let workflow = SequentialBuilder::new()
-    .participants(vec![
-        content_agent,
-        Summarizer::new("summarizer"),
-    ])
-    .build();
-```
-
-#### Early exit (optionnel)
-
-```rust
-/// Executor qui peut arrêter le pipeline si condition remplie
-pub struct ConditionalGate {
-    id: ExecutorId,
-    condition: Box<dyn Fn(&Vec<ChatMessage>) -> bool + Send + Sync>,
-}
-
-#[async_trait]
-impl Executor for ConditionalGate {
-    type Input = Vec<ChatMessage>;
-    type Message = Vec<ChatMessage>;
-    type Output = Vec<ChatMessage>;  // Peut yield_output pour early exit
-
-    async fn handle(
-        &self,
-        messages: Vec<ChatMessage>,
-        ctx: &mut WorkflowContext<Vec<ChatMessage>, Vec<ChatMessage>>,
-    ) -> Result<(), ExecutorError> {
-        if (self.condition)(&messages) {
-            // Condition remplie → early exit, retourne le résultat
-            ctx.yield_output(messages).await?;
-        } else {
-            // Continuer le pipeline
-            ctx.send_message(messages).await?;
-        }
-        Ok(())
-    }
-}
-
-// Usage: s'arrêter si le reviewer approuve
-let workflow = SequentialBuilder::new()
-    .participants(vec![
-        writer,
-        reviewer,
-        ConditionalGate::new("gate", |msgs| {
-            msgs.last().map(|m| m.text.contains("approved")).unwrap_or(false)
-        }),
-        final_polisher,  // Skip si approved
-    ])
-    .build();
-```
-
-### Pattern: Concurrent
-
-Fan-out parallèle avec agrégation des résultats. Inspiré de [MAF ConcurrentBuilder](https://learn.microsoft.com/fr-fr/agent-framework/user-guide/workflows/orchestrations/concurrent).
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           CONCURRENT FLOW                                   │
-│                                                                             │
-│                              Input                                          │
-│                                │                                            │
-│                    ┌───────────┼───────────┐                                │
-│                    ▼           ▼           ▼                                │
-│              ┌──────────┐ ┌──────────┐ ┌──────────┐                         │
-│              │Researcher│ │ Marketer │ │  Legal   │  ← Parallel execution   │
-│              └────┬─────┘ └────┬─────┘ └────┬─────┘                         │
-│                   │            │            │                               │
-│                   └────────────┼────────────┘                               │
-│                                ▼                                            │
-│                    ┌───────────────────────┐                                │
-│                    │      Aggregator       │  ← Combine results             │
-│                    │  (default ou custom)  │                                │
-│                    └───────────────────────┘                                │
-│                                │                                            │
-│                                ▼                                            │
-│                        Final Output                                         │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-#### ConcurrentBuilder (API fluent)
-
-```rust
-/// Builder pour orchestration concurrent
-pub struct ConcurrentBuilder {
-    participants: Vec<Box<dyn Executor>>,
-    aggregator: Option<AggregatorFn>,
-}
-
-/// Fonction d'agrégation custom
-pub type AggregatorFn = Box<dyn Fn(Vec<ExecutorResult>) -> BoxFuture<'static, AggregatedResult> + Send + Sync>;
-
-impl ConcurrentBuilder {
-    pub fn new() -> Self {
-        Self { participants: vec![], aggregator: None }
-    }
-
-    /// Ajoute les participants (agents ou executors)
-    pub fn participants(mut self, agents: Vec<impl Executor + 'static>) -> Self {
-        self.participants = agents.into_iter().map(|a| Box::new(a) as _).collect();
-        self
-    }
-
-    /// Configure un agrégateur custom (optionnel)
-    /// Par défaut: collecte tous les résultats dans une liste
-    pub fn with_aggregator<F, Fut>(mut self, f: F) -> Self
-    where
-        F: Fn(Vec<ExecutorResult>) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = AggregatedResult> + Send + 'static,
-    {
-        self.aggregator = Some(Box::new(move |results| Box::pin(f(results))));
-        self
-    }
-
-    /// Construit le workflow
-    pub fn build(self) -> Workflow {
-        let splitter = BroadcastExecutor::new(self.participants.len());
-        let aggregator = match self.aggregator {
-            Some(f) => CustomAggregator::new(f),
-            None => DefaultAggregator::new(),
-        };
-
-        WorkflowBuilder::new()
-            .set_start_executor(splitter)
-            .add_executors(self.participants)
-            .add_executor(aggregator)
-            .add_fan_out_edge(&splitter.id(), self.participant_ids())
-            .add_fan_in_edge(self.participant_ids(), &aggregator.id())
-            .build()
-    }
-}
-```
-
-#### Usage simple
-
-```rust
-// Créer les agents
-let researcher = llm.as_agent("You're an expert market researcher...", "researcher");
-let marketer = llm.as_agent("You're a creative marketing strategist...", "marketer");
-let legal = llm.as_agent("You're a legal/compliance reviewer...", "legal");
-
-// Construire le workflow concurrent
-let workflow = ConcurrentBuilder::new()
-    .participants(vec![researcher, marketer, legal])
-    .build();
-
-// Exécuter
-let result = workflow.run("We are launching a new electric bike...").await?;
-
-// Résultat: liste de toutes les réponses
-for response in result.get_outputs::<Vec<AgentResponse>>()? {
-    println!("[{}]: {}", response.agent_name, response.text);
-}
-```
-
-#### Avec agrégateur custom (synthèse LLM)
-
-```rust
-// Agrégateur qui synthétise avec un LLM
-let workflow = ConcurrentBuilder::new()
-    .participants(vec![researcher, marketer, legal])
-    .with_aggregator(|results: Vec<ExecutorResult>| async move {
-        // Collecter les réponses de chaque expert
-        let mut sections = Vec::new();
-        for result in results {
-            match result {
-                Ok(response) => {
-                    sections.push(format!("{}:\n{}", response.executor_id, response.text));
-                }
-                Err(e) => {
-                    // Gestion erreur partielle
-                    sections.push(format!("{}: (error: {})", e.executor_id, e.message));
-                }
-            }
-        }
-
-        // Synthétiser avec LLM
-        let prompt = format!(
-            "Consolidate these expert opinions into one cohesive summary:\n\n{}",
-            sections.join("\n\n")
-        );
-
-        let summary = llm.generate("You are a helpful assistant...", &prompt).await?;
-
-        Ok(AggregatedResult::Text(summary))
-    })
-    .build();
-
-// Le résultat est maintenant une synthèse unique
-let result = workflow.run("We are launching a new electric bike...").await?;
-println!("Summary: {}", result.get_output::<String>()?);
-```
-
-#### Gestion des erreurs partielles
-
-```rust
-// L'agrégateur reçoit Ok et Err, peut décider quoi faire
-.with_aggregator(|results| async move {
-    let (successes, failures): (Vec<_>, Vec<_>) = results
-        .into_iter()
-        .partition(|r| r.is_ok());
-
-    if failures.len() > successes.len() {
-        // Trop d'échecs, abandon
-        return Err(AggregationError::TooManyFailures(failures.len()));
-    }
-
-    // Continuer avec les succès seulement
-    let valid_responses: Vec<_> = successes.into_iter().filter_map(|r| r.ok()).collect();
-    Ok(AggregatedResult::Partial {
-        responses: valid_responses,
-        failed_count: failures.len(),
-    })
-})
-```
-
-### Pattern: Group Chat
-
-Topologie en étoile avec un orchestrateur qui contrôle le flux de conversation. Inspiré de [MAF GroupChatBuilder](https://learn.microsoft.com/fr-fr/agent-framework/user-guide/workflows/orchestrations/group-chat).
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           GROUP CHAT FLOW                                   │
-│                                                                             │
-│                        ┌───────────────────┐                                │
-│                        │   ORCHESTRATOR    │                                │
-│                        │  (selection_func) │                                │
-│                        └─────────┬─────────┘                                │
-│                   ┌──────────────┼──────────────┐                           │
-│                   │              │              │                           │
-│                   ▼              ▼              ▼                           │
-│            ┌──────────┐  ┌──────────┐  ┌──────────┐                         │
-│            │Researcher│  │  Writer  │  │ Reviewer │                         │
-│            └────┬─────┘  └────┬─────┘  └────┬─────┘                         │
-│                 │             │             │                               │
-│                 └─────────────┴─────────────┘                               │
-│                               │                                             │
-│                               ▼                                             │
-│                    Broadcast response to ALL                                │
-│                    (context synchronization)                                │
-│                                                                             │
-│  L'orchestrateur:                                                           │
-│  1. Sélectionne qui parle (selection_func ou LLM)                          │
-│  2. L'agent sélectionné répond                                              │
-│  3. La réponse est broadcastée à TOUS les agents                           │
-│  4. Répète jusqu'à termination_condition                                    │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-#### GroupChatBuilder (API fluent)
-
-```rust
-/// Builder pour orchestration Group Chat
-pub struct GroupChatBuilder {
-    participants: Vec<Box<dyn Executor>>,
-    selection_func: Option<SelectionFunc>,
-    orchestrator_agent: Option<Box<dyn Agent>>,
-    termination_condition: Option<TerminationFunc>,
-    max_iterations: Option<usize>,
-}
-
-/// Fonction de sélection: décide qui parle
-pub type SelectionFunc = Box<dyn Fn(&GroupChatState) -> ExecutorId + Send + Sync>;
-
-/// Condition de terminaison
-pub type TerminationFunc = Box<dyn Fn(&[ChatMessage]) -> bool + Send + Sync>;
-
-/// État du group chat
-pub struct GroupChatState {
-    pub participants: HashMap<ExecutorId, Box<dyn Executor>>,
-    pub conversation: Vec<ChatMessage>,
-    pub current_round: usize,
-}
-
-impl GroupChatBuilder {
-    pub fn new() -> Self { ... }
-
-    /// Ajoute les participants
-    pub fn participants(mut self, agents: Vec<impl Executor + 'static>) -> Self {
-        self.participants = agents.into_iter().map(|a| Box::new(a) as _).collect();
-        self
-    }
-
-    /// Configure l'orchestrateur avec une fonction de sélection
-    pub fn with_orchestrator_func<F>(mut self, selection_func: F) -> Self
-    where
-        F: Fn(&GroupChatState) -> ExecutorId + Send + Sync + 'static,
-    {
-        self.selection_func = Some(Box::new(selection_func));
-        self
-    }
-
-    /// Configure l'orchestrateur avec un agent LLM
-    pub fn with_orchestrator_agent(mut self, agent: impl Agent + 'static) -> Self {
-        self.orchestrator_agent = Some(Box::new(agent));
-        self
-    }
-
-    /// Configure la condition de terminaison
-    pub fn with_termination_condition<F>(mut self, condition: F) -> Self
-    where
-        F: Fn(&[ChatMessage]) -> bool + Send + Sync + 'static,
-    {
-        self.termination_condition = Some(Box::new(condition));
-        self
-    }
-
-    /// Configure le nombre max d'itérations
-    pub fn with_max_iterations(mut self, max: usize) -> Self {
-        self.max_iterations = Some(max);
-        self
-    }
-
-    pub fn build(self) -> Workflow { ... }
-}
-```
-
-#### Stratégies de sélection
-
-```rust
-/// Round-Robin: alterne entre les agents
-pub fn round_robin_selector(state: &GroupChatState) -> ExecutorId {
-    let names: Vec<_> = state.participants.keys().collect();
-    names[state.current_round % names.len()].clone()
-}
-
-/// Smart Selector: basé sur le contenu
-pub fn smart_selector(state: &GroupChatState) -> ExecutorId {
-    let last_message = state.conversation.last();
-
-    match last_message {
-        None => ExecutorId::new("researcher"),  // Commencer par researcher
-        Some(msg) => {
-            if msg.text.to_lowercase().contains("research complete") {
-                ExecutorId::new("writer")  // Passer au writer
-            } else if msg.author_name == "writer" {
-                ExecutorId::new("reviewer")  // Puis reviewer
-            } else {
-                ExecutorId::new("researcher")  // Continuer recherche
-            }
-        }
-    }
-}
-
-/// LLM-based: le LLM décide qui parle
-pub fn llm_selector(llm: Arc<dyn LLMAdapter>) -> impl Fn(&GroupChatState) -> ExecutorId {
-    move |state: &GroupChatState| {
-        let prompt = format!(
-            "Given the conversation so far, who should speak next?\n\
-             Participants: {:?}\n\
-             Last message: {:?}\n\
-             Reply with just the participant name.",
-            state.participants.keys().collect::<Vec<_>>(),
-            state.conversation.last()
-        );
-
-        // Note: en pratique, utiliser async
-        let response = llm.generate_sync("You are a conversation coordinator.", &prompt)?;
-        ExecutorId::new(&response.trim())
-    }
-}
-```
-
-#### Usage avec Round-Robin
-
-```rust
-let researcher = llm.as_agent("You gather facts concisely.", "researcher");
-let writer = llm.as_agent("You write clear structured responses.", "writer");
-
-let workflow = GroupChatBuilder::new()
-    .participants(vec![researcher, writer])
-    .with_orchestrator_func(round_robin_selector)
-    .with_termination_condition(|msgs| msgs.len() >= 4)
-    .build();
-
-let result = workflow.run("What are the benefits of async/await?").await?;
-```
-
-#### Usage avec orchestrateur LLM (intelligent)
-
-```rust
-let orchestrator = llm.as_agent(
-    "You coordinate a team conversation to solve tasks.\n\
-     Guidelines:\n\
-     - Start with Researcher to gather info\n\
-     - Then have Writer synthesize\n\
-     - End when both have contributed",
-    "orchestrator"
-);
-
-let workflow = GroupChatBuilder::new()
-    .participants(vec![researcher, writer, reviewer])
-    .with_orchestrator_agent(orchestrator)
-    .with_termination_condition(|msgs| {
-        // Terminer si le reviewer approuve
-        msgs.last()
-            .map(|m| m.text.to_lowercase().contains("approved"))
-            .unwrap_or(false)
-    })
-    .with_max_iterations(10)  // Safety limit
-    .build();
-```
-
-#### Synchronisation du contexte
-
-```rust
-/// L'orchestrateur broadcast chaque réponse à tous les participants
-impl GroupChatOrchestrator {
-    async fn broadcast_to_all(&self, message: &ChatMessage, ctx: &mut WorkflowContext<...>) {
-        for participant_id in self.participants.keys() {
-            ctx.send_message(BroadcastMessage {
-                target: participant_id.clone(),
-                message: message.clone(),
-            }).await?;
-        }
-    }
-}
-```
-
-#### Cas d'usage
-
-| Cas | Configuration |
-|-----|---------------|
-| **Code Review** | `[coder, reviewer]` + round-robin + "approved" termination |
-| **Brainstorming** | `[creative, analyst, critic]` + LLM orchestrator |
-| **Q&A Research** | `[researcher, synthesizer]` + smart selector |
-| **Content Creation** | `[writer, editor, fact-checker]` + max 6 iterations |
-
-### Pattern: Handoff (Mesh Dynamique)
-
-Les agents se passent le contrôle dynamiquement sans manager central.
-
-```rust
-/// Agent capable de faire un handoff
-pub trait HandoffCapable: Executor {
-    /// Décide à qui passer le contrôle (ou None si terminé)
-    fn decide_handoff(&self, result: &Self::Message) -> Option<ExecutorId>;
-}
-
-/// Crée un workflow Handoff (mesh)
-pub fn handoff(agents: Vec<impl HandoffCapable>) -> Workflow {
-    let mut builder = WorkflowBuilder::new()
-        .set_start_executor(agents[0]);
-
-    // Chaque agent peut passer à n'importe quel autre
-    for from in &agents {
-        for to in &agents {
-            if from.id() != to.id() {
-                builder.add_edge(from.id(), to.id(),
-                    |result| from.decide_handoff(result) == Some(to.id())
-                );
-            }
-        }
-    }
-
-    builder.build()
-}
-
-// Usage: agents spécialisés qui s'entraident
-let workflow = handoff(vec![
-    general_assistant,      // Répond aux questions simples
-    code_specialist,        // Handoff si question de code
-    math_specialist,        // Handoff si question de math
-    research_specialist,    // Handoff si recherche nécessaire
-]);
-```
-
-### Pattern: Magentic (Planner-based)
-
-Inspiré de [MagenticOne](https://www.microsoft.com/en-us/research/articles/magentic-one-a-generalist-multi-agent-system-for-solving-complex-tasks/), un planificateur décompose la tâche.
-
-```rust
-/// Planificateur qui décompose les tâches
-pub struct MagenticPlanner {
-    id: ExecutorId,
-    llm: Arc<dyn LLMAdapter>,
-    available_agents: Vec<AgentCapability>,
-}
-
-#[async_trait]
-impl Executor for MagenticPlanner {
-    type Input = ComplexTask;
-    type Message = SubTask;
-    type Output = TaskResult;
-
-    async fn handle(&self, task: ComplexTask, ctx: &mut WorkflowContext<SubTask, TaskResult>) {
-        // 1. Décomposer la tâche en sous-tâches
-        let plan = self.create_plan(&task).await?;
-
-        ctx.add_event(PlanCreatedEvent { steps: plan.len() }).await?;
-
-        // 2. Exécuter le plan
-        for step in plan {
-            // Assigner à l'agent approprié
-            ctx.send_message(SubTask {
-                agent_id: step.assigned_agent,
-                instruction: step.instruction,
-                context: step.context,
-            }).await?;
-        }
-
-        // 3. Collecter et synthétiser les résultats
-        // (géré par les edges de retour)
-    }
-}
-```
-
-### Quand utiliser quel pattern?
-
-| Pattern | Cas d'usage | Exemple |
-|---------|-------------|---------|
-| **Sequential** | Pipeline linéaire, étapes dépendantes | Parse → Generate → Validate → Format |
-| **Concurrent** | Tâches indépendantes, agrégation | Analyser un doc avec 3 analyseurs |
-| **Group Chat** | Collaboration itérative, débat | Code review avec plusieurs reviewers |
-| **Magentic** | Tâches complexes, planification | "Crée une app complète" |
-| **Handoff** | Escalade, spécialistes | Support client avec experts |
-
----
-
 ## Prochaines Étapes
 
-### ✅ Phase 1: Core Abstractions (COMPLÉTÉ - PR #1-3)
-- [x] `Executor` trait avec `WorkflowContext`
-- [x] `Edge` enum (Direct, Conditional, Switch, FanOut, FanIn)
-- [x] `Workflow` struct avec exécution Superstep
+### Phase 1: Core Abstractions
+- [ ] `Executor` trait avec `WorkflowContext`
+- [ ] `Edge` enum (Direct, Conditional, Switch, FanOut, FanIn)
+- [ ] `Workflow` struct avec exécution Superstep
 
-### ✅ Phase 2: WorkflowBuilder (COMPLÉTÉ - PR #4)
-- [x] API fluent pour construction du graph
-- [x] Validation du graph (types, connectivité)
-- [x] Intégration NATS pour persistence
+### Phase 2: WorkflowBuilder
+- [ ] API fluent pour construction du graph
+- [ ] Validation du graph (types, connectivité)
+- [ ] Intégration NATS pour persistence
 
-### ✅ Phase 3: Superstep Execution (COMPLÉTÉ - PR #5)
-- [x] Exécution BSP (Bulk Synchronous Parallel)
-- [x] Checkpointing aux frontières de superstep
-- [x] `WorkflowConfig` (max_supersteps, max_retries)
-- [x] `WorkflowResult` avec métriques
+### Phase 3: Executors de base
+- [ ] `CodeGenerator` (Worker) - génération LLM
+- [ ] `CodeAssembler` (Worker) - merge du code
+- [ ] `CompileValidator` (Validator) - compilation
+- [ ] `TestValidator` (Validator) - tests
+- [ ] `SubWorkflowOrchestrator` (Orchestrator) - sub-graphs
 
-### ✅ Phase 4: Graph Persistence (COMPLÉTÉ - PR #6)
-- [x] `PersistentCheckpoint` avec shared state
-- [x] `InMemoryPersistentBackend` pour tests
-- [x] `RedisCheckpointBackend` pour production
-- [x] `Workflow.run_with_resume()` pour reprise
-- [x] Cleanup automatique des vieux checkpoints
+### Phase 4: NATS Integration
+- [ ] Persistence des edges/outputs dans KV
+- [ ] Events pub/sub pour monitoring
+- [ ] Historique et replay
+- [ ] Checkpointing aux frontières de superstep
 
-### ✅ Phase 5: Executors de base (COMPLÉTÉ)
-- [x] Executor trait générique
-- [x] **MAF Dynamic Dispatch Pattern** - tous les executors utilisent `serde_json::Value` pour Input/Message
-- [x] `LLMGeneratorExecutor` (Worker) - génération LLM via `executors/llm_generator.rs`
-- [x] `CodeAssemblerExecutor` (Worker) - merge du code via `executors/code_assembler.rs`
-- [x] `CompileValidatorExecutor` (Validator) - compilation via `executors/compile_validator.rs`
-- [x] `TestValidatorExecutor` (Validator) - tests via `executors/test_validator.rs`
-- [x] `SubWorkflowExecutor` (Orchestrator) - nested workflows via `executors/sub_workflow.rs`
+### Phase 5: Feedback & Learning
+- [ ] Context enrichment depuis NATS (erreurs passées)
+- [ ] Pattern learning (ce qui marche/échoue)
+- [ ] Retry intelligent avec historique
 
-### ✅ Phase 6: Agent Layer (IMPLÉMENTÉ)
-- [x] `Agent` trait avec `run()` et `run_stream()` - `agent/trait_def.rs`
-- [x] `AgentThread` in-memory (NATS KV déféré à Phase 8) - `agent/thread.rs`
-- [x] `ChatAgent` - agent simple (wrapper LLM) - `agent/chat_agent.rs`
-- [x] `WorkflowAgent` - agent qui invoque des workflows - `agent/workflow_agent.rs`
-- [x] `workflow.as_agent()` - conversion workflow → agent - `WorkflowAsAgent` trait
-- [x] `Tool`, `ToolParam`, `ToolParameters` - définitions pour function calling - `agent/tools.rs`
-- [x] `AgentChunk` streaming response - `agent/response.rs`
-- [x] `AgentError`, `AgentResult` - gestion d'erreurs - `agent/error.rs`
-- [x] `AgentExt` - extensions: `invoke()`, `run_once()`, `new_thread()` - `agent/trait_def.rs`
-
-### ✅ Phase 7: Orchestration Patterns (IMPLÉMENTÉ)
-- [x] `SequentialBuilder` - pipeline linéaire - `patterns/sequential.rs`
-- [x] `ConcurrentBuilder` - fan-out/fan-in parallèle - `patterns/concurrent.rs`
-- [x] `GroupChatBuilder` - topologie étoile avec orchestrateur - `patterns/group_chat.rs`
-- [x] `handoff()` - mesh dynamique entre agents - `patterns/handoff.rs`
-- [x] Selectors: `round_robin_selector`, `smart_selector`, `no_repeat_selector`
-- [x] Termination: `max_messages`, `max_rounds`, `keyword`, `any_termination`
-- [ ] `MagenticPlanner` - planificateur (déféré Phase 8)
-
-### ✅ Phase 8: Agent Memory (FAIT - P1)
-- [x] `MemoryProvider` trait - `agent/memory.rs`
-- [x] `InMemoryProvider` - implémentation in-memory
-- [x] `NoOpMemoryProvider` - implémentation no-op
-- [x] `Memory`, `MemoryCategory`, `MemoryContext` types
-- [x] `UserMemories` avec retrieval par importance
-- [x] Short-term memory (Thread) - in-memory
-- [ ] `AgentThread` persisté sur NATS KV (déféré Phase 9)
-- [ ] `NatsMemoryProvider` - NATS KV persistence (déféré Phase 9)
-- [x] `ChatReducer` trait - `agent/reducer.rs`
-- [x] `MessageCountingReducer` - garde N derniers messages
-- [x] `TokenCountingReducer` - budget tokens
-- [x] `SlidingWindowReducer` - récent + important
-- [x] `NoOpReducer` - pas de réduction
-- [x] Example: `examples/memory_demo.rs`
-- [x] 17 tests (8 memory + 9 reducer)
-
-### ✅ Phase 9: Production Features (FAIT - P2)
-- [x] `NatsMemoryProvider` - NATS KV persistence for long-term memory
-- [x] `ThreadStore` trait + `NatsThreadStore` - NATS KV persistence for AgentThread
-- [x] `InMemoryThreadStore` - In-memory implementation for testing
-- [x] `ContinuationToken` - Serializable token for background tasks
-- [x] `BackgroundTask` + `BackgroundResponse` - Task lifecycle management
-- [x] `TaskStatus` - Pending/InProgress/Complete/Failed/Cancelled
-- [x] `InMemoryTaskStore` - In-memory task store
-- [ ] `ProxyAgent` (agents distants via A2A) - déféré Phase 10
-
-### ✅ Phase 10: Tests E2E (FAIT)
-- [x] `graph_workflow` - exemple basique de workflow
-- [x] `graph_persistence_test` - test de crash/resume
-- [x] `graph_refactor` - LLM refactoring avec persistence
-- [x] `ts_state_machine_graph` - Exemple TypeScript state machine complet (fan-out/fan-in)
-- [x] `benches/graph_vs_linear` - Benchmarks vs architecture linéaire (Criterion)
+### Phase 6: Tests E2E
+- [ ] Exemple TypeScript state machine
+- [ ] Exemple Rust async cache
+- [ ] Benchmarks vs architecture linéaire actuelle
 
 ---
 
@@ -5314,8 +1378,6 @@ let result = workflow.run(GenerationRequest {
 
 ### Frameworks
 - [Microsoft Agent Framework](https://learn.microsoft.com/en-us/agent-framework/) - Architecture Executor/Edge/Workflow
-- [MAF Agent Types](https://learn.microsoft.com/fr-fr/agent-framework/user-guide/agents/agent-types/) - ChatAgent, BaseAgent, Proxies
-- [MAF Workflows](https://learn.microsoft.com/en-us/agent-framework/user-guide/workflows/) - Workflow orchestration
 - [LangGraph](https://docs.langchain.com/oss/python/langgraph/) - Graph-based agent orchestration
 - [Google Pregel](https://research.google/pubs/pub37252/) - Bulk Synchronous Parallel model
 

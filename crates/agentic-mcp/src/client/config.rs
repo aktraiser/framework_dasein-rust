@@ -1,8 +1,8 @@
 //! MCP Client configuration.
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
+use serde::{Deserialize, Serialize};
 
 use crate::MCPError;
 
@@ -44,14 +44,13 @@ pub struct MCPServerConfig {
     pub timeout_ms: u64,
 }
 
-const fn default_timeout() -> u64 {
+fn default_timeout() -> u64 {
     30000
 }
 
 impl MCPServerConfig {
     /// Determine transport type from config.
-    #[must_use]
-    pub const fn transport_type(&self) -> TransportType {
+    pub fn transport_type(&self) -> TransportType {
         if self.url.is_some() {
             TransportType::Http
         } else {
@@ -84,22 +83,19 @@ impl MCPServerConfig {
     }
 
     /// Add HTTP header.
-    #[must_use]
     pub fn header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.headers.insert(key.into(), value.into());
         self
     }
 
     /// Add environment variable.
-    #[must_use]
     pub fn env_var(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.env.insert(key.into(), value.into());
         self
     }
 
     /// Set timeout.
-    #[must_use]
-    pub const fn timeout(mut self, ms: u64) -> Self {
+    pub fn timeout(mut self, ms: u64) -> Self {
         self.timeout_ms = ms;
         self
     }
@@ -115,7 +111,6 @@ pub struct MCPConfig {
 
 impl MCPConfig {
     /// Create empty config.
-    #[must_use]
     pub fn new() -> Self {
         Self {
             servers: HashMap::new(),
@@ -123,42 +118,33 @@ impl MCPConfig {
     }
 
     /// Load config from JSON file.
-    ///
-    /// # Errors
-    /// Returns an error if the file cannot be read or parsed as valid JSON.
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self, MCPError> {
         let content = std::fs::read_to_string(path)
-            .map_err(|e| MCPError::ConnectionFailed(format!("Failed to read config: {e}")))?;
+            .map_err(|e| MCPError::ConnectionFailed(format!("Failed to read config: {}", e)))?;
 
         Self::from_json(&content)
     }
 
     /// Parse config from JSON string.
-    ///
-    /// # Errors
-    /// Returns an error if the string is not valid JSON configuration.
     pub fn from_json(json: &str) -> Result<Self, MCPError> {
         serde_json::from_str(json)
-            .map_err(|e| MCPError::SerializationError(format!("Invalid config: {e}")))
+            .map_err(|e| MCPError::SerializationError(format!("Invalid config: {}", e)))
     }
 
     /// Add a server configuration.
-    #[must_use]
     pub fn add_server(mut self, name: impl Into<String>, config: MCPServerConfig) -> Self {
         self.servers.insert(name.into(), config);
         self
     }
 
     /// Get server configuration by name.
-    #[must_use]
     pub fn get(&self, name: &str) -> Option<&MCPServerConfig> {
         self.servers.get(name)
     }
 
     /// List all server names.
-    #[must_use]
     pub fn server_names(&self) -> Vec<&str> {
-        self.servers.keys().map(String::as_str).collect()
+        self.servers.keys().map(|s| s.as_str()).collect()
     }
 }
 
@@ -189,10 +175,7 @@ mod tests {
         let server = config.get("context7").unwrap();
 
         assert_eq!(server.url.as_deref(), Some("https://mcp.context7.com/mcp"));
-        assert_eq!(
-            server.headers.get("CONTEXT7_API_KEY"),
-            Some(&"test-key".to_string())
-        );
+        assert_eq!(server.headers.get("CONTEXT7_API_KEY"), Some(&"test-key".to_string()));
         assert!(matches!(server.transport_type(), TransportType::Http));
     }
 
@@ -214,29 +197,19 @@ mod tests {
         let server = config.get("github").unwrap();
 
         assert_eq!(server.command.as_deref(), Some("npx"));
-        assert_eq!(
-            server.args,
-            vec!["-y", "@modelcontextprotocol/server-github"]
-        );
+        assert_eq!(server.args, vec!["-y", "@modelcontextprotocol/server-github"]);
         assert!(matches!(server.transport_type(), TransportType::Stdio));
     }
 
     #[test]
     fn test_builder() {
         let config = MCPConfig::new()
-            .add_server(
-                "context7",
-                MCPServerConfig::http("https://mcp.context7.com/mcp")
-                    .header("CONTEXT7_API_KEY", "test-key")
-                    .timeout(60000),
+            .add_server("context7", MCPServerConfig::http("https://mcp.context7.com/mcp")
+                .header("CONTEXT7_API_KEY", "test-key")
+                .timeout(60000)
             )
-            .add_server(
-                "github",
-                MCPServerConfig::stdio(
-                    "npx",
-                    vec!["-y".into(), "@modelcontextprotocol/server-github".into()],
-                )
-                .env_var("GITHUB_TOKEN", "ghp_xxx"),
+            .add_server("github", MCPServerConfig::stdio("npx", vec!["-y".into(), "@modelcontextprotocol/server-github".into()])
+                .env_var("GITHUB_TOKEN", "ghp_xxx")
             );
 
         assert_eq!(config.server_names().len(), 2);

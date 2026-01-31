@@ -12,7 +12,7 @@
 //! # Quick Start
 //!
 //! ```rust
-//! use dasein_agentic_core::distributed::{Validator, ValidationRule};
+//! use agentic_core::distributed::{Validator, ValidationRule};
 //!
 //! let validator = Validator::new("val-001", "sup-001")
 //!     .rule(ValidationRule::OutputNotEmpty)
@@ -34,6 +34,7 @@
 //! | Feedback | Rule-based | Real errors |
 
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 use super::config::ValidatorConfig;
 
@@ -151,19 +152,15 @@ impl Validator {
 
     /// Create from config.
     pub fn from_config(config: ValidatorConfig) -> Self {
-        let rules = config
-            .rules
-            .iter()
-            .map(|r| match r.as_str() {
-                "output_not_empty" => ValidationRule::OutputNotEmpty,
-                "no_errors" => ValidationRule::NoErrors,
-                "valid_json" => ValidationRule::ValidJson,
-                "no_todos" => ValidationRule::NoTodos,
-                "has_tests" => ValidationRule::HasTests,
-                "no_secrets" => ValidationRule::NoSecrets,
-                _ => ValidationRule::Custom { name: r.clone() },
-            })
-            .collect();
+        let rules = config.rules.iter().map(|r| match r.as_str() {
+            "output_not_empty" => ValidationRule::OutputNotEmpty,
+            "no_errors" => ValidationRule::NoErrors,
+            "valid_json" => ValidationRule::ValidJson,
+            "no_todos" => ValidationRule::NoTodos,
+            "has_tests" => ValidationRule::HasTests,
+            "no_secrets" => ValidationRule::NoSecrets,
+            _ => ValidationRule::Custom { name: r.clone() },
+        }).collect();
 
         Self {
             id: config.id,
@@ -236,107 +233,46 @@ impl Validator {
         match rule {
             ValidationRule::OutputNotEmpty => {
                 let passed = !output.trim().is_empty();
-                (
-                    passed,
-                    if passed {
-                        None
-                    } else {
-                        Some("Output is empty".into())
-                    },
-                )
+                (passed, if passed { None } else { Some("Output is empty".into()) })
             }
             ValidationRule::NoErrors => {
                 let has_error = output.to_lowercase().contains("error:");
-                (
-                    !has_error,
-                    if has_error {
-                        Some("Output contains errors".into())
-                    } else {
-                        None
-                    },
-                )
+                (!has_error, if has_error { Some("Output contains errors".into()) } else { None })
             }
-            ValidationRule::ValidJson => match serde_json::from_str::<serde_json::Value>(output) {
-                Ok(_) => (true, None),
-                Err(e) => (false, Some(format!("Invalid JSON: {}", e))),
-            },
+            ValidationRule::ValidJson => {
+                match serde_json::from_str::<serde_json::Value>(output) {
+                    Ok(_) => (true, None),
+                    Err(e) => (false, Some(format!("Invalid JSON: {}", e))),
+                }
+            }
             ValidationRule::NoTodos => {
                 let has_todo = output.contains("TODO") || output.contains("FIXME");
-                (
-                    !has_todo,
-                    if has_todo {
-                        Some("Contains TODO/FIXME".into())
-                    } else {
-                        None
-                    },
-                )
+                (!has_todo, if has_todo { Some("Contains TODO/FIXME".into()) } else { None })
             }
             ValidationRule::HasTests => {
                 let has_tests = output.contains("#[test]") || output.contains("fn test_");
-                (
-                    has_tests,
-                    if has_tests {
-                        None
-                    } else {
-                        Some("No tests found".into())
-                    },
-                )
+                (has_tests, if has_tests { None } else { Some("No tests found".into()) })
             }
             ValidationRule::NoSecrets => {
                 let patterns = ["api_key", "secret", "password", "token"];
                 let has_secret = patterns.iter().any(|p| output.to_lowercase().contains(p));
-                (
-                    !has_secret,
-                    if has_secret {
-                        Some("Potential secret detected".into())
-                    } else {
-                        None
-                    },
-                )
+                (!has_secret, if has_secret { Some("Potential secret detected".into()) } else { None })
             }
             ValidationRule::MaxLength { chars } => {
                 let passed = output.len() <= *chars;
-                (
-                    passed,
-                    if passed {
-                        None
-                    } else {
-                        Some(format!("Output too long: {} > {}", output.len(), chars))
-                    },
-                )
+                (passed, if passed { None } else { Some(format!("Output too long: {} > {}", output.len(), chars)) })
             }
             ValidationRule::MinLength { chars } => {
                 let passed = output.len() >= *chars;
-                (
-                    passed,
-                    if passed {
-                        None
-                    } else {
-                        Some(format!("Output too short: {} < {}", output.len(), chars))
-                    },
-                )
+                (passed, if passed { None } else { Some(format!("Output too short: {} < {}", output.len(), chars)) })
             }
             ValidationRule::Contains { pattern } => {
                 let passed = output.contains(pattern);
-                (
-                    passed,
-                    if passed {
-                        None
-                    } else {
-                        Some(format!("Missing required pattern: {}", pattern))
-                    },
-                )
+                (passed, if passed { None } else { Some(format!("Missing required pattern: {}", pattern)) })
             }
             ValidationRule::NotContains { pattern } => {
                 let passed = !output.contains(pattern);
-                (
-                    passed,
-                    if passed {
-                        None
-                    } else {
-                        Some(format!("Contains forbidden pattern: {}", pattern))
-                    },
-                )
+                (passed, if passed { None } else { Some(format!("Contains forbidden pattern: {}", pattern)) })
             }
             ValidationRule::CodeCompiles { language: _ } => {
                 // Placeholder - real implementation would compile

@@ -67,28 +67,24 @@ impl AllocationRequest {
     }
 
     /// Set reason.
-    #[must_use]
     pub fn reason(mut self, reason: AllocationReason) -> Self {
         self.reason = reason;
         self
     }
 
     /// Set priority.
-    #[must_use]
     pub fn priority(mut self, priority: i32) -> Self {
         self.priority = priority;
         self
     }
 
     /// Set max duration.
-    #[must_use]
     pub fn duration_ms(mut self, ms: u64) -> Self {
         self.max_duration_ms = ms;
         self
     }
 
     /// Set duration in seconds.
-    #[must_use]
     pub fn duration_secs(self, secs: u64) -> Self {
         self.duration_ms(secs * 1000)
     }
@@ -114,8 +110,7 @@ pub struct AllocationOffer {
 }
 
 impl AllocationOffer {
-    /// Create a new offer responding to an allocation request.
-    #[must_use]
+    /// Create a new offer.
     pub fn new(
         from_supervisor: impl Into<String>,
         to_supervisor: impl Into<String>,
@@ -134,14 +129,12 @@ impl AllocationOffer {
     }
 
     /// Set duration.
-    #[must_use]
     pub fn duration_ms(mut self, ms: u64) -> Self {
         self.max_duration_ms = ms;
         self
     }
 
     /// Set non-revocable.
-    #[must_use]
     pub fn non_revocable(mut self) -> Self {
         self.revocable = false;
         self
@@ -187,20 +180,17 @@ impl AllocationGrant {
     }
 
     /// Set duration in seconds.
-    #[must_use]
     pub fn duration_secs(mut self, secs: i64) -> Self {
         self.expires_at = self.granted_at + Duration::seconds(secs);
         self
     }
 
     /// Check if expired.
-    #[must_use]
     pub fn is_expired(&self) -> bool {
         Utc::now() > self.expires_at
     }
 
     /// Time remaining in ms.
-    #[must_use]
     pub fn remaining_ms(&self) -> i64 {
         (self.expires_at - Utc::now()).num_milliseconds().max(0)
     }
@@ -258,14 +248,12 @@ impl AllocationManager {
     }
 
     /// Set max lend.
-    #[must_use]
     pub fn max_lend(mut self, n: usize) -> Self {
         self.max_lend = n;
         self
     }
 
     /// Set max borrow.
-    #[must_use]
     pub fn max_borrow(mut self, n: usize) -> Self {
         self.max_borrow = n;
         self
@@ -273,18 +261,12 @@ impl AllocationManager {
 
     /// Record a grant where we are the lender.
     pub async fn record_lent(&self, grant: AllocationGrant) {
-        self.lent_grants
-            .write()
-            .await
-            .insert(grant.lease_id.clone(), grant);
+        self.lent_grants.write().await.insert(grant.lease_id.clone(), grant);
     }
 
     /// Record a grant where we are the borrower.
     pub async fn record_borrowed(&self, grant: AllocationGrant) {
-        self.borrowed_grants
-            .write()
-            .await
-            .insert(grant.lease_id.clone(), grant);
+        self.borrowed_grants.write().await.insert(grant.lease_id.clone(), grant);
     }
 
     /// Remove a grant.
@@ -295,20 +277,14 @@ impl AllocationManager {
 
     /// Get count of lent executors.
     pub async fn lent_count(&self) -> usize {
-        self.lent_grants
-            .read()
-            .await
-            .values()
+        self.lent_grants.read().await.values()
             .map(|g| g.executor_ids.len())
             .sum()
     }
 
     /// Get count of borrowed executors.
     pub async fn borrowed_count(&self) -> usize {
-        self.borrowed_grants
-            .read()
-            .await
-            .values()
+        self.borrowed_grants.read().await.values()
             .map(|g| g.executor_ids.len())
             .sum()
     }
@@ -375,47 +351,16 @@ impl AllocationManager {
 
     /// Get all borrowed executor IDs.
     pub async fn borrowed_executor_ids(&self) -> Vec<String> {
-        self.borrowed_grants
-            .read()
-            .await
-            .values()
+        self.borrowed_grants.read().await.values()
             .flat_map(|g| g.executor_ids.clone())
             .collect()
     }
 
     /// Get all lent executor IDs.
     pub async fn lent_executor_ids(&self) -> Vec<String> {
-        self.lent_grants
-            .read()
-            .await
-            .values()
+        self.lent_grants.read().await.values()
             .flat_map(|g| g.executor_ids.clone())
             .collect()
-    }
-
-    /// Create an offer for a request. Used by supervisors to respond to allocation requests.
-    #[must_use]
-    pub fn create_offer(
-        &self,
-        request: &AllocationRequest,
-        executor_ids: Vec<String>,
-    ) -> AllocationOffer {
-        AllocationOffer::new(
-            &self.supervisor_id,
-            &request.from_supervisor,
-            &request.id,
-            executor_ids,
-        )
-    }
-
-    /// Create a release notification when returning executors.
-    #[must_use]
-    pub fn create_release(lease_id: impl Into<String>, reason: ReleaseReason) -> AllocationRelease {
-        AllocationRelease {
-            lease_id: lease_id.into(),
-            reason,
-            released_at: Utc::now(),
-        }
     }
 }
 
@@ -437,8 +382,8 @@ mod tests {
 
     #[test]
     fn test_allocation_grant() {
-        let grant =
-            AllocationGrant::new("sup-data", "sup-code", vec!["exe-001".into()]).duration_secs(60);
+        let grant = AllocationGrant::new("sup-data", "sup-code", vec!["exe-001".into()])
+            .duration_secs(60);
 
         assert!(!grant.is_expired());
         assert!(grant.remaining_ms() > 0);
@@ -446,7 +391,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_allocation_manager() {
-        let manager = AllocationManager::new("sup-001").max_lend(4).max_borrow(4);
+        let manager = AllocationManager::new("sup-001")
+            .max_lend(4)
+            .max_borrow(4);
 
         assert!(manager.can_lend(2).await);
         assert!(manager.can_borrow(2).await);
@@ -455,27 +402,5 @@ mod tests {
         manager.record_lent(grant).await;
 
         assert_eq!(manager.lent_count().await, 1);
-    }
-
-    #[test]
-    fn test_allocation_offer() {
-        let offer = AllocationOffer::new("sup-data", "sup-code", "req-001", vec!["exe-001".into()])
-            .duration_ms(120_000)
-            .non_revocable();
-
-        assert_eq!(offer.from_supervisor, "sup-data");
-        assert!(!offer.revocable);
-    }
-
-    #[test]
-    fn test_allocation_release() {
-        let release = AllocationRelease {
-            lease_id: "lease-001".to_string(),
-            reason: ReleaseReason::Expired,
-            released_at: Utc::now(),
-        };
-
-        assert_eq!(release.lease_id, "lease-001");
-        assert!(matches!(release.reason, ReleaseReason::Expired));
     }
 }

@@ -6,7 +6,7 @@ use futures::{Stream, StreamExt};
 use std::pin::Pin;
 use tracing::{debug, info};
 
-use dasein_agentic_core::protocol::Message;
+use agentic_core::protocol::Message;
 
 use crate::{
     error::BusError,
@@ -89,7 +89,9 @@ impl Channel for NatsChannel {
             .map_err(|e| BusError::PublishFailed(e.to_string()))
     }
 
-    async fn subscribe(&self) -> Result<Pin<Box<dyn Stream<Item = Message> + Send>>, BusError> {
+    async fn subscribe(
+        &self,
+    ) -> Result<Pin<Box<dyn Stream<Item = Message> + Send>>, BusError> {
         debug!(subject = %self.subject, "Subscribing to subject");
 
         let subscriber = self
@@ -98,8 +100,9 @@ impl Channel for NatsChannel {
             .await
             .map_err(|e| BusError::SubscribeFailed(e.to_string()))?;
 
-        let stream = subscriber
-            .filter_map(|msg| async move { serde_json::from_slice::<Message>(&msg.payload).ok() });
+        let stream = subscriber.filter_map(|msg| async move {
+            serde_json::from_slice::<Message>(&msg.payload).ok()
+        });
 
         Ok(Box::pin(stream))
     }

@@ -15,13 +15,14 @@
 //! GEMINI_API_KEY=xxx cargo run --example ts_incremental --features remote
 //! ```
 
-use dasein_agentic_core::distributed::{
-    repair_engine::SurgicalRepair, Executor, SandboxPipelineValidator, TaskDecomposer,
-    ValidatorInput, ValidatorPipeline,
+use agentic_core::distributed::{
+    Executor, TaskDecomposer,
+    SandboxPipelineValidator, ValidatorPipeline, ValidatorInput,
+    repair_engine::SurgicalRepair,
 };
-use dasein_agentic_sandbox::ProcessSandbox;
+use agentic_sandbox::ProcessSandbox;
 #[cfg(feature = "remote")]
-use dasein_agentic_sandbox::RemoteSandbox;
+use agentic_sandbox::RemoteSandbox;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -71,19 +72,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (compile_pipeline, test_pipeline) = {
         if let Ok(url) = std::env::var("FIRECRACKER_URL") {
             println!("✓ Firecracker: {}", url);
-            let sandbox1 = RemoteSandbox::builder(&url).timeout_ms(60_000).build();
-            let sandbox2 = RemoteSandbox::builder(&url).timeout_ms(60_000).build();
+            let sandbox1 = RemoteSandbox::new(&url).timeout_ms(60_000).build();
+            let sandbox2 = RemoteSandbox::new(&url).timeout_ms(60_000).build();
             (
                 ValidatorPipeline::new().add(
                     SandboxPipelineValidator::new(sandbox1)
                         .workspace(PathBuf::from("/tmp/ts-incremental"))
-                        .run_tests(false), // Compilation only
+                        .run_tests(false)  // Compilation only
                 ),
                 ValidatorPipeline::new().add(
                     SandboxPipelineValidator::new(sandbox2)
                         .workspace(PathBuf::from("/tmp/ts-incremental"))
-                        .run_tests(true), // With tests
-                ),
+                        .run_tests(true)  // With tests
+                )
             )
         } else {
             println!("✓ Using ProcessSandbox (local)");
@@ -93,13 +94,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ValidatorPipeline::new().add(
                     SandboxPipelineValidator::new(sandbox1)
                         .workspace(PathBuf::from("/tmp/ts-incremental"))
-                        .run_tests(false),
+                        .run_tests(false)
                 ),
                 ValidatorPipeline::new().add(
                     SandboxPipelineValidator::new(sandbox2)
                         .workspace(PathBuf::from("/tmp/ts-incremental"))
-                        .run_tests(true),
-                ),
+                        .run_tests(true)
+                )
             )
         }
     };
@@ -116,13 +117,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ValidatorPipeline::new().add(
                 SandboxPipelineValidator::new(sandbox1)
                     .workspace(PathBuf::from("/tmp/ts-incremental"))
-                    .run_tests(false),
+                    .run_tests(false)
             ),
             ValidatorPipeline::new().add(
                 SandboxPipelineValidator::new(sandbox2)
                     .workspace(PathBuf::from("/tmp/ts-incremental"))
-                    .run_tests(true),
-            ),
+                    .run_tests(true)
+            )
         )
     };
 
@@ -132,12 +133,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\n📋 Task decomposed into {} sub-tasks:", subtasks.len());
     for (i, st) in subtasks.iter().enumerate() {
-        println!(
-            "   {}. {} (depends on: {:?})",
-            i + 1,
-            st.name,
-            st.depends_on
-        );
+        println!("   {}. {} (depends on: {:?})", i + 1, st.name, st.depends_on);
     }
 
     // === Generate Incrementally ===
@@ -151,34 +147,18 @@ CRITICAL: Template literals MUST use backticks: `text ${var}` NOT quotes."#;
 
     for (idx, subtask) in subtasks.iter().enumerate() {
         println!("\n{}", "─".repeat(60));
-        println!(
-            "📦 Sub-task {}/{}: {}",
-            idx + 1,
-            subtasks.len(),
-            subtask.name
-        );
+        println!("📦 Sub-task {}/{}: {}", idx + 1, subtasks.len(), subtask.name);
         println!("{}", "─".repeat(60));
 
         // Use compile-only for stages 1-3, tests for stage 4
         let is_test_stage = subtask.id == "tests";
-        let pipeline = if is_test_stage {
-            &test_pipeline
-        } else {
-            &compile_pipeline
-        };
-        let validation_mode = if is_test_stage {
-            "compile + tests"
-        } else {
-            "compile only"
-        };
+        let pipeline = if is_test_stage { &test_pipeline } else { &compile_pipeline };
+        let validation_mode = if is_test_stage { "compile + tests" } else { "compile only" };
 
         let mut subtask_code: Option<String> = None;
 
         for attempt in 1..=MAX_RETRIES_PER_SUBTASK {
-            println!(
-                "\n  [Attempt {}/{}] ({})",
-                attempt, MAX_RETRIES_PER_SUBTASK, validation_mode
-            );
+            println!("\n  [Attempt {}/{}] ({})", attempt, MAX_RETRIES_PER_SUBTASK, validation_mode);
 
             // Build prompt with context from previous parts
             let prompt = if accumulated_code.is_empty() {
@@ -187,15 +167,15 @@ CRITICAL: Template literals MUST use backticks: `text ${var}` NOT quotes."#;
                 format!(
                     "{}\n\n=== ALREADY GENERATED (do not repeat) ===\n```typescript\n{}\n```\n\n\
                     Generate ONLY the next part, assuming the above code exists.",
-                    subtask.prompt, accumulated_code
+                    subtask.prompt,
+                    accumulated_code
                 )
             };
 
             // Generate
             let gen_start = Instant::now();
             let result = executor.execute(system, &prompt).await?;
-            println!(
-                "  Generated {} chars in {}ms",
+            println!("  Generated {} chars in {}ms",
                 result.content.len(),
                 gen_start.elapsed().as_millis()
             );
@@ -220,9 +200,7 @@ CRITICAL: Template literals MUST use backticks: `text ${var}` NOT quotes."#;
                 subtask_code = Some(new_code);
                 break;
             } else {
-                let errors: Vec<String> = val_result
-                    .results
-                    .iter()
+                let errors: Vec<String> = val_result.results.iter()
                     .flat_map(|r| r.errors.clone())
                     .collect();
                 println!("  ✗ {} errors", errors.len());
@@ -268,15 +246,9 @@ CRITICAL: Template literals MUST use backticks: `text ${var}` NOT quotes."#;
             } else {
                 accumulated_code = format!("{}\n\n{}", accumulated_code, code);
             }
-            println!(
-                "  ✓ Sub-task completed. Total code: {} chars",
-                accumulated_code.len()
-            );
+            println!("  ✓ Sub-task completed. Total code: {} chars", accumulated_code.len());
         } else {
-            println!(
-                "  ✗ Sub-task FAILED after {} attempts",
-                MAX_RETRIES_PER_SUBTASK
-            );
+            println!("  ✗ Sub-task FAILED after {} attempts", MAX_RETRIES_PER_SUBTASK);
             all_passed = false;
             // Continue with what we have
         }
@@ -293,9 +265,7 @@ CRITICAL: Template literals MUST use backticks: `text ${var}` NOT quotes."#;
     if final_result.passed {
         println!("✓ ALL TESTS PASSED!");
     } else {
-        let errors: Vec<String> = final_result
-            .results
-            .iter()
+        let errors: Vec<String> = final_result.results.iter()
             .flat_map(|r| r.errors.clone())
             .collect();
         println!("✗ Final validation failed with {} errors", errors.len());
@@ -312,14 +282,7 @@ CRITICAL: Template literals MUST use backticks: `text ${var}` NOT quotes."#;
     println!("Total time: {}ms", total_start.elapsed().as_millis());
     println!("Sub-tasks: {}", subtasks.len());
     println!("Final code: {} chars", accumulated_code.len());
-    println!(
-        "Status: {}",
-        if all_passed && final_result.passed {
-            "SUCCESS"
-        } else {
-            "PARTIAL"
-        }
-    );
+    println!("Status: {}", if all_passed && final_result.passed { "SUCCESS" } else { "PARTIAL" });
 
     // === Output Code ===
     println!("\n{}", "=".repeat(60));
@@ -355,10 +318,7 @@ fn clean_code(content: &str) -> String {
             // Remove language identifier if present
             if let Some(newline) = result.find('\n') {
                 let first_line = &result[..newline];
-                if first_line
-                    .chars()
-                    .all(|c| c.is_alphanumeric() || c.is_whitespace())
-                {
+                if first_line.chars().all(|c| c.is_alphanumeric() || c.is_whitespace()) {
                     result = result[newline + 1..].to_string();
                 }
             }

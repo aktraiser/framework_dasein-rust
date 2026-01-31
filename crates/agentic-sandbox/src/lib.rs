@@ -8,13 +8,12 @@
 //!
 //! - `process` (default) - Local process execution (for development)
 //! - `docker` - Docker container isolation (for production)
-//! - `remote` - Remote Firecracker server (legacy API)
-//! - `gateway` - Agentic Gateway integration (recommended for Firecracker)
+//! - `remote` - Remote Firecracker server (for macOS/Windows development)
 //!
 //! ## Example
 //!
 //! ```rust,no_run
-//! use dasein_agentic_sandbox::{Sandbox, ProcessSandbox};
+//! use agentic_sandbox::{Sandbox, ProcessSandbox};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -27,19 +26,18 @@
 //! }
 //! ```
 //!
-//! ## Gateway Sandbox (recommended for Firecracker)
+//! ## Remote Sandbox (for macOS/Windows)
 //!
-//! ```rust,ignore
-//! use dasein_agentic_sandbox::{Sandbox, GatewaySandbox};
+//! ```rust,no_run
+//! use agentic_sandbox::{Sandbox, RemoteSandbox};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let sandbox = GatewaySandbox::builder("http://gateway:8080")
-//!         .runtime("python")
-//!         .build()
-//!         .await?;
+//!     let sandbox = RemoteSandbox::new("http://your-server:8080")
+//!         .api_key("your-secret-key")
+//!         .build();
 //!
-//!     let result = sandbox.execute("print('Hello from Firecracker!')").await?;
+//!     let result = sandbox.execute("echo 'Hello from Firecracker!'").await?;
 //!     println!("Output: {}", result.stdout);
 //!
 //!     Ok(())
@@ -58,9 +56,6 @@ mod docker;
 #[cfg(feature = "remote")]
 mod remote;
 
-#[cfg(feature = "gateway")]
-mod gateway;
-
 mod firecracker;
 
 pub use error::SandboxError;
@@ -73,13 +68,6 @@ pub use process::ProcessSandbox;
 pub use docker::DockerSandbox;
 
 #[cfg(feature = "remote")]
-pub use remote::{
-    ExecuteRequest, ExecuteResponse, RemoteSandbox, RemoteSandboxBuilder, RemoteSandboxConfig,
-};
+pub use remote::{RemoteSandbox, RemoteSandboxConfig, RemoteSandboxBuilder, ExecuteRequest, ExecuteResponse};
 
-#[cfg(feature = "gateway")]
-pub use gateway::{
-    GatewayHealthResponse, GatewaySandbox, GatewaySandboxBuilder, GatewaySandboxConfig, Runtime,
-};
-
-pub use firecracker::{FirecrackerConfig, FirecrackerSandbox, FirecrackerSandboxBuilder};
+pub use firecracker::{FirecrackerSandbox, FirecrackerConfig, FirecrackerSandboxBuilder};

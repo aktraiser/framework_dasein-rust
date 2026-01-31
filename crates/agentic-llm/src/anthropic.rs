@@ -44,14 +44,14 @@ impl AnthropicAdapter {
 
     /// Set the temperature for generation.
     #[must_use]
-    pub const fn with_temperature(mut self, temperature: f32) -> Self {
+    pub fn with_temperature(mut self, temperature: f32) -> Self {
         self.temperature = temperature;
         self
     }
 
     /// Set the maximum tokens for generation.
     #[must_use]
-    pub const fn with_max_tokens(mut self, max_tokens: u32) -> Self {
+    pub fn with_max_tokens(mut self, max_tokens: u32) -> Self {
         self.max_tokens = max_tokens;
         self
     }
@@ -152,9 +152,9 @@ impl From<&LLMMessage> for AnthropicMessage {
     fn from(msg: &LLMMessage) -> Self {
         Self {
             role: match msg.role {
+                Role::System => "user".to_string(), // System handled separately
+                Role::User => "user".to_string(),
                 Role::Assistant => "assistant".to_string(),
-                // System handled separately, but fallback to user if encountered
-                Role::System | Role::User => "user".to_string(),
             },
             content: msg.content.clone(),
         }
@@ -163,7 +163,7 @@ impl From<&LLMMessage> for AnthropicMessage {
 
 #[async_trait]
 impl LLMAdapter for AnthropicAdapter {
-    fn provider(&self) -> &'static str {
+    fn provider(&self) -> &str {
         "anthropic"
     }
 
@@ -214,9 +214,11 @@ impl LLMAdapter for AnthropicAdapter {
             .content
             .into_iter()
             .map(|c| c.text)
-            .collect::<String>();
+            .collect::<Vec<_>>()
+            .join("");
 
         let finish_reason = match api_response.stop_reason.as_deref() {
+            Some("end_turn") | Some("stop_sequence") => FinishReason::Stop,
             Some("max_tokens") => FinishReason::Length,
             _ => FinishReason::Stop,
         };
@@ -264,7 +266,7 @@ impl LLMAdapter for AnthropicAdapter {
 
             let status = response.status();
             if !status.is_success() {
-                Err(LLMError::ApiError(format!("API returned status {status}")))?;
+                Err(LLMError::ApiError(format!("API returned status {}", status)))?;
             }
 
             let mut stream = response.bytes_stream();

@@ -1,4 +1,4 @@
-//! `OpenAI` adapter implementation.
+//! OpenAI adapter implementation.
 
 use async_openai::{
     config::OpenAIConfig,
@@ -19,7 +19,7 @@ use crate::{
     traits::{FinishReason, LLMAdapter, LLMMessage, LLMResponse, Role, StreamChunk, TokenUsage},
 };
 
-/// `OpenAI` adapter for GPT models.
+/// OpenAI adapter for GPT models.
 pub struct OpenAIAdapter {
     client: Client<OpenAIConfig>,
     model: String,
@@ -28,11 +28,11 @@ pub struct OpenAIAdapter {
 }
 
 impl OpenAIAdapter {
-    /// Create a new `OpenAI` adapter.
+    /// Create a new OpenAI adapter.
     ///
     /// # Arguments
     ///
-    /// * `api_key` - `OpenAI` API key
+    /// * `api_key` - OpenAI API key
     /// * `model` - Model to use (e.g., "gpt-4o", "gpt-4o-mini")
     #[must_use]
     pub fn new(api_key: impl Into<String>, model: impl Into<String>) -> Self {
@@ -47,43 +47,43 @@ impl OpenAIAdapter {
 
     /// Set the temperature for generation.
     #[must_use]
-    pub const fn with_temperature(mut self, temperature: f32) -> Self {
+    pub fn with_temperature(mut self, temperature: f32) -> Self {
         self.temperature = temperature;
         self
     }
 
     /// Set the maximum tokens for generation.
     #[must_use]
-    pub const fn with_max_tokens(mut self, max_tokens: u32) -> Self {
+    pub fn with_max_tokens(mut self, max_tokens: u32) -> Self {
         self.max_tokens = Some(max_tokens);
         self
     }
 
-    /// Convert our message format to `OpenAI`'s format.
+    /// Convert our message format to OpenAI's format.
     fn convert_messages(messages: &[LLMMessage]) -> Vec<ChatCompletionRequestMessage> {
         messages
             .iter()
             .map(|msg| match msg.role {
-                Role::System => {
-                    ChatCompletionRequestMessage::System(ChatCompletionRequestSystemMessage {
+                Role::System => ChatCompletionRequestMessage::System(
+                    ChatCompletionRequestSystemMessage {
                         content: msg.content.clone().into(),
                         ..Default::default()
-                    })
-                }
+                    },
+                ),
                 Role::User => {
                     ChatCompletionRequestMessage::User(ChatCompletionRequestUserMessage {
                         content: msg.content.clone().into(),
                         ..Default::default()
                     })
                 }
-                Role::Assistant => {
-                    ChatCompletionRequestMessage::Assistant(ChatCompletionRequestAssistantMessage {
+                Role::Assistant => ChatCompletionRequestMessage::Assistant(
+                    ChatCompletionRequestAssistantMessage {
                         content: Some(ChatCompletionRequestAssistantMessageContent::Text(
                             msg.content.clone(),
                         )),
                         ..Default::default()
-                    })
-                }
+                    },
+                ),
             })
             .collect()
     }
@@ -91,7 +91,7 @@ impl OpenAIAdapter {
 
 #[async_trait]
 impl LLMAdapter for OpenAIAdapter {
-    fn provider(&self) -> &'static str {
+    fn provider(&self) -> &str {
         "openai"
     }
 
@@ -132,6 +132,7 @@ impl LLMAdapter for OpenAIAdapter {
                 total: usage.map_or(0, |u| u.total_tokens),
             },
             finish_reason: match choice.finish_reason {
+                Some(async_openai::types::FinishReason::Stop) => FinishReason::Stop,
                 Some(async_openai::types::FinishReason::Length) => FinishReason::Length,
                 _ => FinishReason::Stop,
             },
@@ -172,6 +173,7 @@ impl LLMAdapter for OpenAIAdapter {
                         done,
                         tokens_used: None,
                         finish_reason: choice.finish_reason.map(|r| match r {
+                            async_openai::types::FinishReason::Stop => FinishReason::Stop,
                             async_openai::types::FinishReason::Length => FinishReason::Length,
                             _ => FinishReason::Stop,
                         }),

@@ -5,7 +5,7 @@
 //! cargo run --example scale_test
 //! ```
 
-use dasein_agentic_core::distributed::{Capability, Supervisor};
+use agentic_core::distributed::{Supervisor, Capability};
 use std::time::Instant;
 
 #[tokio::main]
@@ -45,10 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  ├── Pool size:       {}", supervisor.pool_size().await);
     println!("  ├── Idle executors:  {}", supervisor.idle_count().await);
     println!("  ├── Validators:      {}", supervisor.validator_count());
-    println!(
-        "  ├── Utilization:     {:.1}%",
-        supervisor.utilization().await * 100.0
-    );
+    println!("  ├── Utilization:     {:.1}%", supervisor.utilization().await * 100.0);
     println!("  └── Can lend:        {}", supervisor.can_lend(10).await);
     println!();
 
@@ -64,30 +61,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("▶ Testing get multiple executors...");
     let start = Instant::now();
     let executors = supervisor.get_executors(20).await;
-    println!(
-        "  ✓ Got {} executors in {:?}",
-        executors.len(),
-        start.elapsed()
-    );
+    println!("  ✓ Got {} executors in {:?}", executors.len(), start.elapsed());
     println!();
 
     // ========== VALIDATION TEST ==========
     println!("▶ Testing validation (10 validators)...");
-    let test_outputs: &[&str] = &[
+    let test_outputs = vec![
         "fn main() { println!(\"Hello\"); }",
-        "",                                    // Should fail: empty
-        "fn test() { /* TODO: implement */ }", // Should fail: has TODO
-        "let password = \"secret123\";",       // Should fail: has secret
+        "",  // Should fail: empty
+        "fn test() { /* TODO: implement */ }",  // Should fail: has TODO
+        "let password = \"secret123\";",  // Should fail: has secret
         "pub fn calculate(x: i32) -> i32 { x * 2 }",
     ];
 
     for (i, output) in test_outputs.iter().enumerate() {
         let result = supervisor.validate_with(i, output, 0);
-        let status = if result.passed {
-            "✓ PASS"
-        } else {
-            "✗ FAIL"
-        };
+        let status = if result.passed { "✓ PASS" } else { "✗ FAIL" };
         let preview = if output.len() > 30 {
             format!("{}...", &output[..30])
         } else if output.is_empty() {
@@ -104,16 +93,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if supervisor.can_lend(5).await {
         let grant = supervisor.lend_executors("sup-other", 5, 60).await;
         if let Some(grant) = grant {
-            println!(
-                "  ✓ Lent {} executors to sup-other",
-                grant.executor_ids.len()
-            );
+            println!("  ✓ Lent {} executors to sup-other", grant.executor_ids.len());
             println!("  └── Lease ID: {}", grant.lease_id);
             println!("  └── Lent count: {}", supervisor.lent_count().await);
-            println!(
-                "  └── Effective pool: {}",
-                supervisor.effective_pool_size().await
-            );
+            println!("  └── Effective pool: {}", supervisor.effective_pool_size().await);
         }
     }
     println!();
@@ -130,41 +113,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let executor_size_estimate = 1024 * 20; // ~20KB per executor (rough)
     let total_memory_kb = supervisor.pool_size().await * executor_size_estimate / 1024;
     println!("▶ Memory Estimate:");
-    println!(
-        "  └── ~{} KB for {} executors",
-        total_memory_kb,
-        supervisor.pool_size().await
-    );
+    println!("  └── ~{} KB for {} executors", total_memory_kb, supervisor.pool_size().await);
     println!();
 
     // ========== FINAL STATS ==========
     println!("╔══════════════════════════════════════════════════════════════╗");
     println!("║                     FINAL STATS                              ║");
     println!("╠══════════════════════════════════════════════════════════════╣");
-    println!(
-        "║  Pool size:        {:>4}                                     ║",
-        supervisor.pool_size().await
-    );
-    println!(
-        "║  Idle:             {:>4}                                     ║",
-        supervisor.idle_count().await
-    );
-    println!(
-        "║  Validators:       {:>4}                                     ║",
-        supervisor.validator_count()
-    );
-    println!(
-        "║  Lent:             {:>4}                                     ║",
-        supervisor.lent_count().await
-    );
-    println!(
-        "║  Effective pool:   {:>4}                                     ║",
-        supervisor.effective_pool_size().await
-    );
-    println!(
-        "║  Creation time:    {:>10?}                              ║",
-        creation_time
-    );
+    println!("║  Pool size:        {:>4}                                     ║", supervisor.pool_size().await);
+    println!("║  Idle:             {:>4}                                     ║", supervisor.idle_count().await);
+    println!("║  Validators:       {:>4}                                     ║", supervisor.validator_count());
+    println!("║  Lent:             {:>4}                                     ║", supervisor.lent_count().await);
+    println!("║  Effective pool:   {:>4}                                     ║", supervisor.effective_pool_size().await);
+    println!("║  Creation time:    {:>10?}                              ║", creation_time);
     println!("╚══════════════════════════════════════════════════════════════╝");
 
     Ok(())

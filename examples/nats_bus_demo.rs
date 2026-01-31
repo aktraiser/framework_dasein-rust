@@ -18,7 +18,9 @@
 //!
 //! Run with: cargo run --example nats_bus_demo
 
-use dasein_agentic_core::distributed::bus::{BusCoordinator, Proposal, Task, TaskPriority};
+use agentic_core::distributed::bus::{
+    BusCoordinator, Proposal, Task, TaskPriority,
+};
 use futures::StreamExt;
 use serde_json::json;
 use std::time::Duration;
@@ -38,8 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // === Connect to NATS ===
     println!("[1] Connecting to NATS...\n");
 
-    let nats_url =
-        std::env::var("NATS_URL").unwrap_or_else(|_| "nats://localhost:4222".to_string());
+    let nats_url = std::env::var("NATS_URL").unwrap_or_else(|_| "nats://localhost:4222".to_string());
 
     let coordinator = match BusCoordinator::builder()
         .nats_url(&nats_url)
@@ -80,20 +81,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Check stats
     let stats = coordinator.stats().await;
-    println!(
-        "\n     Stats: {} pending, {} completed",
-        stats.tasks_pending, stats.tasks_completed
-    );
+    println!("\n     Stats: {} pending, {} completed", stats.tasks_pending, stats.tasks_completed);
 
     // === Demo 2: Deduplication ===
     println!("\n[3] Deduplication Demo...\n");
 
     // Try to publish duplicate task
-    let dup_task = Task::new(
-        "task-dup",
-        "supervisor-demo",
-        json!({ "data": "same_content" }),
-    );
+    let dup_task = Task::new("task-dup", "supervisor-demo", json!({ "data": "same_content" }));
     coordinator.publish_task(dup_task.clone()).await?;
     println!("     Published: task-dup (first time)");
 
@@ -102,10 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("     Published: task-dup (second time - should be deduplicated)");
 
     let stats = coordinator.stats().await;
-    println!(
-        "\n     Duplicates prevented: {}",
-        stats.duplicates_prevented
-    );
+    println!("\n     Duplicates prevented: {}", stats.duplicates_prevented);
 
     // === Demo 3: Proposal Arbitrage ===
     println!("\n[4] Proposal Arbitrage Demo...\n");
@@ -148,9 +139,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Log some events
     coordinator.log_info("executor-1", "Task received").await?;
-    coordinator
-        .log_info("executor-1", "Processing started")
-        .await?;
+    coordinator.log_info("executor-1", "Processing started").await?;
     coordinator
         .log_info("executor-1", "Task completed successfully")
         .await?;
@@ -160,17 +149,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Query logs
     let logs = coordinator
-        .query_logs(dasein_agentic_core::distributed::bus::LogQuery::for_agent(
-            "executor-1",
-        ))
+        .query_logs(agentic_core::distributed::bus::LogQuery::for_agent("executor-1"))
         .await;
     println!("     Logs from executor-1: {} entries", logs.len());
     for log in &logs {
-        println!(
-            "       [{}] {}",
-            log.level.as_str().to_uppercase(),
-            log.message
-        );
+        println!("       [{}] {}", log.level.as_str().to_uppercase(), log.message);
     }
 
     let stats = coordinator.stats().await;
@@ -208,10 +191,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("    Connected: {}", final_stats.connected);
     println!("    Tasks pending: {}", final_stats.tasks_pending);
     println!("    Tasks completed: {}", final_stats.tasks_completed);
-    println!(
-        "    Duplicates prevented: {}",
-        final_stats.duplicates_prevented
-    );
+    println!("    Duplicates prevented: {}", final_stats.duplicates_prevented);
     println!("    Logs collected: {}", final_stats.logs_collected);
 
     println!("\n  NATS Subjects Used:");

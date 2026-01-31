@@ -299,7 +299,7 @@ cargo build --features remote
 ### Code Rust
 
 ```rust
-use dasein_agentic_sandbox::{RemoteSandbox, Sandbox};
+use agentic_sandbox::{RemoteSandbox, Sandbox};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

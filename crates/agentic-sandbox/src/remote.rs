@@ -17,11 +17,11 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! use dasein_agentic_sandbox::{RemoteSandbox, Sandbox};
+//! use agentic_sandbox::{RemoteSandbox, Sandbox};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let sandbox = RemoteSandbox::builder("http://65.108.230.227:8080")
+//!     let sandbox = RemoteSandbox::new("http://65.108.230.227:8080")
 //!         .api_key("your-secret-key")
 //!         .timeout_ms(30000)
 //!         .build();
@@ -91,10 +91,10 @@ pub struct HealthResponse {
     pub version: String,
 }
 
-/// Configuration for `RemoteSandbox`.
+/// Configuration for RemoteSandbox.
 #[derive(Debug, Clone)]
 pub struct RemoteSandboxConfig {
-    /// Base URL of the remote server (e.g., `http://65.108.230.227:8080`)
+    /// Base URL of the remote server (e.g., "http://65.108.230.227:8080")
     pub base_url: String,
     /// API key for authentication
     pub api_key: Option<String>,
@@ -129,7 +129,7 @@ pub struct RemoteSandbox {
 }
 
 impl RemoteSandbox {
-    /// Create a new `RemoteSandbox` builder.
+    /// Create a new RemoteSandbox builder.
     ///
     /// # Arguments
     ///
@@ -138,21 +138,16 @@ impl RemoteSandbox {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use dasein_agentic_sandbox::RemoteSandbox;
-    /// let sandbox = RemoteSandbox::builder("http://65.108.230.227:8080")
+    /// let sandbox = RemoteSandbox::new("http://65.108.230.227:8080")
     ///     .api_key("secret")
     ///     .build();
     /// ```
     #[must_use]
-    pub fn builder(base_url: impl Into<String>) -> RemoteSandboxBuilder {
+    pub fn new(base_url: impl Into<String>) -> RemoteSandboxBuilder {
         RemoteSandboxBuilder::new(base_url.into())
     }
 
     /// Create with full config.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the HTTP client cannot be created (should never happen with valid config).
     #[must_use]
     pub fn with_config(config: RemoteSandboxConfig) -> Self {
         // HTTP client timeout should be longer than execution timeout
@@ -173,10 +168,6 @@ impl RemoteSandbox {
     }
 
     /// Check server health.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the health check fails or the server is unreachable.
     pub async fn health(&self) -> Result<HealthResponse, SandboxError> {
         let url = format!("{}/health", self.config.base_url);
 
@@ -258,7 +249,8 @@ impl RemoteSandbox {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
             return Err(SandboxError::ExecutionFailed(format!(
-                "Server error {status}: {body}"
+                "Server error {}: {}",
+                status, body
             )));
         }
 
@@ -295,7 +287,7 @@ impl std::fmt::Debug for RemoteSandbox {
         f.debug_struct("RemoteSandbox")
             .field("base_url", &self.config.base_url)
             .field("timeout_ms", &self.config.timeout_ms)
-            .finish_non_exhaustive()
+            .finish()
     }
 }
 
@@ -322,7 +314,7 @@ impl Sandbox for RemoteSandbox {
     }
 }
 
-/// Builder for `RemoteSandbox`.
+/// Builder for RemoteSandbox.
 pub struct RemoteSandboxBuilder {
     config: RemoteSandboxConfig,
 }
@@ -346,7 +338,7 @@ impl RemoteSandboxBuilder {
 
     /// Set request timeout in milliseconds.
     #[must_use]
-    pub const fn timeout_ms(mut self, ms: u64) -> Self {
+    pub fn timeout_ms(mut self, ms: u64) -> Self {
         self.config.timeout_ms = ms;
         self
     }
@@ -360,12 +352,12 @@ impl RemoteSandboxBuilder {
 
     /// Set max retries.
     #[must_use]
-    pub const fn max_retries(mut self, n: u32) -> Self {
+    pub fn max_retries(mut self, n: u32) -> Self {
         self.config.max_retries = n;
         self
     }
 
-    /// Build the `RemoteSandbox`.
+    /// Build the RemoteSandbox.
     #[must_use]
     pub fn build(self) -> RemoteSandbox {
         RemoteSandbox::with_config(self.config)
@@ -378,7 +370,7 @@ mod tests {
 
     #[test]
     fn test_builder() {
-        let sandbox = RemoteSandbox::builder("http://localhost:8080")
+        let sandbox = RemoteSandbox::new("http://localhost:8080")
             .api_key("test-key")
             .timeout_ms(5000)
             .language("rust")

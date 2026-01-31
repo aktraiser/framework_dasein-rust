@@ -49,9 +49,9 @@
 //!
 //! Run with: cargo run --example code_mode_mcp
 
-use dasein_agentic_core::distributed::Executor;
-use dasein_agentic_mcp::{MCPClientPool, MCPConfig, MCPServerConfig};
-use dasein_agentic_sandbox::ProcessSandbox;
+use agentic_core::distributed::Executor;
+use agentic_mcp::{MCPConfig, MCPServerConfig, MCPClientPool};
+use agentic_sandbox::ProcessSandbox;
 use std::path::Path;
 use std::time::Instant;
 
@@ -71,14 +71,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Step 1: Configure MCP servers
     println!("[1/5] Configuring MCP servers...\n");
 
-    let api_key = std::env::var("CONTEXT7_API_KEY").unwrap_or_else(|_| "demo-key".to_string());
+    let api_key = std::env::var("CONTEXT7_API_KEY")
+        .unwrap_or_else(|_| "demo-key".to_string());
 
-    let config = MCPConfig::new().add_server(
-        "context7",
-        MCPServerConfig::http("https://mcp.context7.com/mcp")
-            .header("CONTEXT7_API_KEY", &api_key)
-            .timeout(30000),
-    );
+    let config = MCPConfig::new()
+        .add_server(
+            "context7",
+            MCPServerConfig::http("https://mcp.context7.com/mcp")
+                .header("CONTEXT7_API_KEY", &api_key)
+                .timeout(30000),
+        );
 
     println!("     Configured servers: {:?}", config.server_names());
 
@@ -165,11 +167,7 @@ Return ONLY code, no markdown."#;
     let result = executor.execute(system_prompt, task).await?;
 
     let code = clean_code(&result.content);
-    println!(
-        "Generated code ({} chars, {} tokens):\n",
-        code.len(),
-        result.tokens_used
-    );
+    println!("Generated code ({} chars, {} tokens):\n", code.len(), result.tokens_used);
     println!("```typescript");
     println!("{}", code);
     println!("```\n");
@@ -189,10 +187,7 @@ Return ONLY code, no markdown."#;
     println!("TOKEN COMPARISON");
     println!("{}", "=".repeat(70));
     println!("Traditional MCP (tool definitions + results): ~150,000 tokens");
-    println!(
-        "Code Mode (just the code):                    ~{} tokens",
-        result.tokens_used
-    );
+    println!("Code Mode (just the code):                    ~{} tokens", result.tokens_used);
     println!("Savings:                                      ~98%+");
     println!("{}\n", "=".repeat(70));
 
@@ -231,7 +226,10 @@ export async function queryDocs(input: QueryDocsInput): Promise<QueryDocsResult>
 }
 "#;
 
-    std::fs::write(workspace.join("servers/context7/queryDocs.ts"), mock_tool)?;
+    std::fs::write(
+        workspace.join("servers/context7/queryDocs.ts"),
+        mock_tool,
+    )?;
 
     // Create index.ts
     std::fs::write(

@@ -9,8 +9,9 @@
 //! GEMINI_API_KEY=your-key cargo run --example iterative_pipeline
 //! ```
 
-use dasein_agentic_core::distributed::{Capability, Supervisor};
+use agentic_core::distributed::{Supervisor, Capability, ExecutionResult};
 use std::time::Instant;
+use std::sync::Arc;
 
 const TARGET_SCORE: u8 = 9; // Minimum acceptable score (out of 10)
 const MAX_ITERATIONS: u8 = 3; // Maximum improvement iterations
@@ -37,15 +38,10 @@ impl ReviewScores {
     }
 
     fn min_score(&self) -> u8 {
-        *[
-            self.architecture,
-            self.safety,
-            self.completeness,
-            self.quality,
-        ]
-        .iter()
-        .min()
-        .unwrap()
+        *[self.architecture, self.safety, self.completeness, self.quality]
+            .iter()
+            .min()
+            .unwrap()
     }
 }
 
@@ -102,10 +98,7 @@ fn extract_score(line: &str) -> Option<u8> {
         // Handle "8/10" pattern
         if word.contains('/') {
             if let Some(num_str) = word.split('/').next() {
-                if let Ok(n) = num_str
-                    .trim_matches(|c: char| !c.is_numeric())
-                    .parse::<u8>()
-                {
+                if let Ok(n) = num_str.trim_matches(|c: char| !c.is_numeric()).parse::<u8>() {
                     if n <= 10 {
                         return Some(n);
                     }
@@ -127,17 +120,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("╔══════════════════════════════════════════════════════════════════════╗");
     println!("║           AGENTIC-RS ITERATIVE PIPELINE                              ║");
     println!("║           Self-Improving Code Generation                             ║");
-    println!(
-        "║           Target: {}/10 on all metrics                                ║",
-        TARGET_SCORE
-    );
+    println!("║           Target: {}/10 on all metrics                                ║", TARGET_SCORE);
     println!("╚══════════════════════════════════════════════════════════════════════╝");
     println!();
 
-    if std::env::var("GEMINI_API_KEY")
-        .unwrap_or_default()
-        .is_empty()
-    {
+    if std::env::var("GEMINI_API_KEY").unwrap_or_default().is_empty() {
         println!("⚠ GEMINI_API_KEY not set");
         return Ok(());
     }
@@ -152,10 +139,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_async()
         .await;
 
-    println!(
-        "▶ Supervisor created with {} executors",
-        supervisor.pool_size().await
-    );
+    println!("▶ Supervisor created with {} executors", supervisor.pool_size().await);
     println!();
 
     // ========== OBJECTIVE ==========
@@ -258,16 +242,13 @@ Return ONLY Rust code, no markdown fences, no explanations."#,
         println!("▶ {} phase...", phase_name);
         let gen_start = Instant::now();
 
-        let gen_result = executor
-            .execute(
-                "You are an expert Rust systems programmer. Write production-quality code.",
-                &prompt,
-            )
-            .await?;
+        let gen_result = executor.execute(
+            "You are an expert Rust systems programmer. Write production-quality code.",
+            &prompt
+        ).await?;
 
         current_code = gen_result.content.clone();
-        println!(
-            "  ✓ Generated {} lines in {:?} ({} tokens)",
+        println!("  ✓ Generated {} lines in {:?} ({} tokens)",
             current_code.lines().count(),
             gen_start.elapsed(),
             gen_result.tokens_used
@@ -308,64 +289,41 @@ Be strict but fair. Only give 10/10 if truly exceptional."#,
             &current_code[..current_code.len().min(6000)]
         );
 
-        let review_result = reviewer
-            .execute(
-                "You are a senior Rust engineer. Be critical and specific in your review.",
-                &review_prompt,
-            )
-            .await?;
+        let review_result = reviewer.execute(
+            "You are a senior Rust engineer. Be critical and specific in your review.",
+            &review_prompt
+        ).await?;
 
         let scores = parse_review_scores(&review_result.content);
-        println!(
-            "  ✓ Review completed ({} tokens)",
-            review_result.tokens_used
-        );
+        println!("  ✓ Review completed ({} tokens)", review_result.tokens_used);
         println!();
 
         // Display scores
         println!("┌─────────────────────────────────────────────────────────────────────┐");
         println!("│                      REVIEW SCORES                                  │");
         println!("├─────────────────────────────────────────────────────────────────────┤");
-        println!(
-            "│  Architecture:  {:>2}/10  {}                                      │",
+        println!("│  Architecture:  {:>2}/10  {}                                      │",
             scores.architecture,
-            score_bar(scores.architecture)
-        );
-        println!(
-            "│  Safety:        {:>2}/10  {}                                      │",
+            score_bar(scores.architecture));
+        println!("│  Safety:        {:>2}/10  {}                                      │",
             scores.safety,
-            score_bar(scores.safety)
-        );
-        println!(
-            "│  Completeness:  {:>2}/10  {}                                      │",
+            score_bar(scores.safety));
+        println!("│  Completeness:  {:>2}/10  {}                                      │",
             scores.completeness,
-            score_bar(scores.completeness)
-        );
-        println!(
-            "│  Code Quality:  {:>2}/10  {}                                      │",
+            score_bar(scores.completeness));
+        println!("│  Code Quality:  {:>2}/10  {}                                      │",
             scores.quality,
-            score_bar(scores.quality)
-        );
+            score_bar(scores.quality));
         println!("├─────────────────────────────────────────────────────────────────────┤");
-        println!(
-            "│  Average:       {:.1}/10                                            │",
-            scores.average()
-        );
-        println!(
-            "│  Minimum:       {:>2}/10                                            │",
-            scores.min_score()
-        );
+        println!("│  Average:       {:.1}/10                                            │", scores.average());
+        println!("│  Minimum:       {:>2}/10                                            │", scores.min_score());
         println!("└─────────────────────────────────────────────────────────────────────┘");
         println!();
 
         if !scores.issues.is_empty() {
             println!("  Issues identified:");
             for (i, issue) in scores.issues.iter().take(5).enumerate() {
-                println!(
-                    "    {}. {}",
-                    i + 1,
-                    issue.chars().take(70).collect::<String>()
-                );
+                println!("    {}. {}", i + 1, issue.chars().take(70).collect::<String>());
             }
             println!();
         }
@@ -375,10 +333,7 @@ Be strict but fair. Only give 10/10 if truly exceptional."#,
         // Check if target reached
         if scores.all_above_target() {
             println!("╔══════════════════════════════════════════════════════════════════════╗");
-            println!(
-                "║  ✓ TARGET REACHED! All scores >= {}/10                               ║",
-                TARGET_SCORE
-            );
+            println!("║  ✓ TARGET REACHED! All scores >= {}/10                               ║", TARGET_SCORE);
             println!("╚══════════════════════════════════════════════════════════════════════╝");
             break;
         }
@@ -386,10 +341,7 @@ Be strict but fair. Only give 10/10 if truly exceptional."#,
         if iteration >= MAX_ITERATIONS {
             println!("╔══════════════════════════════════════════════════════════════════════╗");
             println!("║  ⚠ MAX ITERATIONS REACHED                                            ║");
-            println!(
-                "║  Best average score: {:.1}/10                                         ║",
-                scores.average()
-            );
+            println!("║  Best average score: {:.1}/10                                         ║", scores.average());
             println!("╚══════════════════════════════════════════════════════════════════════╝");
             break;
         }
@@ -403,22 +355,10 @@ Be strict but fair. Only give 10/10 if truly exceptional."#,
     println!("╔══════════════════════════════════════════════════════════════════════╗");
     println!("║                        FINAL SUMMARY                                 ║");
     println!("╠══════════════════════════════════════════════════════════════════════╣");
-    println!(
-        "║  Total iterations:     {:>2}                                          ║",
-        iteration
-    );
-    println!(
-        "║  Total time:           {:>10?}                                  ║",
-        total_start.elapsed()
-    );
-    println!(
-        "║  Final code lines:     {:>4}                                         ║",
-        current_code.lines().count()
-    );
-    println!(
-        "║  Final average score:  {:.1}/10                                       ║",
-        best_scores.average()
-    );
+    println!("║  Total iterations:     {:>2}                                          ║", iteration);
+    println!("║  Total time:           {:>10?}                                  ║", total_start.elapsed());
+    println!("║  Final code lines:     {:>4}                                         ║", current_code.lines().count());
+    println!("║  Final average score:  {:.1}/10                                       ║", best_scores.average());
     println!("╚══════════════════════════════════════════════════════════════════════╝");
 
     // Show final code excerpt

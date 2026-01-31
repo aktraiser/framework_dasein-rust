@@ -1,10 +1,11 @@
 //! Sandbox Pipeline Validator - Wraps SandboxValidator for the pipeline.
 
 use async_trait::async_trait;
+use std::path::PathBuf;
 
-use dasein_agentic_sandbox::Sandbox;
+use agentic_sandbox::Sandbox;
 
-use super::sandbox_validator::{Language, SandboxValidator};
+use super::sandbox_validator::{SandboxValidator, Language};
 use super::validator_pipeline::{PipelineValidator, ValidatorInput, ValidatorOutput};
 
 /// Wraps SandboxValidator for use in ValidatorPipeline.
@@ -19,7 +20,7 @@ impl<S: Sandbox + Send + Sync + 'static> SandboxPipelineValidator<S> {
         }
     }
 
-    pub fn workspace(mut self, path: std::path::PathBuf) -> Self {
+    pub fn workspace(mut self, path: PathBuf) -> Self {
         self.inner = self.inner.workspace(path);
         self
     }
@@ -49,10 +50,11 @@ impl<S: Sandbox + Send + Sync + 'static> PipelineValidator for SandboxPipelineVa
         match result {
             Ok(validation) => {
                 if validation.passed {
-                    Ok(ValidatorOutput::success("sandbox").with_feedback(format!(
-                        "Compilation OK, {} tests passed",
-                        validation.tests_ok
-                    )))
+                    Ok(ValidatorOutput::success("sandbox")
+                        .with_feedback(format!(
+                            "Compilation OK, {} tests passed",
+                            validation.tests_ok
+                        )))
                 } else {
                     let mut errors = validation.compiler_errors.clone();
                     errors.extend(validation.test_errors.clone());
@@ -63,21 +65,23 @@ impl<S: Sandbox + Send + Sync + 'static> PipelineValidator for SandboxPipelineVa
                     for err in &errors {
                         if err.contains("unresolved") {
                             recommendations.push(
-                                "Check that all required dependencies are in Cargo.toml"
-                                    .to_string(),
+                                "Check that all required dependencies are in Cargo.toml".to_string()
                             );
                         }
                         if err.contains("trait bound") {
                             recommendations.push(
-                                "Verify trait implementations match expected bounds".to_string(),
+                                "Verify trait implementations match expected bounds".to_string()
                             );
                         }
                         if err.contains("cannot borrow") || err.contains("borrowed") {
-                            recommendations
-                                .push("Review ownership and borrowing rules".to_string());
+                            recommendations.push(
+                                "Review ownership and borrowing rules".to_string()
+                            );
                         }
                         if err.contains("lifetime") {
-                            recommendations.push("Check lifetime annotations".to_string());
+                            recommendations.push(
+                                "Check lifetime annotations".to_string()
+                            );
                         }
                         if err.contains("unstable") || err.contains("E0658") {
                             recommendations.push(
@@ -89,8 +93,7 @@ impl<S: Sandbox + Send + Sync + 'static> PipelineValidator for SandboxPipelineVa
                                 "Replace LinkedList with Vec<(K, Instant)> for LRU tracking - it's simpler and stable.".to_string()
                             );
                         }
-                        if err.contains("unclosed delimiter") || err.contains("unexpected closing")
-                        {
+                        if err.contains("unclosed delimiter") || err.contains("unexpected closing") {
                             recommendations.push(
                                 "SYNTAX ERROR: Check all braces {}, brackets [], and parentheses () are balanced. Count them carefully.".to_string()
                             );
@@ -124,13 +127,13 @@ impl<S: Sandbox + Send + Sync + 'static> PipelineValidator for SandboxPipelineVa
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dasein_agentic_sandbox::ProcessSandbox;
+    use agentic_sandbox::ProcessSandbox;
 
     #[tokio::test]
     async fn test_sandbox_pipeline_validator() {
         let sandbox = ProcessSandbox::new().with_timeout(60000);
         let validator = SandboxPipelineValidator::new(sandbox)
-            .workspace(std::path::PathBuf::from("/tmp/test-pipeline"));
+            .workspace(PathBuf::from("/tmp/test-pipeline"));
 
         let input = ValidatorInput::new("fn main() {}", "rust");
         let result = validator.validate(&input).await;

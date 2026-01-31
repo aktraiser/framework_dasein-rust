@@ -21,8 +21,8 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! use dasein_agentic_core::distributed::incremental_pipeline::{Stage, IncrementalPipeline};
-//! use dasein_agentic_core::distributed::sandbox_validator::Language;
+//! use agentic_core::distributed::incremental_pipeline::{Stage, IncrementalPipeline};
+//! use agentic_core::distributed::sandbox_validator::Language;
 //!
 //! // Works for any language!
 //! let extractor = get_extractor(Language::TypeScript);
@@ -30,12 +30,13 @@
 //! let stubs = extractor.extract_stubs(code);
 //! ```
 
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::{debug, info, warn};
 
-use super::sandbox_validator::{Language, SandboxValidator};
-use dasein_agentic_sandbox::{Sandbox, SandboxError};
+use super::sandbox_validator::{SandboxValidator, SandboxValidationResult, Language};
+use agentic_sandbox::{Sandbox, SandboxError};
 
 // ============================================================================
 // TRAIT: LanguageExtractor - Interface commune pour tous les langages
@@ -72,13 +73,7 @@ pub trait LanguageExtractor: Send + Sync {
     }
 
     /// Generate stage-specific fix prompt.
-    fn generate_fix_prompt(
-        &self,
-        stage: Stage,
-        stage_code: &str,
-        errors: &[String],
-        full_code: &str,
-    ) -> String {
+    fn generate_fix_prompt(&self, stage: Stage, stage_code: &str, errors: &[String], full_code: &str) -> String {
         generate_stage_fix_prompt(self.language(), stage, stage_code, errors, full_code)
     }
 }
@@ -146,12 +141,8 @@ pub struct StageValidation {
 pub struct RustExtractor;
 
 impl LanguageExtractor for RustExtractor {
-    fn language(&self) -> Language {
-        Language::Rust
-    }
-    fn stub_body(&self) -> &'static str {
-        "todo!()"
-    }
+    fn language(&self) -> Language { Language::Rust }
+    fn stub_body(&self) -> &'static str { "todo!()" }
 
     fn extract_types(&self, code: &str) -> String {
         RustExtractor::extract_types_impl(code)
@@ -172,14 +163,65 @@ impl RustExtractor {
     }
 
     fn extract_types_impl(code: &str) -> String {
-        // Extract complete type definitions with their bodies
+        let mut result = String::new();
+        let mut in_impl_block = false;
+        let mut brace_depth = 0;
+
+        for line in code.lines() {
+            let trimmed = line.trim();
+
+            // Track impl block depth
+            if trimmed.starts_with("impl ") {
+                in_impl_block = true;
+            }
+
+            brace_depth += line.matches('{').count() as i32;
+            brace_depth -= line.matches('}').count() as i32;
+
+            if in_impl_block && brace_depth == 0 {
+                in_impl_block = false;
+                continue;
+            }
+
+            // Skip impl block contents
+            if in_impl_block {
+                continue;
+            }
+
+            // Include imports
+            if trimmed.starts_with("use ") || trimmed.starts_with("pub use ") {
+                result.push_str(line);
+                result.push('\n');
+                continue;
+            }
+
+            // Include module attributes
+            if trimmed.starts_with("//!") || trimmed.starts_with("#![") {
+                result.push_str(line);
+                result.push('\n');
+                continue;
+            }
+
+            // Include type definitions (struct, enum, type, const)
+            if trimmed.starts_with("pub struct ") || trimmed.starts_with("struct ") ||
+               trimmed.starts_with("pub enum ") || trimmed.starts_with("enum ") ||
+               trimmed.starts_with("pub type ") || trimmed.starts_with("type ") ||
+               trimmed.starts_with("pub const ") || trimmed.starts_with("const ") ||
+               trimmed.starts_with("#[derive") {
+                // Collect the full type definition
+                result.push_str(line);
+                result.push('\n');
+            }
+        }
+
+        // Re-parse to get complete type definitions with their bodies
         Self::extract_complete_types(code)
     }
 
     /// Extract complete type definitions (including multi-line).
     fn extract_complete_types(code: &str) -> String {
         let mut result = String::new();
-        let lines: Vec<&str> = code.lines().collect();
+        let mut lines: Vec<&str> = code.lines().collect();
         let mut i = 0;
 
         while i < lines.len() {
@@ -212,13 +254,9 @@ impl RustExtractor {
             }
 
             // Type definitions
-            if trimmed.starts_with("pub struct ")
-                || trimmed.starts_with("struct ")
-                || trimmed.starts_with("pub enum ")
-                || trimmed.starts_with("enum ")
-                || trimmed.starts_with("pub type ")
-                || trimmed.starts_with("type ")
-            {
+            if trimmed.starts_with("pub struct ") || trimmed.starts_with("struct ") ||
+               trimmed.starts_with("pub enum ") || trimmed.starts_with("enum ") ||
+               trimmed.starts_with("pub type ") || trimmed.starts_with("type ") {
                 let block = Self::collect_block(&lines, i);
                 result.push_str(&block);
                 result.push_str("\n\n");
@@ -273,7 +311,11 @@ impl RustExtractor {
         let types = Self::extract_types_impl(code);
         let mut result = types;
 
+        // Extract impl blocks with stubbed functions
+        let impl_re = Regex::new(r"impl(?:<[^>]+>)?\s+(?:\w+\s+for\s+)?(\w+)").unwrap();
+
         let mut in_impl = false;
+        let mut impl_header = String::new();
         let mut brace_depth = 0;
         let mut current_impl = String::new();
 
@@ -282,6 +324,7 @@ impl RustExtractor {
 
             if trimmed.starts_with("impl ") && !in_impl {
                 in_impl = true;
+                impl_header = line.to_string();
                 current_impl.clear();
                 current_impl.push_str(line);
                 current_impl.push('\n');
@@ -313,17 +356,19 @@ impl RustExtractor {
         let mut result = String::new();
         let mut in_fn_body = false;
         let mut fn_brace_depth = 0;
+        let mut current_fn_signature = String::new();
 
         for line in impl_block.lines() {
             let trimmed = line.trim();
 
             // Detect function start
-            if !in_fn_body
-                && (trimmed.starts_with("pub fn ")
-                    || trimmed.starts_with("pub async fn ")
-                    || trimmed.starts_with("fn ")
-                    || trimmed.starts_with("async fn "))
-            {
+            if !in_fn_body && (trimmed.starts_with("pub fn ") ||
+                               trimmed.starts_with("pub async fn ") ||
+                               trimmed.starts_with("fn ") ||
+                               trimmed.starts_with("async fn ")) {
+
+                current_fn_signature = line.to_string();
+
                 if trimmed.contains('{') {
                     // Function body starts on same line
                     in_fn_body = true;
@@ -384,12 +429,8 @@ impl RustExtractor {
 pub struct TypeScriptExtractor;
 
 impl LanguageExtractor for TypeScriptExtractor {
-    fn language(&self) -> Language {
-        Language::TypeScript
-    }
-    fn stub_body(&self) -> &'static str {
-        "throw new Error('TODO');"
-    }
+    fn language(&self) -> Language { Language::TypeScript }
+    fn stub_body(&self) -> &'static str { "throw new Error('TODO');" }
 
     fn extract_types(&self, code: &str) -> String {
         TypeScriptExtractor::extract_types_impl(code)
@@ -421,7 +462,8 @@ impl TypeScriptExtractor {
             }
 
             // Interface definitions
-            if trimmed.starts_with("interface ") || trimmed.starts_with("export interface ") {
+            if trimmed.starts_with("interface ") ||
+               trimmed.starts_with("export interface ") {
                 let block = Self::collect_brace_block(&lines, i);
                 result.push_str(&block);
                 result.push_str("\n\n");
@@ -449,8 +491,7 @@ impl TypeScriptExtractor {
 
             // Const type declarations (as const)
             if (trimmed.starts_with("const ") || trimmed.starts_with("export const "))
-                && trimmed.contains(" as const")
-            {
+                && trimmed.contains(" as const") {
                 let block = Self::collect_until_semicolon(&lines, i);
                 result.push_str(&block);
                 result.push_str("\n\n");
@@ -476,11 +517,10 @@ impl TypeScriptExtractor {
             let trimmed = line.trim();
 
             // Class definitions
-            if trimmed.starts_with("class ")
-                || trimmed.starts_with("export class ")
-                || trimmed.starts_with("abstract class ")
-                || trimmed.starts_with("export abstract class ")
-            {
+            if trimmed.starts_with("class ") ||
+               trimmed.starts_with("export class ") ||
+               trimmed.starts_with("abstract class ") ||
+               trimmed.starts_with("export abstract class ") {
                 let block = Self::collect_brace_block(&lines, i);
                 let stubbed = Self::stub_class(&block);
                 result.push_str(&stubbed);
@@ -490,11 +530,10 @@ impl TypeScriptExtractor {
             }
 
             // Standalone functions
-            if trimmed.starts_with("function ")
-                || trimmed.starts_with("export function ")
-                || trimmed.starts_with("async function ")
-                || trimmed.starts_with("export async function ")
-            {
+            if (trimmed.starts_with("function ") ||
+                trimmed.starts_with("export function ") ||
+                trimmed.starts_with("async function ") ||
+                trimmed.starts_with("export async function ")) {
                 let block = Self::collect_brace_block(&lines, i);
                 let stubbed = Self::stub_function(&block);
                 result.push_str(&stubbed);
@@ -504,9 +543,8 @@ impl TypeScriptExtractor {
             }
 
             // Arrow function exports
-            if (trimmed.starts_with("export const ") || trimmed.starts_with("const "))
-                && !trimmed.contains(" as const")
-            {
+            if (trimmed.starts_with("export const ") || trimmed.starts_with("const ")) &&
+               !trimmed.contains(" as const") {
                 // Check if it's an arrow function
                 let block = Self::collect_brace_block(&lines, i);
                 if block.contains("=>") {
@@ -574,15 +612,14 @@ impl TypeScriptExtractor {
             let trimmed = line.trim();
 
             // Detect method start
-            let is_method = !in_method_body
-                && trimmed.contains('(')
-                && (trimmed.starts_with("async ")
-                    || trimmed.starts_with("public ")
-                    || trimmed.starts_with("private ")
-                    || trimmed.starts_with("protected ")
-                    || trimmed.starts_with("static ")
-                    || trimmed.starts_with("constructor")
-                    || trimmed.chars().next().map_or(false, char::is_alphabetic));
+            let is_method = !in_method_body && trimmed.contains('(') &&
+                (trimmed.starts_with("async ") ||
+                 trimmed.starts_with("public ") ||
+                 trimmed.starts_with("private ") ||
+                 trimmed.starts_with("protected ") ||
+                 trimmed.starts_with("static ") ||
+                 trimmed.starts_with("constructor") ||
+                 trimmed.chars().next().map_or(false, |c| c.is_alphabetic()));
 
             if is_method && !trimmed.ends_with(',') && !trimmed.contains(':') {
                 if trimmed.contains('{') {
@@ -639,12 +676,8 @@ impl TypeScriptExtractor {
 pub struct PythonExtractor;
 
 impl LanguageExtractor for PythonExtractor {
-    fn language(&self) -> Language {
-        Language::Python
-    }
-    fn stub_body(&self) -> &'static str {
-        "raise NotImplementedError()"
-    }
+    fn language(&self) -> Language { Language::Python }
+    fn stub_body(&self) -> &'static str { "raise NotImplementedError()" }
 
     fn extract_types(&self, code: &str) -> String {
         PythonExtractor::extract_types_impl(code)
@@ -671,14 +704,16 @@ impl PythonExtractor {
             }
 
             // Type aliases (Python 3.9+: TypeAlias, 3.12+: type)
-            if trimmed.starts_with("type ") || trimmed.contains(": TypeAlias") {
+            if trimmed.starts_with("type ") ||
+               trimmed.contains(": TypeAlias") {
                 result.push_str(line);
                 result.push('\n');
                 continue;
             }
 
             // TypedDict, Protocol, dataclass definitions (just the decorator/class line)
-            if trimmed.starts_with("@dataclass") || trimmed.starts_with("@dataclasses.dataclass") {
+            if trimmed.starts_with("@dataclass") ||
+               trimmed.starts_with("@dataclasses.dataclass") {
                 result.push_str(line);
                 result.push('\n');
                 continue;
@@ -686,10 +721,10 @@ impl PythonExtractor {
 
             // Collect class definitions that are type-like (TypedDict, Protocol, Enum)
             if trimmed.starts_with("class ") {
-                let is_type_class = trimmed.contains("TypedDict")
-                    || trimmed.contains("Protocol")
-                    || trimmed.contains("Enum")
-                    || trimmed.contains("NamedTuple");
+                let is_type_class = trimmed.contains("TypedDict") ||
+                                   trimmed.contains("Protocol") ||
+                                   trimmed.contains("Enum") ||
+                                   trimmed.contains("NamedTuple");
                 if is_type_class {
                     result.push_str(line);
                     result.push('\n');
@@ -729,10 +764,7 @@ impl PythonExtractor {
                 // Add signature with stub body
                 result.push_str(&sig);
                 result.push('\n');
-                result.push_str(&format!(
-                    "{}    raise NotImplementedError()\n\n",
-                    indent_str
-                ));
+                result.push_str(&format!("{}    raise NotImplementedError()\n\n", indent_str));
 
                 // Skip original function body
                 let body_indent = indent + 4;
@@ -749,11 +781,10 @@ impl PythonExtractor {
             }
 
             // Class definitions (non-type classes)
-            if trimmed.starts_with("class ")
-                && !trimmed.contains("TypedDict")
-                && !trimmed.contains("Protocol")
-                && !trimmed.contains("Enum")
-            {
+            if trimmed.starts_with("class ") &&
+               !trimmed.contains("TypedDict") &&
+               !trimmed.contains("Protocol") &&
+               !trimmed.contains("Enum") {
                 result.push_str(line);
                 result.push('\n');
                 // Continue to collect methods inside
@@ -774,12 +805,8 @@ impl PythonExtractor {
 pub struct GoExtractor;
 
 impl LanguageExtractor for GoExtractor {
-    fn language(&self) -> Language {
-        Language::Go
-    }
-    fn stub_body(&self) -> &'static str {
-        "panic(\"TODO\")"
-    }
+    fn language(&self) -> Language { Language::Go }
+    fn stub_body(&self) -> &'static str { "panic(\"TODO\")" }
 
     fn extract_types(&self, code: &str) -> String {
         GoExtractor::extract_types_impl(code)
@@ -915,12 +942,8 @@ impl GoExtractor {
 pub struct ShellExtractor;
 
 impl LanguageExtractor for ShellExtractor {
-    fn language(&self) -> Language {
-        Language::Shell
-    }
-    fn stub_body(&self) -> &'static str {
-        "echo 'TODO' && exit 1"
-    }
+    fn language(&self) -> Language { Language::Shell }
+    fn stub_body(&self) -> &'static str { "echo 'TODO' && exit 1" }
 
     fn extract_types(&self, code: &str) -> String {
         // Shell has no types - just return shebang and comments
@@ -944,9 +967,8 @@ impl LanguageExtractor for ShellExtractor {
         for line in code.lines() {
             let trimmed = line.trim();
             // Shell functions: function_name() { or function function_name {
-            if (trimmed.contains("()") && trimmed.ends_with('{'))
-                || trimmed.starts_with("function ")
-            {
+            if (trimmed.contains("()") && trimmed.ends_with('{')) ||
+               trimmed.starts_with("function ") {
                 if let Some(brace_pos) = line.find('{') {
                     result.push_str(&line[..brace_pos]);
                     result.push_str("{ echo 'TODO' && exit 1; }\n");
@@ -977,30 +999,23 @@ pub struct IncrementalResult {
 impl IncrementalResult {
     /// Get a summary string.
     pub fn summary(&self) -> String {
-        let stages_str: Vec<String> = self
-            .stages
-            .iter()
+        let stages_str: Vec<String> = self.stages.iter()
             .map(|s| format!("{}: {}", s.stage.name(), if s.passed { "✓" } else { "✗" }))
             .collect();
 
-        format!(
-            "[{}] {}",
+        format!("[{}] {}",
             stages_str.join(" → "),
             if self.passed {
                 "ALL PASSED".to_string()
             } else {
-                format!(
-                    "FAILED at {}",
-                    self.failed_stage.map(|s| s.name()).unwrap_or("?")
-                )
+                format!("FAILED at {}", self.failed_stage.map(|s| s.name()).unwrap_or("?"))
             }
         )
     }
 
     /// Get errors from failed stage.
     pub fn errors(&self) -> Vec<String> {
-        self.stages
-            .iter()
+        self.stages.iter()
             .find(|s| !s.passed)
             .map(|s| s.errors.clone())
             .unwrap_or_default()
@@ -1008,8 +1023,7 @@ impl IncrementalResult {
 
     /// Get the code that needs fixing (from failed stage).
     pub fn code_to_fix(&self) -> Option<&str> {
-        self.stages
-            .iter()
+        self.stages.iter()
             .find(|s| !s.passed)
             .map(|s| s.code.as_str())
     }
@@ -1027,10 +1041,7 @@ pub struct IncrementalPipeline<S: Sandbox> {
 impl<S: Sandbox> IncrementalPipeline<S> {
     /// Create a new incremental pipeline for a specific language.
     pub fn new(validator: SandboxValidator<S>, language: Language) -> Self {
-        Self {
-            validator,
-            language,
-        }
+        Self { validator, language }
     }
 
     /// Create a Rust-specific pipeline (backward compatibility).
@@ -1059,22 +1070,12 @@ impl<S: Sandbox> IncrementalPipeline<S> {
             let stage_code = extractor.for_stage(stage, code);
             let stage_start = std::time::Instant::now();
 
-            info!(
-                "Validating {} stage: {} ({} chars)",
-                self.language.extension(),
-                stage.name(),
-                stage_code.len()
-            );
-            debug!(
-                "Stage code preview:\n{}",
-                &stage_code[..stage_code.len().min(500)]
-            );
+            info!("Validating {} stage: {} ({} chars)",
+                  self.language.extension(), stage.name(), stage_code.len());
+            debug!("Stage code preview:\n{}", &stage_code[..stage_code.len().min(500)]);
 
             // Use the appropriate validator for the language
-            let result = self
-                .validator
-                .validate_code(&stage_code, self.language)
-                .await?;
+            let result = self.validator.validate_code(&stage_code, self.language).await?;
 
             let errors: Vec<String> = if !result.compiles {
                 result.compiler_errors.clone()
@@ -1093,18 +1094,10 @@ impl<S: Sandbox> IncrementalPipeline<S> {
             if result.passed {
                 validated_code.insert(stage, stage_code);
                 last_passed = Some(stage);
-                info!(
-                    "✓ Stage {} passed in {}ms",
-                    stage.name(),
-                    stage_result.duration_ms
-                );
+                info!("✓ Stage {} passed in {}ms", stage.name(), stage_result.duration_ms);
             } else {
                 failed_stage = Some(stage);
-                warn!(
-                    "✗ Stage {} failed with {} errors",
-                    stage.name(),
-                    errors.len()
-                );
+                warn!("✗ Stage {} failed with {} errors", stage.name(), errors.len());
                 stages.push(stage_result);
                 break; // Stop at first failure
             }
@@ -1124,19 +1117,12 @@ impl<S: Sandbox> IncrementalPipeline<S> {
 
     /// Validate only a specific stage.
     /// Validate only a specific stage.
-    pub async fn validate_stage(
-        &self,
-        stage: Stage,
-        code: &str,
-    ) -> Result<StageValidation, SandboxError> {
+    pub async fn validate_stage(&self, stage: Stage, code: &str) -> Result<StageValidation, SandboxError> {
         let extractor = get_extractor(self.language);
         let stage_code = extractor.for_stage(stage, code);
         let start = std::time::Instant::now();
 
-        let result = self
-            .validator
-            .validate_code(&stage_code, self.language)
-            .await?;
+        let result = self.validator.validate_code(&stage_code, self.language).await?;
 
         let errors = if !result.compiles {
             result.compiler_errors
@@ -1181,12 +1167,7 @@ pub async fn validate_incrementally<S: Sandbox>(
         let stage_code = extractor.for_stage(stage, code);
         let stage_start = std::time::Instant::now();
 
-        info!(
-            "Validating {} stage: {} ({} chars)",
-            language.extension(),
-            stage.name(),
-            stage_code.len()
-        );
+        info!("Validating {} stage: {} ({} chars)", language.extension(), stage.name(), stage_code.len());
 
         let result = validator.validate_code(&stage_code, language).await?;
 
@@ -1244,11 +1225,7 @@ pub fn generate_stage_fix_prompt(
         Language::Shell => "SHELL",
     };
 
-    prompt.push_str(&format!(
-        "=== {} FAILED AT STAGE: {} ===\n\n",
-        lang_name,
-        stage.name().to_uppercase()
-    ));
+    prompt.push_str(&format!("=== {} FAILED AT STAGE: {} ===\n\n", lang_name, stage.name().to_uppercase()));
 
     match stage {
         Stage::Types => {
@@ -1289,12 +1266,8 @@ pub fn generate_stage_fix_prompt(
                 Language::TypeScript | Language::JavaScript => {
                     prompt.push_str("CRITICAL SYNTAX RULES (READ CAREFULLY!):\n\n");
                     prompt.push_str("STRING INTERPOLATION REQUIRES BACKTICKS:\n");
-                    prompt.push_str(
-                        "  WRONG:   throw new Error(Invalid: ${var})     // NO QUOTES = ERROR!\n",
-                    );
-                    prompt.push_str(
-                        "  WRONG:   throw new Error(\"Invalid: ${var}\")   // QUOTES DON'T WORK!\n",
-                    );
+                    prompt.push_str("  WRONG:   throw new Error(Invalid: ${var})     // NO QUOTES = ERROR!\n");
+                    prompt.push_str("  WRONG:   throw new Error(\"Invalid: ${var}\")   // QUOTES DON'T WORK!\n");
                     prompt.push_str("  CORRECT: throw new Error(`Invalid: ${var}`)   // BACKTICKS REQUIRED!\n\n");
                     prompt.push_str("EXAMPLES OF CORRECT USAGE:\n");
                     prompt.push_str("  throw new Error(`State ${state} is invalid`);\n");

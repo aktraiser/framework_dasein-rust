@@ -48,9 +48,9 @@ cargo add agentic-core agentic-llm agentic-sandbox
 ```
 
 ```rust
-use dasein_agentic_core::{Agent, AgentConfig};
-use dasein_agentic_llm::OpenAIAdapter;
-use dasein_agentic_sandbox::ProcessSandbox;
+use agentic_core::{Agent, AgentConfig};
+use agentic_llm::OpenAIAdapter;
+use agentic_sandbox::ProcessSandbox;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

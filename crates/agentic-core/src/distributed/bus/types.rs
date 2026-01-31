@@ -1,6 +1,7 @@
 //! Common types for the bus coordinator.
 
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 /// Time range for queries.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,11 +60,7 @@ pub struct Task {
 
 impl Task {
     /// Create a new task.
-    pub fn new(
-        id: impl Into<String>,
-        supervisor: impl Into<String>,
-        payload: serde_json::Value,
-    ) -> Self {
+    pub fn new(id: impl Into<String>, supervisor: impl Into<String>, payload: serde_json::Value) -> Self {
         Self {
             id: id.into(),
             priority: TaskPriority::Normal,

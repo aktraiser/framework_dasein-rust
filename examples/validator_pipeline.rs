@@ -6,11 +6,11 @@
 //!
 //! Run with: CONTEXT7_API_KEY=xxx cargo run --example validator_pipeline
 
-use dasein_agentic_core::distributed::{
-    Executor, MCPDocConfig, MCPDocValidator, PipelineResult, SandboxPipelineValidator,
-    ValidatorInput, ValidatorPipeline,
+use agentic_core::distributed::{
+    Executor, ValidatorPipeline, SandboxPipelineValidator, MCPDocValidator,
+    MCPDocConfig, ValidatorInput, PipelineResult,
 };
-use dasein_agentic_sandbox::ProcessSandbox;
+use agentic_sandbox::ProcessSandbox;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -49,7 +49,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .add(mcp_validator)
     } else {
         println!("     No Context7 API key - using sandbox only");
-        ValidatorPipeline::new().add(sandbox_validator)
+        ValidatorPipeline::new()
+            .add(sandbox_validator)
     };
 
     // === Setup Executor ===
@@ -91,15 +92,12 @@ Return ONLY compilable Rust code."#;
         let gen_start = Instant::now();
         let result = executor.execute(system_prompt, &current_prompt).await?;
         let code = clean_code(&result.content);
-        println!(
-            "Generated {} chars in {}ms",
-            code.len(),
-            gen_start.elapsed().as_millis()
-        );
+        println!("Generated {} chars in {}ms", code.len(), gen_start.elapsed().as_millis());
 
         // Validate with pipeline
         let val_start = Instant::now();
-        let input = ValidatorInput::new(&code, "rust").with_task(task);
+        let input = ValidatorInput::new(&code, "rust")
+            .with_task(task);
 
         let pipeline_result = pipeline.validate(input).await;
         println!("Pipeline: {}ms", val_start.elapsed().as_millis());
@@ -109,11 +107,8 @@ Return ONLY compilable Rust code."#;
 
         if pipeline_result.passed {
             println!("\n{}", "=".repeat(70));
-            println!(
-                "SUCCESS after {} iterations ({}ms total)",
-                iteration,
-                total_start.elapsed().as_millis()
-            );
+            println!("SUCCESS after {} iterations ({}ms total)",
+                iteration, total_start.elapsed().as_millis());
             println!("{}\n", "=".repeat(70));
             println!("{}", code);
             return Ok(());
@@ -153,10 +148,7 @@ fn print_pipeline_summary(result: &PipelineResult) {
     // Show first error if any
     for r in &result.results {
         if !r.passed && !r.errors.is_empty() {
-            println!(
-                "    First error: {}",
-                r.errors[0].lines().next().unwrap_or("")
-            );
+            println!("    First error: {}", r.errors[0].lines().next().unwrap_or(""));
             break;
         }
     }
@@ -174,9 +166,7 @@ fn build_retry_prompt(task: &str, code: &str, result: &PipelineResult) -> String
     prompt.push_str("=== VALIDATION FEEDBACK ===\n");
     prompt.push_str(&result.combined_feedback);
 
-    prompt.push_str(
-        "\n\nFix the errors using the feedback above. Return ONLY the corrected Rust code.",
-    );
+    prompt.push_str("\n\nFix the errors using the feedback above. Return ONLY the corrected Rust code.");
     prompt
 }
 

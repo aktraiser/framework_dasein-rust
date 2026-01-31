@@ -3,7 +3,7 @@
 //! LLM adapters for the Agentic Framework.
 //!
 //! Supports multiple providers:
-//! - `OpenAI` (GPT-4, GPT-4o, o1)
+//! - OpenAI (GPT-4, GPT-4o, o1)
 //! - Ollama (local models)
 //! - Anthropic (Claude Sonnet, Haiku, Opus)
 //! - Google Gemini (Gemini 2.0 Flash, 1.5 Pro)
@@ -11,7 +11,7 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use dasein_agentic_llm::{LLMAdapter, OpenAIAdapter, LLMMessage};
+//! use agentic_llm::{LLMAdapter, OpenAIAdapter, LLMMessage};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -6,11 +6,11 @@
 //!
 //! Run with: CONTEXT7_API_KEY=xxx cargo run --example validator_pipeline_extreme
 
-use dasein_agentic_core::distributed::{
-    Executor, MCPDocConfig, MCPDocValidator, PipelineResult, SandboxPipelineValidator,
-    ValidatorInput, ValidatorPipeline,
+use agentic_core::distributed::{
+    Executor, ValidatorPipeline, SandboxPipelineValidator, MCPDocValidator,
+    MCPDocConfig, ValidatorInput, PipelineResult,
 };
-use dasein_agentic_sandbox::ProcessSandbox;
+use agentic_sandbox::ProcessSandbox;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -144,20 +144,21 @@ Return ONLY compilable Rust code, no explanations."#;
         let gen_start = Instant::now();
         let result = executor.execute(system_prompt, &current_prompt).await?;
         let code = clean_code(&result.content);
-        println!(
-            "Generated {} chars in {}ms",
-            code.len(),
-            gen_start.elapsed().as_millis()
-        );
+        println!("Generated {} chars in {}ms", code.len(), gen_start.elapsed().as_millis());
 
         // Detect if LLM is stuck generating same code
         let code_hash = hash_code(&code);
         if code_hash == last_code_hash {
             stuck_count += 1;
-            println!(
-                "  ⚠️  Same code as previous iteration (stuck: {})",
-                stuck_count
-            );
+            println!("  ⚠️  Same code as previous iteration (stuck: {})", stuck_count);
+            if stuck_count >= 2 {
+                println!("  🔄 Adding hint to break the loop...");
+                current_prompt = format!(
+                    "{}\n\nIMPORTANT: Your previous code had syntax errors (unbalanced braces). \
+                    Start fresh with a SIMPLER implementation. Focus on getting the basic structure right first.",
+                    current_prompt
+                );
+            }
         } else {
             stuck_count = 0;
         }
@@ -172,11 +173,8 @@ Return ONLY compilable Rust code, no explanations."#;
 
         if pipeline_result.passed {
             println!("\n{}", "=".repeat(70));
-            println!(
-                "SUCCESS after {} iterations ({}ms total)",
-                iteration,
-                total_start.elapsed().as_millis()
-            );
+            println!("SUCCESS after {} iterations ({}ms total)",
+                iteration, total_start.elapsed().as_millis());
             println!("{}\n", "=".repeat(70));
 
             let lines = code.lines().count();

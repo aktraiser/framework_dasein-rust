@@ -2,21 +2,19 @@
 //!
 //! # Quick Start
 //!
-//! ```rust,ignore
-//! let executor = Executor::new("exe-001", "sup-001")
+//! ```rust
+//! let executor = Executor::new("exe-001", "sup-001", bus)
 //!     .llm(LLMConfig::gemini("gemini-2.0-flash"))
-//!     .build();
+//!     .start().await?;
 //! ```
 
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Arc;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use dasein_agentic_llm::{
-    AnthropicAdapter, GeminiAdapter, LLMAdapter, LLMError, LLMMessage, OpenAIAdapter,
-};
+use agentic_llm::{GeminiAdapter, OpenAIAdapter, AnthropicAdapter, LLMAdapter, LLMMessage, LLMResponse, LLMError};
 
 use super::config::{Capability, ExecutorConfig, LLMConfig, SandboxConfig};
 
@@ -53,6 +51,8 @@ pub struct Executor {
     state: Arc<RwLock<ExecutorState>>,
     /// LLM configuration
     llm_config: LLMConfig,
+    /// Sandbox configuration
+    sandbox_config: SandboxConfig,
     /// Capabilities
     capabilities: HashSet<Capability>,
     /// Metrics
@@ -65,7 +65,7 @@ impl Executor {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust
     /// let exe = Executor::new("exe-001", "sup-001")
     ///     .llm(LLMConfig::gemini("gemini-2.0-flash"))
     ///     .build();
@@ -82,6 +82,7 @@ impl Executor {
             current_supervisor: config.owner_supervisor,
             state: Arc::new(RwLock::new(ExecutorState::Idle)),
             llm_config: config.llm,
+            sandbox_config: config.sandbox,
             capabilities: config.capabilities,
             tasks_completed: Arc::new(RwLock::new(0)),
             tasks_failed: Arc::new(RwLock::new(0)),
@@ -117,12 +118,7 @@ impl Executor {
     }
 
     /// Set state to borrowed.
-    pub async fn set_borrowed(
-        &self,
-        to_supervisor: String,
-        lease_id: String,
-        expires_at: DateTime<Utc>,
-    ) {
+    pub async fn set_borrowed(&self, to_supervisor: String, lease_id: String, expires_at: DateTime<Utc>) {
         // Note: current_supervisor tracking would need interior mutability
         // For now, we just update the state
         *self.state.write().await = ExecutorState::Borrowed {
@@ -169,7 +165,7 @@ impl Executor {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust,no_run
     /// let result = executor.execute(
     ///     "You are a Rust expert.",
     ///     "Write a function to check if a number is prime."
@@ -214,10 +210,9 @@ impl Executor {
                 adapter.generate(&messages).await
             }
             "anthropic" => {
-                let adapter =
-                    AnthropicAdapter::new(&self.llm_config.api_key, &self.llm_config.model)
-                        .with_temperature(self.llm_config.temperature)
-                        .with_max_tokens(self.llm_config.max_tokens);
+                let adapter = AnthropicAdapter::new(&self.llm_config.api_key, &self.llm_config.model)
+                    .with_temperature(self.llm_config.temperature)
+                    .with_max_tokens(self.llm_config.max_tokens);
 
                 let messages = vec![
                     LLMMessage::system(system_prompt),
@@ -240,7 +235,7 @@ impl Executor {
                 self.set_idle().await;
 
                 // Check if response was truncated
-                let truncated = response.finish_reason == dasein_agentic_llm::FinishReason::Length;
+                let truncated = response.finish_reason == agentic_llm::FinishReason::Length;
                 if truncated {
                     tracing::warn!(
                         "LLM output truncated (hit max_tokens limit). Model: {}, tokens: {}",
@@ -387,9 +382,7 @@ impl ExecutorBuilder {
         Executor::from_config(ExecutorConfig {
             id: self.id,
             owner_supervisor: self.owner,
-            llm: self
-                .llm
-                .unwrap_or_else(|| LLMConfig::gemini("gemini-2.0-flash")),
+            llm: self.llm.unwrap_or_else(|| LLMConfig::gemini("gemini-2.0-flash")),
             sandbox: self.sandbox.unwrap_or_else(SandboxConfig::process),
             capabilities: self.capabilities,
         })

@@ -64,7 +64,7 @@ Goodbye!
 ```rust
 //! Interactive chat console for testing LLM adapters
 
-use dasein_agentic_llm::{LLMAdapter, LLMMessage};
+use agentic_llm::{LLMAdapter, LLMMessage};
 use std::io::{self, BufRead, Write};
 
 #[tokio::main]
@@ -91,14 +91,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             io::stdout().flush()?;
             let mut key = String::new();
             io::stdin().lock().read_line(&mut key)?;
-            Box::new(dasein_agentic_llm::GeminiAdapter::new(key.trim(), "gemini-2.0-flash"))
+            Box::new(agentic_llm::GeminiAdapter::new(key.trim(), "gemini-2.0-flash"))
         }
         "2" => {
             print!("OpenAI API key: ");
             io::stdout().flush()?;
             let mut key = String::new();
             io::stdin().lock().read_line(&mut key)?;
-            Box::new(dasein_agentic_llm::OpenAIAdapter::new(key.trim(), "gpt-4o-mini"))
+            Box::new(agentic_llm::OpenAIAdapter::new(key.trim(), "gpt-4o-mini"))
         }
         // ... more providers
         _ => panic!("Invalid choice"),
