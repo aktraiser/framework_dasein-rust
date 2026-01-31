@@ -1,7 +1,6 @@
 //! Sandbox Pipeline Validator - Wraps SandboxValidator for the pipeline.
 
 use async_trait::async_trait;
-use std::path::PathBuf;
 
 use agentic_sandbox::Sandbox;
 
@@ -20,7 +19,7 @@ impl<S: Sandbox + Send + Sync + 'static> SandboxPipelineValidator<S> {
         }
     }
 
-    pub fn workspace(mut self, path: PathBuf) -> Self {
+    pub fn workspace(mut self, path: std::path::PathBuf) -> Self {
         self.inner = self.inner.workspace(path);
         self
     }
@@ -130,8 +129,8 @@ mod tests {
     #[tokio::test]
     async fn test_sandbox_pipeline_validator() {
         let sandbox = ProcessSandbox::new().with_timeout(60000);
-        let validator =
-            SandboxPipelineValidator::new(sandbox).workspace(PathBuf::from("/tmp/test-pipeline"));
+        let validator = SandboxPipelineValidator::new(sandbox)
+            .workspace(std::path::PathBuf::from("/tmp/test-pipeline"));
 
         let input = ValidatorInput::new("fn main() {}", "rust");
         let result = validator.validate(&input).await;

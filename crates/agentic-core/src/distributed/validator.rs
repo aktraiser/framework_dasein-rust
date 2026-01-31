@@ -34,7 +34,6 @@
 //! | Feedback | Rule-based | Real errors |
 
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 use super::config::ValidatorConfig;
 

@@ -26,12 +26,12 @@ impl QdrantStore {
     ///
     /// # Arguments
     ///
-    /// * `url` - Qdrant server URL (e.g., "http://localhost:6334")
+    /// * `url` - Qdrant server URL (e.g., `http://localhost:6334`)
     ///
     /// # Errors
     ///
     /// Returns an error if connection fails.
-    pub async fn new(url: &str) -> Result<Self, StorageError> {
+    pub fn new(url: &str) -> Result<Self, StorageError> {
         let client = Qdrant::from_url(url)
             .build()
             .map_err(|e| StorageError::ConnectionFailed(e.to_string()))?;
@@ -49,7 +49,7 @@ impl QdrantStore {
     /// # Errors
     ///
     /// Returns an error if connection fails.
-    pub async fn with_api_key(url: &str, api_key: &str) -> Result<Self, StorageError> {
+    pub fn with_api_key(url: &str, api_key: &str) -> Result<Self, StorageError> {
         let client = Qdrant::from_url(url)
             .api_key(api_key)
             .build()
@@ -201,16 +201,15 @@ impl VectorStore for QdrantStore {
     }
 }
 
-/// Convert Qdrant Value to serde_json::Value.
+/// Convert Qdrant Value to `serde_json::Value`.
 fn qdrant_value_to_json(value: qdrant_client::qdrant::Value) -> serde_json::Value {
     use qdrant_client::qdrant::value::Kind;
 
     match value.kind {
-        Some(Kind::NullValue(_)) => serde_json::Value::Null,
         Some(Kind::BoolValue(b)) => serde_json::Value::Bool(b),
         Some(Kind::IntegerValue(i)) => serde_json::Value::Number(i.into()),
         Some(Kind::DoubleValue(d)) => serde_json::Number::from_f64(d)
-            .map_or(serde_json::Value::Null, |n| serde_json::Value::Number(n)),
+            .map_or(serde_json::Value::Null, serde_json::Value::Number),
         Some(Kind::StringValue(s)) => serde_json::Value::String(s),
         Some(Kind::ListValue(list)) => {
             let arr: Vec<serde_json::Value> =
@@ -225,7 +224,7 @@ fn qdrant_value_to_json(value: qdrant_client::qdrant::Value) -> serde_json::Valu
                 .collect();
             serde_json::Value::Object(obj)
         }
-        None => serde_json::Value::Null,
+        Some(Kind::NullValue(_)) | None => serde_json::Value::Null,
     }
 }
 

@@ -6,7 +6,9 @@ use super::task_decomposer::{SubTask, SubTaskResult};
 pub struct CodeAssembler;
 
 impl CodeAssembler {
-    pub fn new() -> Self {
+    /// Create a new code assembler.
+    #[must_use]
+    pub const fn new() -> Self {
         Self
     }
 

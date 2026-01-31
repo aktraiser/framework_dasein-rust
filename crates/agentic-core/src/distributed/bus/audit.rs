@@ -42,7 +42,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use super::error_fingerprint::ModelTier;
-use super::nats_client::{NatsClient, StreamConfig, StreamRetention};
+use super::nats_client::{NatsClient, StreamConfig};
 use super::types::BusError;
 
 /// Stream name for audit events.

@@ -16,13 +16,11 @@
 
 use std::collections::HashSet;
 use std::sync::Arc;
-use tokio::sync::RwLock;
-use uuid::Uuid;
 
 use super::allocation::{AllocationGrant, AllocationManager, AllocationRequest};
 use super::config::{Capability, LLMConfig, SandboxConfig, SupervisorConfig};
 use super::executor::Executor;
-use super::pool::{ExecutorPool, PoolConfig};
+use super::pool::ExecutorPool;
 use super::validator::{ValidationRule, Validator};
 
 /// Handle to interact with a supervisor.
@@ -50,7 +48,7 @@ pub struct Supervisor {
     /// Allow borrowing executors
     allow_borrowing: bool,
     /// Config
-    config: SupervisorConfig,
+    _config: SupervisorConfig,
 }
 
 impl Supervisor {
@@ -111,7 +109,7 @@ impl Supervisor {
             allocations,
             allow_lending: config.allow_lending,
             allow_borrowing: config.allow_borrowing,
-            config,
+            _config: config,
         }
     }
 

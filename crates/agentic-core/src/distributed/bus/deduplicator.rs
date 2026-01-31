@@ -5,7 +5,6 @@
 //! - Idempotency key support
 //! - Configurable retention window
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -49,7 +48,6 @@ pub enum DedupeStrategy {
 /// Entry tracking a processed item.
 #[derive(Debug, Clone)]
 struct DedupeEntry {
-    hash: u64,
     processed_at: std::time::Instant,
     count: usize,
 }
@@ -125,7 +123,6 @@ impl Deduplicator {
                 e.processed_at = now;
             })
             .or_insert(DedupeEntry {
-                hash,
                 processed_at: now,
                 count: 1,
             });
@@ -161,7 +158,6 @@ impl Deduplicator {
         entries.insert(
             hash,
             DedupeEntry {
-                hash,
                 processed_at: now,
                 count: 1,
             },
