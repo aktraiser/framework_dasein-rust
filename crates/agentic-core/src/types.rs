@@ -11,7 +11,7 @@ pub enum ExecutionMode {
     Always,
     /// Never execute (return code only)
     Never,
-    /// Let the LLM decide via markers ([EXECUTE]/[NO_EXECUTE])
+    /// Let the LLM decide via markers (`[EXECUTE]`/`[NO_EXECUTE]`)
     Auto,
     /// Decide based on the action type (default)
     #[default]
