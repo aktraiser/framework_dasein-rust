@@ -37,6 +37,7 @@
 //! }
 //! ```
 
+mod context;
 mod executor;
 mod types;
 
@@ -47,8 +48,13 @@ pub use types::{
     TaskId, WorkflowId,
 };
 
+// PR #2: WorkflowContext
+pub use context::{
+    InMemoryStateBackend, MessageSink, OutputSink, SharedStateBackend, WorkflowContext,
+    WorkflowContextBuilder, WorkflowEvent,
+};
+
 // Future PRs will add:
-// - PR #2: WorkflowContext implementation
 // - PR #3: Edge types (Direct, Conditional, Switch, FanOut, FanIn)
 // - PR #4: WorkflowBuilder
 // - PR #5: Workflow with Superstep execution

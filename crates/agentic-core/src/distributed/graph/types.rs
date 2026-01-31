@@ -144,6 +144,36 @@ impl ExecutorError {
         }
     }
 
+    /// Create an internal error (non-retriable).
+    pub fn internal(message: impl Into<String>) -> Self {
+        Self {
+            executor_id: ExecutorId::new("internal"),
+            message: message.into(),
+            retriable: false,
+            category: ErrorCategory::Unknown,
+        }
+    }
+
+    /// Create a validation error.
+    pub fn validation(message: impl Into<String>) -> Self {
+        Self {
+            executor_id: ExecutorId::new("validation"),
+            message: message.into(),
+            retriable: true,
+            category: ErrorCategory::Compilation,
+        }
+    }
+
+    /// Create a timeout error.
+    pub fn timeout() -> Self {
+        Self {
+            executor_id: ExecutorId::new("timeout"),
+            message: "Operation timed out".into(),
+            retriable: true,
+            category: ErrorCategory::Timeout,
+        }
+    }
+
     pub fn non_retriable(mut self) -> Self {
         self.retriable = false;
         self
