@@ -12,6 +12,7 @@ categories.workspace = true
 [dependencies]
 # Async
 tokio = { workspace = true }
+tokio-stream = "0.1"
 async-trait = { workspace = true }
 futures = { workspace = true }
 
