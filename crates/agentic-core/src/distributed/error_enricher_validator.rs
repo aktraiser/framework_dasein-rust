@@ -71,16 +71,16 @@ impl PipelineValidator for ErrorEnricherValidator {
         }
 
         // Get the appropriate enricher for the language
-        let enricher = self.enrichers.get(&input.language.to_lowercase());
+        let lang_enricher = self.enrichers.get(&input.language.to_lowercase());
 
         let mut enriched_errors = Vec::new();
         let mut recommendations = Vec::new();
 
         for error in &previous_errors {
-            if let Some(enricher) = enricher {
-                let enriched = enricher.enrich(error, &input.code);
-                enriched_errors.push(enriched.formatted());
-                recommendations.extend(enriched.hints);
+            if let Some(err_enricher) = lang_enricher {
+                let enriched_error = err_enricher.enrich(error, &input.code);
+                enriched_errors.push(enriched_error.formatted());
+                recommendations.extend(enriched_error.hints);
             } else {
                 // No enricher for this language, pass through
                 enriched_errors.push(error.clone());
@@ -263,7 +263,6 @@ impl ErrorEnricher for PythonEnricher {
 struct RustEnricher {
     error_code_re: Regex,
     file_line_re: Regex,
-    fn_name_re: Regex,
 }
 
 impl RustEnricher {
@@ -271,7 +270,6 @@ impl RustEnricher {
         Self {
             error_code_re: Regex::new(r"error\[E(\d+)\]").unwrap(),
             file_line_re: Regex::new(r"(\w+\.rs):(\d+)").unwrap(),
-            fn_name_re: Regex::new(r"fn (\w+)").unwrap(),
         }
     }
 }
@@ -473,13 +471,13 @@ impl ErrorEnricher for TypeScriptEnricher {
     fn enrich(&self, error: &str, code: &str) -> EnrichedError {
         let mut enriched = EnrichedError::new(error);
         let mut line_num: Option<u32> = None;
-        let mut col_num: Option<u32> = None;
+        let mut _col_num: Option<u32> = None;
 
         // Extract file, line, and column - try (line,col) format first
         if let Some(caps) = self.file_line_col_re.captures(error) {
             enriched.file = Some(caps[1].to_string());
             line_num = caps[2].parse().ok();
-            col_num = caps[3].parse().ok();
+            _col_num = caps[3].parse().ok();
             enriched.line = line_num;
         } else if let Some(caps) = self.file_line_re.captures(error) {
             enriched.file = Some(caps[1].to_string());

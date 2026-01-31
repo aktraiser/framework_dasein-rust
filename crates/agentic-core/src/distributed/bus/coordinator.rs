@@ -21,16 +21,14 @@
 //! ```
 
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info};
 
 use super::arbiter::{Arbiter, ArbiterConfig, Proposal, ScoredProposal};
 use super::deduplicator::{Deduplicator, DeduplicatorConfig};
 use super::log_collector::{LogCollector, LogCollectorConfig, LogEntry, LogQuery};
-use super::nats_client::{NatsClient, NatsConfig, StreamConfig, StreamRetention};
-use super::sequencer::{Sequencer, SequencerConfig, SequencerStats};
-use super::types::{BusError, Task, TaskPriority};
+use super::nats_client::{NatsClient, NatsConfig, StreamConfig};
+use super::sequencer::{Sequencer, SequencerConfig};
+use super::types::{BusError, Task};
 
 /// Stream names for JetStream.
 pub const STREAM_TASKS: &str = "AGENTIC_TASKS";

@@ -44,13 +44,14 @@ pub struct MCPServerConfig {
     pub timeout_ms: u64,
 }
 
-fn default_timeout() -> u64 {
+const fn default_timeout() -> u64 {
     30000
 }
 
 impl MCPServerConfig {
     /// Determine transport type from config.
-    pub fn transport_type(&self) -> TransportType {
+    #[must_use]
+    pub const fn transport_type(&self) -> TransportType {
         if self.url.is_some() {
             TransportType::Http
         } else {
@@ -83,19 +84,22 @@ impl MCPServerConfig {
     }
 
     /// Add HTTP header.
+    #[must_use]
     pub fn header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.headers.insert(key.into(), value.into());
         self
     }
 
     /// Add environment variable.
+    #[must_use]
     pub fn env_var(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.env.insert(key.into(), value.into());
         self
     }
 
     /// Set timeout.
-    pub fn timeout(mut self, ms: u64) -> Self {
+    #[must_use]
+    pub const fn timeout(mut self, ms: u64) -> Self {
         self.timeout_ms = ms;
         self
     }
@@ -111,6 +115,7 @@ pub struct MCPConfig {
 
 impl MCPConfig {
     /// Create empty config.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             servers: HashMap::new(),
@@ -118,33 +123,42 @@ impl MCPConfig {
     }
 
     /// Load config from JSON file.
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be read or parsed as valid JSON.
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self, MCPError> {
         let content = std::fs::read_to_string(path)
-            .map_err(|e| MCPError::ConnectionFailed(format!("Failed to read config: {}", e)))?;
+            .map_err(|e| MCPError::ConnectionFailed(format!("Failed to read config: {e}")))?;
 
         Self::from_json(&content)
     }
 
     /// Parse config from JSON string.
+    ///
+    /// # Errors
+    /// Returns an error if the string is not valid JSON configuration.
     pub fn from_json(json: &str) -> Result<Self, MCPError> {
         serde_json::from_str(json)
-            .map_err(|e| MCPError::SerializationError(format!("Invalid config: {}", e)))
+            .map_err(|e| MCPError::SerializationError(format!("Invalid config: {e}")))
     }
 
     /// Add a server configuration.
+    #[must_use]
     pub fn add_server(mut self, name: impl Into<String>, config: MCPServerConfig) -> Self {
         self.servers.insert(name.into(), config);
         self
     }
 
     /// Get server configuration by name.
+    #[must_use]
     pub fn get(&self, name: &str) -> Option<&MCPServerConfig> {
         self.servers.get(name)
     }
 
     /// List all server names.
+    #[must_use]
     pub fn server_names(&self) -> Vec<&str> {
-        self.servers.keys().map(|s| s.as_str()).collect()
+        self.servers.keys().map(String::as_str).collect()
     }
 }
 

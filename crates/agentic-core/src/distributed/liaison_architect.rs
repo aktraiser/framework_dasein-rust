@@ -32,7 +32,7 @@ use regex::Regex;
 use std::collections::{HashMap, HashSet};
 
 /// System prompt for the Liaison fixer executor.
-const LIAISON_SYSTEM_PROMPT: &str = r#"You are an expert Rust developer and code coherence specialist.
+const LIAISON_SYSTEM_PROMPT: &str = r"You are an expert Rust developer and code coherence specialist.
 Your job is to take code fragments from multiple agents and produce a SINGLE COHERENT module.
 
 CRITICAL RULES:
@@ -45,7 +45,7 @@ CRITICAL RULES:
 7. Return ONLY the complete, working Rust code.
 8. NO markdown, NO explanations, NO comments about changes.
 
-Double-check your syntax before responding!"#;
+Double-check your syntax before responding!";
 
 /// Errors that can occur during liaison operations.
 #[derive(Debug, Clone)]
@@ -70,7 +70,7 @@ impl std::error::Error for LiaisonError {}
 /// Analyzes and reconciles outputs from multiple executors.
 pub struct LiaisonArchitect {
     /// Language being processed
-    language: String,
+    _language: String,
 }
 
 /// Issues found during coherence analysis.
@@ -111,7 +111,7 @@ pub struct CoherenceReport {
 impl LiaisonArchitect {
     pub fn new(language: impl Into<String>) -> Self {
         Self {
-            language: language.into(),
+            _language: language.into(),
         }
     }
 
@@ -425,7 +425,7 @@ impl LiaisonArchitect {
             ("oneshot::", "tokio::sync::oneshot"),
         ];
 
-        for (pattern, import) in common_needs {
+        for (_pattern, import) in common_needs {
             report.needed_imports.insert(import.to_string());
         }
 

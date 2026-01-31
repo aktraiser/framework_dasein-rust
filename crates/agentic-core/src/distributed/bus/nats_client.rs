@@ -9,10 +9,8 @@
 use async_nats::jetstream::{self, consumer, stream, Context as JetStreamContext};
 use async_nats::{Client, ConnectOptions, Message};
 use serde::{de::DeserializeOwned, Serialize};
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info};
 
 use super::types::BusError;
 
@@ -133,7 +131,7 @@ impl StreamConfig {
 
 /// Real NATS client with JetStream support.
 pub struct NatsClient {
-    config: NatsConfig,
+    _config: NatsConfig,
     client: Client,
     jetstream: Option<JetStreamContext>,
 }
@@ -161,7 +159,7 @@ impl NatsClient {
         };
 
         Ok(Self {
-            config,
+            _config: config,
             client,
             jetstream,
         })

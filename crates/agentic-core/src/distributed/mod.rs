@@ -48,7 +48,7 @@
 //! }
 //! ```
 //!
-//! ## 2. SandboxValidator (Ground truth, for code)
+//! ## 2. `SandboxValidator` (Ground truth, for code)
 //!
 //! Use for real compilation and test execution:
 //!
@@ -68,11 +68,11 @@
 //!
 //! # When to Use Which
 //!
-//! | Task Type | Validator | SandboxValidator |
+//! | Task Type | Validator | `SandboxValidator` |
 //! |-----------|-----------|------------------|
 //! | Code generation | ❌ | ✅ Real compile/test |
-//! | Text/docs | ✅ Rules | ❌ |
-//! | JSON/config | ✅ ValidJson | ❌ |
+//! | Text/docs | Rules | - |
+//! | JSON/config | `ValidJson` | - |
 //! | Scripts | ✅ Quick check | ✅ Execute |
 //!
 //! # Grounded Validation Loop

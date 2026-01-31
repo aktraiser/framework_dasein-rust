@@ -9,13 +9,13 @@
 //! This prevents type mismatches (E0308) by letting executors
 //! reference already-validated definitions.
 
-use async_nats::jetstream::kv::{self, Store};
+use async_nats::jetstream::kv;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use super::nats_client::NatsClient;
 use super::types::BusError;

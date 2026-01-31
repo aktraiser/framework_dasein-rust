@@ -26,6 +26,7 @@
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+// Note: Serialize/Deserialize are needed for ValidatorInput and ValidatorOutput
 
 /// Input to a validator.
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -73,6 +73,9 @@ pub struct MCPClientPool {
 
 impl MCPClientPool {
     /// Create a new pool from configuration.
+    ///
+    /// # Errors
+    /// Returns an error if connection to any server fails.
     pub async fn new(config: MCPConfig) -> Result<Self, MCPError> {
         let pool = Self {
             servers: Arc::new(RwLock::new(HashMap::new())),
@@ -89,8 +92,8 @@ impl MCPClientPool {
     async fn connect_all(&self) -> Result<(), MCPError> {
         for (name, server_config) in &self.config.servers {
             match self.connect_server(name, server_config).await {
-                Ok(_) => info!("Connected to MCP server: {}", name),
-                Err(e) => warn!("Failed to connect to {}: {}", name, e),
+                Ok(()) => info!("Connected to MCP server: {name}"),
+                Err(e) => warn!("Failed to connect to {name}: {e}"),
             }
         }
         Ok(())
@@ -98,15 +101,14 @@ impl MCPClientPool {
 
     /// Connect to a single server and discover its tools.
     async fn connect_server(&self, name: &str, config: &MCPServerConfig) -> Result<(), MCPError> {
-        debug!("Connecting to MCP server: {}", name);
+        debug!("Connecting to MCP server: {name}");
 
         // Discover tools
         let tools = self.discover_tools(name, config).await?;
-        info!("Discovered {} tools from {}", tools.len(), name);
+        info!("Discovered {} tools from {name}", tools.len());
 
         // Store connection
-        let mut servers = self.servers.write().await;
-        servers.insert(
+        self.servers.write().await.insert(
             name.to_string(),
             ConnectedServer {
                 config: config.clone(),
@@ -125,7 +127,7 @@ impl MCPClientPool {
     ) -> Result<Vec<ToolDefinition>, MCPError> {
         match config.transport_type() {
             TransportType::Http => self.discover_tools_http(name, config).await,
-            TransportType::Stdio => self.discover_tools_stdio(name, config).await,
+            TransportType::Stdio => Self::discover_tools_stdio(name, config),
         }
     }
 
@@ -152,20 +154,20 @@ impl MCPClientPool {
         for (key, value) in &config.headers {
             // Convert CONTEXT7_API_KEY to Authorization: Bearer format
             if key == "CONTEXT7_API_KEY" || key == "API_KEY" {
-                let bearer = format!("Bearer {}", value);
+                let bearer = format!("Bearer {value}");
                 headers.insert(
                     reqwest::header::AUTHORIZATION,
                     reqwest::header::HeaderValue::from_str(&bearer).map_err(|e| {
-                        MCPError::ConnectionFailed(format!("Invalid auth value: {}", e))
+                        MCPError::ConnectionFailed(format!("Invalid auth value: {e}"))
                     })?,
                 );
             } else {
                 headers.insert(
                     reqwest::header::HeaderName::from_bytes(key.as_bytes()).map_err(|e| {
-                        MCPError::ConnectionFailed(format!("Invalid header name: {}", e))
+                        MCPError::ConnectionFailed(format!("Invalid header name: {e}"))
                     })?,
                     reqwest::header::HeaderValue::from_str(value).map_err(|e| {
-                        MCPError::ConnectionFailed(format!("Invalid header value: {}", e))
+                        MCPError::ConnectionFailed(format!("Invalid header value: {e}"))
                     })?,
                 );
             }
@@ -175,7 +177,7 @@ impl MCPClientPool {
             .default_headers(headers)
             .timeout(std::time::Duration::from_millis(config.timeout_ms))
             .build()
-            .map_err(|e| MCPError::ConnectionFailed(format!("Failed to create client: {}", e)))?;
+            .map_err(|e| MCPError::ConnectionFailed(format!("Failed to create client: {e}")))?;
 
         // Call tools/list
         let request = serde_json::json!({
@@ -190,12 +192,12 @@ impl MCPClientPool {
             .json(&request)
             .send()
             .await
-            .map_err(|e| MCPError::ConnectionFailed(format!("HTTP request failed: {}", e)))?;
+            .map_err(|e| MCPError::ConnectionFailed(format!("HTTP request failed: {e}")))?;
 
         let response_json: Value = response
             .json()
             .await
-            .map_err(|e| MCPError::SerializationError(format!("Invalid response: {}", e)))?;
+            .map_err(|e| MCPError::SerializationError(format!("Invalid response: {e}")))?;
 
         // Parse tools from response
         let tools = response_json["result"]["tools"]
@@ -204,14 +206,13 @@ impl MCPClientPool {
             .iter()
             .map(|t| serde_json::from_value(t.clone()))
             .collect::<Result<Vec<ToolDefinition>, _>>()
-            .map_err(|e| MCPError::SerializationError(format!("Failed to parse tools: {}", e)))?;
+            .map_err(|e| MCPError::SerializationError(format!("Failed to parse tools: {e}")))?;
 
         Ok(tools)
     }
 
     /// Discover tools via stdio transport.
-    async fn discover_tools_stdio(
-        &self,
+    fn discover_tools_stdio(
         _name: &str,
         _config: &MCPServerConfig,
     ) -> Result<Vec<ToolDefinition>, MCPError> {
@@ -229,13 +230,20 @@ impl MCPClientPool {
     }
 
     /// List tools from a specific server.
+    ///
+    /// # Errors
+    /// Returns an error if the server is not found.
     pub async fn list_tools(&self, server_name: &str) -> Result<Vec<ToolDefinition>, MCPError> {
-        let servers = self.servers.read().await;
-        let server = servers
+        let tools = self
+            .servers
+            .read()
+            .await
             .get(server_name)
-            .ok_or_else(|| MCPError::ServerNotFound(server_name.to_string()))?;
+            .ok_or_else(|| MCPError::ServerNotFound(server_name.to_string()))?
+            .tools
+            .clone();
 
-        Ok(server.tools.clone())
+        Ok(tools)
     }
 
     /// List all tools from all servers.
@@ -248,22 +256,26 @@ impl MCPClientPool {
     }
 
     /// Call a tool on a server.
+    ///
+    /// # Errors
+    /// Returns an error if the server is not found or the tool call fails.
     pub async fn call_tool(
         &self,
         server_name: &str,
         tool_name: &str,
         arguments: Value,
     ) -> Result<ToolResult, MCPError> {
-        let servers = self.servers.read().await;
-        let server = servers
+        let config = self
+            .servers
+            .read()
+            .await
             .get(server_name)
-            .ok_or_else(|| MCPError::ServerNotFound(server_name.to_string()))?;
+            .ok_or_else(|| MCPError::ServerNotFound(server_name.to_string()))?
+            .config
+            .clone();
 
-        match server.config.transport_type() {
-            TransportType::Http => {
-                self.call_tool_http(&server.config, tool_name, arguments)
-                    .await
-            }
+        match config.transport_type() {
+            TransportType::Http => self.call_tool_http(&config, tool_name, arguments).await,
             TransportType::Stdio => Err(MCPError::CallFailed(
                 "Stdio transport not yet implemented".into(),
             )),
@@ -293,15 +305,15 @@ impl MCPClientPool {
         for (key, value) in &config.headers {
             // Convert API_KEY headers to Authorization: Bearer format
             if key == "CONTEXT7_API_KEY" || key == "API_KEY" {
-                let bearer = format!("Bearer {}", value);
+                let bearer = format!("Bearer {value}");
                 if let Ok(val) = reqwest::header::HeaderValue::from_str(&bearer) {
                     headers.insert(reqwest::header::AUTHORIZATION, val);
                 }
-            } else if let (Ok(name), Ok(val)) = (
+            } else if let (Ok(header_name), Ok(val)) = (
                 reqwest::header::HeaderName::from_bytes(key.as_bytes()),
                 reqwest::header::HeaderValue::from_str(value),
             ) {
-                headers.insert(name, val);
+                headers.insert(header_name, val);
             }
         }
 
@@ -309,7 +321,7 @@ impl MCPClientPool {
             .default_headers(headers)
             .timeout(std::time::Duration::from_millis(config.timeout_ms))
             .build()
-            .map_err(|e| MCPError::CallFailed(format!("Failed to create client: {}", e)))?;
+            .map_err(|e| MCPError::CallFailed(format!("Failed to create client: {e}")))?;
 
         let request = serde_json::json!({
             "jsonrpc": "2.0",
@@ -326,12 +338,12 @@ impl MCPClientPool {
             .json(&request)
             .send()
             .await
-            .map_err(|e| MCPError::CallFailed(format!("HTTP request failed: {}", e)))?;
+            .map_err(|e| MCPError::CallFailed(format!("HTTP request failed: {e}")))?;
 
         let response_json: Value = response
             .json()
             .await
-            .map_err(|e| MCPError::SerializationError(format!("Invalid response: {}", e)))?;
+            .map_err(|e| MCPError::SerializationError(format!("Invalid response: {e}")))?;
 
         // Check for error
         if let Some(error) = response_json.get("error") {
@@ -344,31 +356,32 @@ impl MCPClientPool {
             .ok_or_else(|| MCPError::CallFailed("No result in response".into()))?;
 
         serde_json::from_value(result.clone())
-            .map_err(|e| MCPError::SerializationError(format!("Failed to parse result: {}", e)))
+            .map_err(|e| MCPError::SerializationError(format!("Failed to parse result: {e}")))
     }
 
     /// Generate TypeScript files for all tools.
     ///
     /// Creates a `./servers/` directory structure with TypeScript modules
     /// that agents can import and use.
+    ///
+    /// # Errors
+    /// Returns an error if file operations fail.
     pub async fn generate_typescript(&self, output_dir: &std::path::Path) -> Result<(), MCPError> {
-        let servers = self.servers.read().await;
-
-        for (server_name, server) in servers.iter() {
+        for (server_name, server) in self.servers.read().await.iter() {
             let server_dir = output_dir.join("servers").join(server_name);
             std::fs::create_dir_all(&server_dir)
-                .map_err(|e| MCPError::ConnectionFailed(format!("Failed to create dir: {}", e)))?;
+                .map_err(|e| MCPError::ConnectionFailed(format!("Failed to create dir: {e}")))?;
 
             // Generate index.ts
             let mut index_exports = Vec::new();
 
             for tool in &server.tools {
-                let ts_code = self.generate_tool_ts(server_name, tool);
+                let ts_code = Self::generate_tool_ts(server_name, tool);
                 let filename = format!("{}.ts", tool.name);
                 let filepath = server_dir.join(&filename);
 
                 std::fs::write(&filepath, ts_code).map_err(|e| {
-                    MCPError::ConnectionFailed(format!("Failed to write file: {}", e))
+                    MCPError::ConnectionFailed(format!("Failed to write file: {e}"))
                 })?;
 
                 index_exports.push(format!(
@@ -380,24 +393,24 @@ impl MCPClientPool {
             // Write index.ts
             let index_path = server_dir.join("index.ts");
             std::fs::write(&index_path, index_exports.join(""))
-                .map_err(|e| MCPError::ConnectionFailed(format!("Failed to write index: {}", e)))?;
+                .map_err(|e| MCPError::ConnectionFailed(format!("Failed to write index: {e}")))?;
         }
 
         // Generate client.ts helper
-        let client_ts = self.generate_client_ts();
+        let client_ts = Self::generate_client_ts();
         std::fs::write(output_dir.join("client.ts"), client_ts)
-            .map_err(|e| MCPError::ConnectionFailed(format!("Failed to write client: {}", e)))?;
+            .map_err(|e| MCPError::ConnectionFailed(format!("Failed to write client: {e}")))?;
 
         Ok(())
     }
 
     /// Generate TypeScript for a single tool.
-    fn generate_tool_ts(&self, server_name: &str, tool: &ToolDefinition) -> String {
+    fn generate_tool_ts(server_name: &str, tool: &ToolDefinition) -> String {
         let description = tool.description.as_deref().unwrap_or("No description");
         let input_schema = serde_json::to_string_pretty(&tool.input_schema).unwrap_or_default();
 
         format!(
-            r#"import {{ callMCPTool }} from '../../client';
+            r"import {{ callMCPTool }} from '../../client';
 
 /**
  * {description}
@@ -410,7 +423,7 @@ impl MCPClientPool {
 export async function {name}(input: any): Promise<any> {{
   return callMCPTool('{server}', '{name}', input);
 }}
-"#,
+",
             description = description,
             input_schema = input_schema,
             name = tool.name,
@@ -419,8 +432,8 @@ export async function {name}(input: any): Promise<any> {{
     }
 
     /// Generate the client.ts helper file.
-    fn generate_client_ts(&self) -> String {
-        r#"// MCP Client - Auto-generated
+    fn generate_client_ts() -> String {
+        r"// MCP Client - Auto-generated
 // This file handles communication with MCP servers
 
 const MCP_ENDPOINT = process.env.MCP_ENDPOINT || 'http://localhost:3000/mcp';
@@ -445,7 +458,7 @@ export async function callMCPTool(server: string, tool: string, input: any): Pro
 
   return json.result;
 }
-"#
+"
         .to_string()
     }
 }

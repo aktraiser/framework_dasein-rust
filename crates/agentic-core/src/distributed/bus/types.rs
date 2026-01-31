@@ -1,7 +1,6 @@
 //! Common types for the bus coordinator.
 
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 
 /// Time range for queries.
 #[derive(Debug, Clone, Serialize, Deserialize)]

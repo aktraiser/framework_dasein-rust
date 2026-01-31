@@ -2,7 +2,6 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use agentic_sandbox::Sandbox;
@@ -47,6 +46,7 @@ impl<S: Sandbox + Send + Sync + 'static> ValidatorMCPServer<S> {
     }
 
     /// List available tools.
+    #[must_use]
     pub fn list_tools(&self) -> Vec<MCPToolDef> {
         vec![
             MCPToolDef {
@@ -130,10 +130,10 @@ impl<S: Sandbox + Send + Sync + 'static> ValidatorMCPServer<S> {
         match name {
             "validate-code" => self.validate_code(arguments).await,
             "analyze-code" => self.analyze_code(arguments).await,
-            "audit-security" => self.audit_security(arguments).await,
+            "audit-security" => Self::audit_security(&arguments),
             _ => MCPToolResult {
                 content: vec![MCPContent::Text {
-                    text: format!("Unknown tool: {}", name),
+                    text: format!("Unknown tool: {name}"),
                 }],
                 is_error: true,
             },
@@ -148,12 +148,12 @@ impl<S: Sandbox + Send + Sync + 'static> ValidatorMCPServer<S> {
 
         // Create temp project
         let project_id = uuid::Uuid::new_v4();
-        let project_dir = self.workspace.join(format!("validate-{}", project_id));
+        let project_dir = self.workspace.join(format!("validate-{project_id}"));
 
         let result = match language {
             "rust" => self.validate_rust(code, &project_dir, run_tests).await,
             "python" => self.validate_python(code, &project_dir, run_tests).await,
-            _ => Err(format!("Unsupported language: {}", language)),
+            _ => Err(format!("Unsupported language: {language}")),
         };
 
         // Cleanup
@@ -288,7 +288,7 @@ tokio = { version = "1", features = ["full"] }
         let analysis = match language {
             "rust" => self.analyze_rust(code).await,
             "python" => self.analyze_python(code).await,
-            _ => Ok(format!("Analysis not available for: {}", language)),
+            _ => Ok(format!("Analysis not available for: {language}")),
         };
 
         match analysis {
@@ -363,84 +363,78 @@ edition = "2021"
         ))
     }
 
+    /// Get security patterns for a language.
+    fn get_security_patterns(
+        language: &str,
+    ) -> Option<Vec<(&'static str, &'static str, &'static str)>> {
+        match language {
+            "rust" => Some(vec![
+                ("unsafe", "high", "Unsafe code block detected"),
+                (
+                    "std::process::Command",
+                    "medium",
+                    "Command execution - check for injection",
+                ),
+                (
+                    "std::fs::write",
+                    "low",
+                    "File write - verify path sanitization",
+                ),
+                (
+                    "unwrap()",
+                    "low",
+                    "Panic on error - consider proper error handling",
+                ),
+                ("panic!", "medium", "Explicit panic - may cause DoS"),
+            ]),
+            "python" => Some(vec![
+                (
+                    "eval(",
+                    "critical",
+                    "eval() is dangerous - code injection risk",
+                ),
+                (
+                    "exec(",
+                    "critical",
+                    "exec() is dangerous - code injection risk",
+                ),
+                (
+                    "subprocess",
+                    "high",
+                    "Subprocess execution - check for injection",
+                ),
+                ("os.system", "high", "OS command execution - injection risk"),
+                (
+                    "pickle.load",
+                    "high",
+                    "Pickle deserialization - arbitrary code execution",
+                ),
+                ("__import__", "medium", "Dynamic import - check source"),
+            ]),
+            "typescript" => Some(vec![
+                (
+                    "eval(",
+                    "critical",
+                    "eval() is dangerous - code injection risk",
+                ),
+                ("dangerouslySetInnerHTML", "high", "XSS vulnerability risk"),
+                ("innerHTML", "high", "XSS vulnerability risk"),
+                (
+                    "child_process",
+                    "high",
+                    "Command execution - check for injection",
+                ),
+                ("fs.writeFile", "medium", "File write - verify path"),
+            ]),
+            _ => None,
+        }
+    }
+
     /// Security audit tool implementation.
-    async fn audit_security(&self, args: Value) -> MCPToolResult {
+    fn audit_security(args: &Value) -> MCPToolResult {
         let code = args["code"].as_str().unwrap_or("");
         let language = args["language"].as_str().unwrap_or("rust");
         let threshold = args["severity_threshold"].as_str().unwrap_or("medium");
-
-        let mut findings = Vec::new();
-
-        // Common security patterns to check
-        let security_patterns: HashMap<&str, Vec<(&str, &str, &str)>> = HashMap::from([
-            (
-                "rust",
-                vec![
-                    ("unsafe", "high", "Unsafe code block detected"),
-                    (
-                        "std::process::Command",
-                        "medium",
-                        "Command execution - check for injection",
-                    ),
-                    (
-                        "std::fs::write",
-                        "low",
-                        "File write - verify path sanitization",
-                    ),
-                    (
-                        "unwrap()",
-                        "low",
-                        "Panic on error - consider proper error handling",
-                    ),
-                    ("panic!", "medium", "Explicit panic - may cause DoS"),
-                ],
-            ),
-            (
-                "python",
-                vec![
-                    (
-                        "eval(",
-                        "critical",
-                        "eval() is dangerous - code injection risk",
-                    ),
-                    (
-                        "exec(",
-                        "critical",
-                        "exec() is dangerous - code injection risk",
-                    ),
-                    (
-                        "subprocess",
-                        "high",
-                        "Subprocess execution - check for injection",
-                    ),
-                    ("os.system", "high", "OS command execution - injection risk"),
-                    (
-                        "pickle.load",
-                        "high",
-                        "Pickle deserialization - arbitrary code execution",
-                    ),
-                    ("__import__", "medium", "Dynamic import - check source"),
-                ],
-            ),
-            (
-                "typescript",
-                vec![
-                    (
-                        "eval(",
-                        "critical",
-                        "eval() is dangerous - code injection risk",
-                    ),
-                    ("dangerouslySetInnerHTML", "high", "XSS vulnerability risk"),
-                    ("innerHTML", "high", "XSS vulnerability risk"),
-                    (
-                        "child_process",
-                        "high",
-                        "Command execution - check for injection",
-                    ),
-                    ("fs.writeFile", "medium", "File write - verify path"),
-                ],
-            ),
-        ]);
 
         let severity_order = ["low", "medium", "high", "critical"];
         let threshold_idx = severity_order
@@ -448,34 +442,31 @@ edition = "2021"
             .position(|&s| s == threshold)
             .unwrap_or(1);
 
-        if let Some(patterns) = security_patterns.get(language) {
-            for (pattern, severity, description) in patterns {
+        let findings: Vec<String> = Self::get_security_patterns(language)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|(pattern, severity, description)| {
                 if code.contains(pattern) {
                     let sev_idx = severity_order
                         .iter()
-                        .position(|&s| s == *severity)
+                        .position(|&s| s == severity)
                         .unwrap_or(0);
                     if sev_idx >= threshold_idx {
-                        findings.push(format!(
-                            "[{}] {}: {}",
-                            severity.to_uppercase(),
-                            pattern,
-                            description
+                        return Some(format!(
+                            "[{}] {pattern}: {description}",
+                            severity.to_uppercase()
                         ));
                     }
                 }
-            }
-        }
+                None
+            })
+            .collect();
 
         let output = if findings.is_empty() {
-            format!(
-                "SECURITY AUDIT ({}):\nNo issues found above {} severity.",
-                language, threshold
-            )
+            format!("SECURITY AUDIT ({language}):\nNo issues found above {threshold} severity.")
         } else {
             format!(
-                "SECURITY AUDIT ({}):\nFound {} issues:\n\n{}",
-                language,
+                "SECURITY AUDIT ({language}):\nFound {} issues:\n\n{}",
                 findings.len(),
                 findings.join("\n")
             )
@@ -509,7 +500,7 @@ edition = "2021"
                     "jsonrpc": "2.0",
                     "error": {
                         "code": -32601,
-                        "message": format!("Method not found: {}", method)
+                        "message": format!("Method not found: {method}")
                     },
                     "id": id
                 });
@@ -552,11 +543,7 @@ fn main() {
             "severity_threshold": "medium"
         });
 
-        let sandbox = ProcessSandbox::new();
-        let server = ValidatorMCPServer::new(sandbox, std::path::PathBuf::from("/tmp"));
-
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let result = rt.block_on(server.audit_security(args));
+        let result = ValidatorMCPServer::<ProcessSandbox>::audit_security(&args);
 
         assert!(!result.is_error);
         let MCPContent::Text { text } = &result.content[0];

@@ -87,10 +87,9 @@
 //! See `examples/grounded_loop.rs` for a complete implementation.
 
 use agentic_sandbox::{ExecutionResult as SandboxExecutionResult, Sandbox, SandboxError};
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, info, instrument};
 
 /// Result of sandbox validation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -559,17 +558,17 @@ echo '{encoded}' | base64 -d > {dir}/src/lib.rs
         let setup_script = if has_tests {
             // Code already has tests - put everything in test_main.py so pytest can find it
             format!(
-                r#"
+                r"
 mkdir -p {dir} && \
 echo '{encoded}' | base64 -d > {dir}/test_main.py
-"#,
+",
                 dir = project_dir.display(),
                 encoded = encoded
             )
         } else {
             // No tests - create main.py and a stub test file
             format!(
-                r#"
+                r"
 mkdir -p {dir} && \
 echo '{encoded}' | base64 -d > {dir}/main.py && \
 cat > {dir}/test_main.py << 'TEST_EOF'
@@ -580,7 +579,7 @@ from main import *
 def test_placeholder():
     pass
 TEST_EOF
-"#,
+",
                 dir = project_dir.display(),
                 encoded = encoded
             )
@@ -677,11 +676,11 @@ echo "TypeScript project setup complete (using global packages)"
         let filename = if has_tests { "main_test.go" } else { "main.go" };
 
         let setup_script = format!(
-            r#"
+            r"
 mkdir -p {dir} && \
 echo '{encoded}' | base64 -d > {dir}/{filename} && \
 cd {dir} && go mod init validation 2>&1
-"#,
+",
             dir = project_dir.display(),
             encoded = encoded,
             filename = filename
@@ -700,10 +699,10 @@ cd {dir} && go mod init validation 2>&1
         let filename = format!("main.{}", language.extension());
         let encoded = base64_encode(code);
         let setup_script = format!(
-            r#"
+            r"
 mkdir -p {dir} && \
 echo '{encoded}' | base64 -d > {dir}/{filename}
-"#,
+",
             dir = project_dir.display(),
             filename = filename,
             encoded = encoded

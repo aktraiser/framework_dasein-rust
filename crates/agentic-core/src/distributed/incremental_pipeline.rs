@@ -35,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::{debug, info, warn};
 
-use super::sandbox_validator::{Language, SandboxValidationResult, SandboxValidator};
+use super::sandbox_validator::{Language, SandboxValidator};
 use agentic_sandbox::{Sandbox, SandboxError};
 
 // ============================================================================
@@ -236,7 +236,7 @@ impl RustExtractor {
     /// Extract complete type definitions (including multi-line).
     fn extract_complete_types(code: &str) -> String {
         let mut result = String::new();
-        let mut lines: Vec<&str> = code.lines().collect();
+        let lines: Vec<&str> = code.lines().collect();
         let mut i = 0;
 
         while i < lines.len() {
@@ -331,10 +331,10 @@ impl RustExtractor {
         let mut result = types;
 
         // Extract impl blocks with stubbed functions
-        let impl_re = Regex::new(r"impl(?:<[^>]+>)?\s+(?:\w+\s+for\s+)?(\w+)").unwrap();
+        let _impl_re = Regex::new(r"impl(?:<[^>]+>)?\s+(?:\w+\s+for\s+)?(\w+)").unwrap();
 
         let mut in_impl = false;
-        let mut impl_header = String::new();
+        let mut _impl_header = String::new();
         let mut brace_depth = 0;
         let mut current_impl = String::new();
 
@@ -343,7 +343,7 @@ impl RustExtractor {
 
             if trimmed.starts_with("impl ") && !in_impl {
                 in_impl = true;
-                impl_header = line.to_string();
+                _impl_header = line.to_string();
                 current_impl.clear();
                 current_impl.push_str(line);
                 current_impl.push('\n');
@@ -375,7 +375,7 @@ impl RustExtractor {
         let mut result = String::new();
         let mut in_fn_body = false;
         let mut fn_brace_depth = 0;
-        let mut current_fn_signature = String::new();
+        let mut _current_fn_signature = String::new();
 
         for line in impl_block.lines() {
             let trimmed = line.trim();
@@ -387,7 +387,7 @@ impl RustExtractor {
                     || trimmed.starts_with("fn ")
                     || trimmed.starts_with("async fn "))
             {
-                current_fn_signature = line.to_string();
+                _current_fn_signature = line.to_string();
 
                 if trimmed.contains('{') {
                     // Function body starts on same line
@@ -555,10 +555,10 @@ impl TypeScriptExtractor {
             }
 
             // Standalone functions
-            if (trimmed.starts_with("function ")
+            if trimmed.starts_with("function ")
                 || trimmed.starts_with("export function ")
                 || trimmed.starts_with("async function ")
-                || trimmed.starts_with("export async function "))
+                || trimmed.starts_with("export async function ")
             {
                 let block = Self::collect_brace_block(&lines, i);
                 let stubbed = Self::stub_function(&block);

@@ -31,7 +31,7 @@ impl Default for LogCollectorConfig {
     fn default() -> Self {
         Self {
             retention: Duration::from_secs(7 * 24 * 60 * 60), // 7 days
-            max_entries: 100000,
+            max_entries: 100_000,
             batch_size: 100,
             stream_name: "LOGS".to_string(),
         }
@@ -333,7 +333,7 @@ impl LogCollector {
     }
 
     /// Get error logs.
-    pub async fn errors(&self, limit: usize) -> Vec<LogEntry> {
+    pub async fn errors(&self, _limit: usize) -> Vec<LogEntry> {
         self.query(LogQuery::new().errors_only()).await
     }
 

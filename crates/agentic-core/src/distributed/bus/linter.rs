@@ -11,7 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use tracing::{debug, warn};
+use tracing::debug;
 
 /// Severity of a lint error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -184,7 +184,7 @@ impl BusLinter {
         let mut in_string = false;
         let mut in_char = false;
         let mut in_comment = false;
-        let mut in_line_comment = false;
+        let mut in_line_comment;
         let mut prev_char = ' ';
 
         for (line_idx, line) in code.lines().enumerate() {
@@ -361,10 +361,10 @@ impl BusLinter {
             }
 
             // Check for `struct` or `enum` without name
-            if (trimmed == "struct"
+            if trimmed == "struct"
                 || trimmed == "pub struct"
                 || trimmed == "enum"
-                || trimmed == "pub enum")
+                || trimmed == "pub enum"
             {
                 errors.push(LintError::error(
                     line_idx + 1,

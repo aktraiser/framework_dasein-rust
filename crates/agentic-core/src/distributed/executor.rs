@@ -15,7 +15,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use agentic_llm::{
-    AnthropicAdapter, GeminiAdapter, LLMAdapter, LLMError, LLMMessage, LLMResponse, OpenAIAdapter,
+    AnthropicAdapter, GeminiAdapter, LLMAdapter, LLMError, LLMMessage, OpenAIAdapter,
 };
 
 use super::config::{Capability, ExecutorConfig, LLMConfig, SandboxConfig};
@@ -53,8 +53,6 @@ pub struct Executor {
     state: Arc<RwLock<ExecutorState>>,
     /// LLM configuration
     llm_config: LLMConfig,
-    /// Sandbox configuration
-    sandbox_config: SandboxConfig,
     /// Capabilities
     capabilities: HashSet<Capability>,
     /// Metrics
@@ -84,7 +82,6 @@ impl Executor {
             current_supervisor: config.owner_supervisor,
             state: Arc::new(RwLock::new(ExecutorState::Idle)),
             llm_config: config.llm,
-            sandbox_config: config.sandbox,
             capabilities: config.capabilities,
             tasks_completed: Arc::new(RwLock::new(0)),
             tasks_failed: Arc::new(RwLock::new(0)),

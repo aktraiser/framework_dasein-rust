@@ -46,7 +46,6 @@
 //! ```
 
 use regex::Regex;
-use std::collections::HashMap;
 
 use super::sandbox_validator::Language;
 
@@ -571,7 +570,7 @@ impl RepairSuggestion {
         }
 
         // Pattern 3: Error('text ${var}') - single quotes
-        let re3 = Regex::new(r#"Error\('([^']*\$\{[^}]+\}[^']*)'\)"#).unwrap();
+        let re3 = Regex::new(r"Error\('([^']*\$\{[^}]+\}[^']*)'\)").unwrap();
         if let Some(caps) = re3.captures(line) {
             let content = &caps[1];
             result = line.replace(
@@ -862,7 +861,7 @@ impl SurgicalRepair {
         }
 
         // Fix single-quoted templates
-        let re_single = regex::Regex::new(r#"'([^']*\$\{[^}]+\}[^']*)'"#).ok()?;
+        let re_single = regex::Regex::new(r"'([^']*\$\{[^}]+\}[^']*)'").ok()?;
         if let Some(caps) = re_single.captures(&result) {
             let full_match = caps.get(0)?;
             let content = caps.get(1)?;
@@ -908,7 +907,7 @@ pub struct FocusedPromptBuilder {
     full_code: Option<String>,
     language: Language,
     task_description: Option<String>,
-    max_context_lines: usize,
+    _max_context_lines: usize,
 }
 
 impl Default for FocusedPromptBuilder {
@@ -925,7 +924,7 @@ impl FocusedPromptBuilder {
             full_code: None,
             language: Language::TypeScript,
             task_description: None,
-            max_context_lines: 5,
+            _max_context_lines: 5,
         }
     }
 
