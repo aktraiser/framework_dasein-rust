@@ -1,0 +1,14 @@
+# Clippy configuration
+msrv = "1.75"
+
+# Cognitive complexity threshold
+cognitive-complexity-threshold = 25
+
+# Too many arguments threshold
+too-many-arguments-threshold = 7
+
+# Type complexity threshold
+type-complexity-threshold = 250
+
+# Trivial copy size limit
+trivial-copy-size-limit = 16

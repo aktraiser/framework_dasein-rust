@@ -1,0 +1,42 @@
+[package]
+name = "agentic-orchestrator"
+description = "Multi-agent orchestration and workflow execution"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+# Async
+tokio = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Utils
+uuid = { workspace = true }
+
+# Internal
+agentic-core = { workspace = true }
+agentic-llm = { workspace = true }
+agentic-sandbox = { workspace = true }
+agentic-bus = { workspace = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+mockall = { workspace = true }
+
+[lints]
+workspace = true

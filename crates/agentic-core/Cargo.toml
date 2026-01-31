@@ -1,0 +1,53 @@
+[package]
+name = "agentic-core"
+description = "Core types, Agent runtime, and Protocol for Agentic Framework"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+# Async
+tokio = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Validation
+validator = { workspace = true }
+
+# Utils
+uuid = { workspace = true }
+chrono = { workspace = true }
+regex = { workspace = true }
+md5 = { workspace = true }
+
+# Message Bus
+async-nats = { workspace = true }
+
+# HTTP (for MCP doc validator)
+reqwest = { workspace = true }
+
+# Internal
+agentic-llm = { workspace = true, features = ["gemini", "openai", "anthropic"] }
+agentic-sandbox = { workspace = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+mockall = { workspace = true }
+
+[lints]
+workspace = true
