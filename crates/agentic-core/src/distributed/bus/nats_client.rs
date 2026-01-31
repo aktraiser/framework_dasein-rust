@@ -343,6 +343,7 @@ pub fn deserialize_message<T: DeserializeOwned>(msg: &Message) -> Result<T, BusE
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::StreamExt;
 
     // These tests require a running NATS server
     // Run with: docker run -d --name nats -p 4222:4222 nats:latest -js

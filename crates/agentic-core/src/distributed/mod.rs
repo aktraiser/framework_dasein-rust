@@ -102,6 +102,7 @@ mod config;
 mod pool;
 mod allocation;
 pub mod bus;
+pub mod graph;
 pub mod incremental_pipeline;
 pub mod repair_engine;
 
