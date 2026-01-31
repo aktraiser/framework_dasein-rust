@@ -1,5 +1,5 @@
 [package]
-name = "dasein-agentic-bus"
+name = "agentic-bus"
 description = "Message bus for inter-agent communication (NATS)"
 version.workspace = true
 edition.workspace = true
@@ -11,7 +11,7 @@ categories.workspace = true
 
 [dependencies]
 # Core
-dasein-agentic-core = { workspace = true }
+agentic-core = { path = "../agentic-core" }
 
 # Async
 tokio = { workspace = true }

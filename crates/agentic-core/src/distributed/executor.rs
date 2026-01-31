@@ -14,7 +14,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use dasein_agentic_llm::{
+use agentic_llm::{
     AnthropicAdapter, GeminiAdapter, LLMAdapter, LLMError, LLMMessage, OpenAIAdapter,
 };
 
@@ -240,7 +240,7 @@ impl Executor {
                 self.set_idle().await;
 
                 // Check if response was truncated
-                let truncated = response.finish_reason == dasein_agentic_llm::FinishReason::Length;
+                let truncated = response.finish_reason == agentic_llm::FinishReason::Length;
                 if truncated {
                     tracing::warn!(
                         "LLM output truncated (hit max_tokens limit). Model: {}, tokens: {}",

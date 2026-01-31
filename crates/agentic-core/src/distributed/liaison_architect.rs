@@ -12,7 +12,7 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! use dasein_agentic_core::distributed::{LiaisonArchitect, Executor, SubTaskResult};
+//! use agentic_core::distributed::{LiaisonArchitect, Executor, SubTaskResult};
 //!
 //! let liaison = LiaisonArchitect::new("rust");
 //! let executor = Executor::new("liaison-fixer", "supervisor")

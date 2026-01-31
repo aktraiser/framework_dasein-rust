@@ -86,7 +86,7 @@ agentic-llm = { path = "crates/agentic-llm", features = ["gemini", "openai"] }
 For simple tasks, use an Executor directly:
 
 ```rust
-use dasein_agentic_core::prelude::*;
+use agentic_core::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -111,7 +111,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 For production workloads, use a Supervisor to manage multiple executors:
 
 ```rust
-use dasein_agentic_core::prelude::*;
+use agentic_core::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -137,8 +137,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 For generating code that actually compiles:
 
 ```rust
-use dasein_agentic_core::prelude::*;
-use dasein_agentic_sandbox::ProcessSandbox;
+use agentic_core::prelude::*;
+use agentic_sandbox::ProcessSandbox;
 use std::path::PathBuf;
 
 #[tokio::main]

@@ -425,7 +425,7 @@ impl TypeScriptEnricher {
     fn get_code_line(&self, code: &str, line_num: u32) -> Option<String> {
         code.lines()
             .nth((line_num - 1) as usize)
-            .map(std::string::ToString::to_string)
+            .map(|s| s.to_string())
     }
 
     /// Check if a line has template literal syntax without backticks
@@ -471,12 +471,13 @@ impl ErrorEnricher for TypeScriptEnricher {
     fn enrich(&self, error: &str, code: &str) -> EnrichedError {
         let mut enriched = EnrichedError::new(error);
         let mut line_num: Option<u32> = None;
+        let mut _col_num: Option<u32> = None;
 
         // Extract file, line, and column - try (line,col) format first
         if let Some(caps) = self.file_line_col_re.captures(error) {
             enriched.file = Some(caps[1].to_string());
             line_num = caps[2].parse().ok();
-            // Column captured but not used currently (future enhancement)
+            _col_num = caps[3].parse().ok();
             enriched.line = line_num;
         } else if let Some(caps) = self.file_line_re.captures(error) {
             enriched.file = Some(caps[1].to_string());

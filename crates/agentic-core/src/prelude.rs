@@ -3,7 +3,7 @@
 //! # Usage
 //!
 //! ```rust
-//! use dasein_agentic_core::prelude::*;
+//! use agentic_core::prelude::*;
 //! ```
 //!
 //! This imports the most commonly used types for building agents:
@@ -25,7 +25,7 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! use dasein_agentic_core::prelude::*;
+//! use agentic_core::prelude::*;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {

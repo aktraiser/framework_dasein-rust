@@ -1,6 +1,6 @@
 //! Interactive chat console for testing LLM adapters
 
-use dasein_agentic_llm::{LLMAdapter, LLMMessage};
+use agentic_llm::{LLMAdapter, LLMMessage};
 use std::io::{self, BufRead, Write};
 
 #[tokio::main]
@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut key = String::new();
             io::stdin().lock().read_line(&mut key)?;
             Box::new(
-                dasein_agentic_llm::GeminiAdapter::new(key.trim(), "gemini-2.0-flash")
+                agentic_llm::GeminiAdapter::new(key.trim(), "gemini-2.0-flash")
                     .with_temperature(0.7),
             )
         }
@@ -38,7 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut key = String::new();
             io::stdin().lock().read_line(&mut key)?;
             Box::new(
-                dasein_agentic_llm::OpenAIAdapter::new(key.trim(), "gpt-4o-mini").with_temperature(0.7),
+                agentic_llm::OpenAIAdapter::new(key.trim(), "gpt-4o-mini").with_temperature(0.7),
             )
         }
         "3" => {
@@ -47,13 +47,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut key = String::new();
             io::stdin().lock().read_line(&mut key)?;
             Box::new(
-                dasein_agentic_llm::AnthropicAdapter::new(key.trim(), "claude-3-5-haiku-20241022")
+                agentic_llm::AnthropicAdapter::new(key.trim(), "claude-3-5-haiku-20241022")
                     .with_temperature(0.7),
             )
         }
         "4" => {
             println!("Using Ollama at localhost:11434");
-            Box::new(dasein_agentic_llm::OllamaAdapter::new("llama3.2").with_temperature(0.7))
+            Box::new(agentic_llm::OllamaAdapter::new("llama3.2").with_temperature(0.7))
         }
         _ => {
             println!("Invalid choice, using Gemini by default");
@@ -62,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut key = String::new();
             io::stdin().lock().read_line(&mut key)?;
             Box::new(
-                dasein_agentic_llm::GeminiAdapter::new(key.trim(), "gemini-2.0-flash")
+                agentic_llm::GeminiAdapter::new(key.trim(), "gemini-2.0-flash")
                     .with_temperature(0.7),
             )
         }

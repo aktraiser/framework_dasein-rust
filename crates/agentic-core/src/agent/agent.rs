@@ -7,8 +7,8 @@ use regex::Regex;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, instrument};
 
-use dasein_agentic_llm::{LLMAdapter, LLMMessage};
-use dasein_agentic_sandbox::Sandbox;
+use agentic_llm::{LLMAdapter, LLMMessage};
+use agentic_sandbox::Sandbox;
 
 use crate::{
     error::AgentError,

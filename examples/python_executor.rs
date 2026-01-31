@@ -12,7 +12,7 @@
 //! GEMINI_API_KEY=xxx ANTHROPIC_API_KEY=xxx cargo run --example python_executor
 //! ```
 
-use dasein_agentic_core::distributed::{
+use agentic_core::distributed::{
     bus::{
         BusCoordinator, DecisionRecord, EnrichedError, ErrorFingerprinter, ErrorLocation,
         ErrorSeverity, GenerationRecord, ModelInfo, ModelTier, PipelineTracer, RollbackDecision,
@@ -21,7 +21,7 @@ use dasein_agentic_core::distributed::{
     CodeAssembler, ErrorEnricherValidator, Executor, SandboxPipelineValidator, ValidatorInput,
     ValidatorPipeline,
 };
-use dasein_agentic_sandbox::FirecrackerSandbox;
+use agentic_sandbox::FirecrackerSandbox;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -158,7 +158,7 @@ The code must be production-quality with proper error handling.
     println!("✓ Error Enricher enabled");
 
     // === Generate with full pipeline ===
-    let _total_start = Instant::now();
+    let total_start = Instant::now();
     let system = "You are an expert Python developer. Return ONLY valid Python code. No markdown, no explanations. Include pytest tests at the bottom of the file.";
 
     let mut previous_errors: Vec<String> = vec![];

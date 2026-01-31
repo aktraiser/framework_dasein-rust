@@ -15,13 +15,13 @@
 //! GEMINI_API_KEY=xxx cargo run --example ts_incremental --features remote
 //! ```
 
-use dasein_agentic_core::distributed::{
+use agentic_core::distributed::{
     repair_engine::SurgicalRepair, Executor, SandboxPipelineValidator, TaskDecomposer,
     ValidatorInput, ValidatorPipeline,
 };
-use dasein_agentic_sandbox::ProcessSandbox;
+use agentic_sandbox::ProcessSandbox;
 #[cfg(feature = "remote")]
-use dasein_agentic_sandbox::RemoteSandbox;
+use agentic_sandbox::RemoteSandbox;
 use std::path::PathBuf;
 use std::time::Instant;
 

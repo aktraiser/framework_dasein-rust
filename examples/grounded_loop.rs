@@ -12,8 +12,8 @@
 //!
 //! Run with: cargo run --example grounded_loop
 
-use dasein_agentic_core::distributed::{Executor, SandboxValidationResult, SandboxValidator};
-use dasein_agentic_sandbox::ProcessSandbox;
+use agentic_core::distributed::{Executor, SandboxValidationResult, SandboxValidator};
+use agentic_sandbox::ProcessSandbox;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -242,7 +242,7 @@ fn build_feedback_prompt(
         prompt.push_str("```\n");
         for error in &validation.test_errors {
             prompt.push_str(error);
-            prompt.push('\n');
+            prompt.push_str("\n");
         }
         prompt.push_str("```\n\n");
         prompt.push_str("=== INSTRUCTIONS ===\n");

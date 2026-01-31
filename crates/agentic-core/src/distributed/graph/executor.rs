@@ -9,7 +9,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use dasein_agentic_core::distributed::graph::{Executor, ExecutorKind, WorkflowContext};
+//! use agentic_core::distributed::graph::{Executor, ExecutorKind, WorkflowContext};
 //!
 //! struct CodeGenerator {
 //!     id: ExecutorId,

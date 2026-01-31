@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use futures::Stream;
 use std::pin::Pin;
 
-use dasein_agentic_core::protocol::Message;
+use agentic_core::protocol::Message;
 
 use crate::error::BusError;
 

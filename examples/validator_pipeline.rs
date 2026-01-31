@@ -6,11 +6,11 @@
 //!
 //! Run with: CONTEXT7_API_KEY=xxx cargo run --example validator_pipeline
 
-use dasein_agentic_core::distributed::{
+use agentic_core::distributed::{
     Executor, MCPDocConfig, MCPDocValidator, PipelineResult, SandboxPipelineValidator,
     ValidatorInput, ValidatorPipeline,
 };
-use dasein_agentic_sandbox::ProcessSandbox;
+use agentic_sandbox::ProcessSandbox;
 use std::path::PathBuf;
 use std::time::Instant;
 

@@ -23,7 +23,7 @@ pub enum AgentError {
 
     /// Sandbox error
     #[error("Sandbox error: {0}")]
-    SandboxError(#[from] dasein_agentic_sandbox::SandboxError),
+    SandboxError(#[from] agentic_sandbox::SandboxError),
 
     /// Task execution failed
     #[error("Task execution failed: {0}")]

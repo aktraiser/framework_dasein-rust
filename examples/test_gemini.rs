@@ -3,7 +3,7 @@
 //! Usage:
 //!   GEMINI_API_KEY=your-key cargo run --example test_gemini
 
-use dasein_agentic_llm::{GeminiAdapter, LLMAdapter, LLMMessage};
+use agentic_llm::{GeminiAdapter, LLMAdapter, LLMMessage};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

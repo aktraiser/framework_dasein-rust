@@ -23,7 +23,7 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! use dasein_agentic_core::distributed::repair_engine::{
+//! use agentic_core::distributed::repair_engine::{
 //!     ErrorContextExtractor, RepairSuggestion, FocusedPromptBuilder,
 //! };
 //!
@@ -219,7 +219,7 @@ impl ErrorContextExtractor {
         let error_code = self.extract_error_code(error);
 
         // Get the code line if we have a line number
-        let code_line = line.and_then(|ln| lines.get((ln - 1) as usize).map(|s| (*s).to_string()));
+        let code_line = line.and_then(|ln| lines.get((ln - 1) as usize).map(|s| s.to_string()));
 
         // Get context lines (2 before, 2 after)
         let lines_before = if let Some(ln) = line {
@@ -504,7 +504,7 @@ impl RepairSuggestion {
     pub fn from_contexts(contexts: &[ErrorContext]) -> Vec<Self> {
         contexts
             .iter()
-            .filter_map(Self::from_context)
+            .filter_map(|ctx| Self::from_context(ctx))
             .collect()
     }
 
@@ -631,7 +631,7 @@ impl SurgicalRepair {
             return None;
         }
 
-        let mut lines: Vec<String> = code.lines().map(std::string::ToString::to_string).collect();
+        let mut lines: Vec<String> = code.lines().map(|s| s.to_string()).collect();
         let mut applied_count = 0;
 
         for suggestion in auto_apply {

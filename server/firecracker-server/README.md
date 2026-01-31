@@ -139,7 +139,7 @@ Réponse :
 ## Utilisation depuis le framework
 
 ```rust
-use dasein_agentic_sandbox::{RemoteSandbox, Sandbox};
+use agentic_sandbox::{RemoteSandbox, Sandbox};
 
 let sandbox = RemoteSandbox::new("http://65.108.230.227:8080")
     .api_key("votre-clé-secrète")

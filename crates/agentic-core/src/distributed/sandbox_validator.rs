@@ -28,8 +28,8 @@
 //! # Example: Basic Validation
 //!
 //! ```rust,no_run
-//! use dasein_agentic_core::distributed::SandboxValidator;
-//! use dasein_agentic_sandbox::ProcessSandbox;
+//! use agentic_core::distributed::SandboxValidator;
+//! use agentic_sandbox::ProcessSandbox;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let sandbox = ProcessSandbox::new();
@@ -58,8 +58,8 @@
 //! # Example: Grounded Feedback Loop
 //!
 //! ```rust,no_run
-//! # use dasein_agentic_core::distributed::{Executor, SandboxValidator};
-//! # use dasein_agentic_sandbox::ProcessSandbox;
+//! # use agentic_core::distributed::{Executor, SandboxValidator};
+//! # use agentic_sandbox::ProcessSandbox;
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let executor = Executor::new("exe-001", "sup-001").build();
 //! let validator = SandboxValidator::new(ProcessSandbox::new());
@@ -86,33 +86,10 @@
 //!
 //! See `examples/grounded_loop.rs` for a complete implementation.
 
-use dasein_agentic_sandbox::{ExecutionResult as SandboxExecutionResult, Sandbox, SandboxError};
-use regex::Regex;
+use agentic_sandbox::{ExecutionResult as SandboxExecutionResult, Sandbox, SandboxError};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::OnceLock;
 use tracing::{debug, info, instrument};
-
-// Pre-compiled regex patterns for parsing test output (avoids regex compilation in loops)
-fn passed_failed_regex() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"(\d+) passed; (\d+) failed").unwrap())
-}
-
-fn passed_regex() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"(\d+) passed").unwrap())
-}
-
-fn failed_regex() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"(\d+) failed").unwrap())
-}
-
-fn total_regex() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"(\d+) total").unwrap())
-}
 
 /// Result of sandbox validation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -557,14 +534,6 @@ anyhow = "1"
 async-trait = "0.1"
 futures = "0.3"
 reqwest = {{ version = "0.12", features = ["json"] }}
-
-[lints.clippy]
-# Allow common false positives - focus on real errors, not style
-new_without_default = "allow"
-must_use_candidate = "allow"
-missing_errors_doc = "allow"
-missing_panics_doc = "allow"
-module_name_repetitions = "allow"
 CARGO_EOF
 echo '{encoded}' | base64 -d > {dir}/src/lib.rs
 "#,
@@ -585,37 +554,17 @@ echo '{encoded}' | base64 -d > {dir}/src/lib.rs
 
         // Check if code already contains tests
         let has_tests = code.contains("def test_") || code.contains("import pytest");
-        // Check if code uses async tests (pytest.mark.asyncio or async def test_)
-        let has_async_tests =
-            code.contains("@pytest.mark.asyncio") || code.contains("async def test_");
 
         let setup_script = if has_tests {
-            if has_async_tests {
-                // Async tests need pytest-asyncio + conftest.py
-                format!(
-                    r#"
-pip3 install pytest-asyncio -q 2>/dev/null || true && \
-mkdir -p {dir} && \
-echo '{encoded}' | base64 -d > {dir}/test_main.py && \
-cat > {dir}/conftest.py << 'CONFTEST_EOF'
-import pytest
-pytest_plugins = ('pytest_asyncio',)
-CONFTEST_EOF
-"#,
-                    dir = project_dir.display(),
-                    encoded = encoded
-                )
-            } else {
-                // Sync tests - just the test file
-                format!(
-                    r"
+            // Code already has tests - put everything in test_main.py so pytest can find it
+            format!(
+                r"
 mkdir -p {dir} && \
 echo '{encoded}' | base64 -d > {dir}/test_main.py
 ",
-                    dir = project_dir.display(),
-                    encoded = encoded
-                )
-            }
+                dir = project_dir.display(),
+                encoded = encoded
+            )
         } else {
             // No tests - create main.py and a stub test file
             format!(
@@ -768,24 +717,30 @@ echo '{encoded}' | base64 -d > {dir}/{filename}
         let mut errors = Vec::new();
 
         for line in combined.lines() {
-            // Check if line matches any error pattern
-            let is_rust_error = line.contains("error[E") || line.starts_with("error:");
-            let is_ts_error = line.contains("): error TS") || line.contains(": error TS");
-            let is_go_error = line.contains(".go:")
+            // Rust error pattern
+            if line.contains("error[E") || line.starts_with("error:") {
+                errors.push(line.to_string());
+            }
+            // TypeScript error pattern: file.ts(line,col): error TSxxxx: message
+            else if line.contains("): error TS") || line.contains(": error TS") {
+                errors.push(line.to_string());
+            }
+            // Go error pattern: file.go:line:col: message
+            else if line.contains(".go:")
                 && (line.contains("undefined")
                     || line.contains("cannot")
                     || line.contains("expected")
-                    || line.contains("invalid"));
-
-            if is_rust_error || is_ts_error || is_go_error {
+                    || line.contains("invalid"))
+            {
                 errors.push(line.to_string());
             }
-
             // Also capture the context lines (up to 5 after error)
             if line.contains(" --> ") || line.contains(" | ") {
-                if let Some(last) = errors.last_mut() {
-                    last.push('\n');
-                    last.push_str(line);
+                if !errors.is_empty() {
+                    if let Some(last) = errors.last_mut() {
+                        last.push('\n');
+                        last.push_str(line);
+                    }
                 }
             }
         }
@@ -832,12 +787,17 @@ echo '{encoded}' | base64 -d > {dir}/{filename}
                 current_error = line.to_string();
             }
             // Context lines (location, help suggestions)
-            // Context lines and help suggestions
             else if line.contains(" --> ")
                 || line.contains(" | ")
                 || line.trim().starts_with("= help:")
-                || line.trim().starts_with("help:")
             {
+                if !current_error.is_empty() {
+                    current_error.push('\n');
+                    current_error.push_str(line);
+                }
+            }
+            // "help: consider ..." suggestions
+            else if line.trim().starts_with("help:") {
                 if !current_error.is_empty() {
                     current_error.push('\n');
                     current_error.push_str(line);
@@ -882,11 +842,14 @@ echo '{encoded}' | base64 -d > {dir}/{filename}
         let mut errors = Vec::new();
         let lines: Vec<&str> = output.lines().collect();
 
-        for (i, &line) in lines.iter().enumerate() {
+        for (i, line) in lines.iter().enumerate() {
             // Parse summary line: "test result: ok. 5 passed; 0 failed; 0 ignored"
             // or "test result: FAILED. X passed; Y failed"
             if line.starts_with("test result:") {
-                if let Some(caps) = passed_failed_regex().captures(line) {
+                if let Some(caps) = regex::Regex::new(r"(\d+) passed; (\d+) failed")
+                    .ok()
+                    .and_then(|re| re.captures(line))
+                {
                     passed = caps
                         .get(1)
                         .and_then(|m| m.as_str().parse().ok())
@@ -984,13 +947,19 @@ echo '{encoded}' | base64 -d > {dir}/{filename}
         for line in output.lines() {
             // Parse summary: "5 passed, 2 failed"
             if line.contains("passed") || line.contains("failed") {
-                if let Some(caps) = passed_regex().captures(line) {
+                if let Some(caps) = regex::Regex::new(r"(\d+) passed")
+                    .ok()
+                    .and_then(|re| re.captures(line))
+                {
                     passed = caps
                         .get(1)
                         .and_then(|m| m.as_str().parse().ok())
                         .unwrap_or(0);
                 }
-                if let Some(caps) = failed_regex().captures(line) {
+                if let Some(caps) = regex::Regex::new(r"(\d+) failed")
+                    .ok()
+                    .and_then(|re| re.captures(line))
+                {
                     failed = caps
                         .get(1)
                         .and_then(|m| m.as_str().parse().ok())
@@ -1018,19 +987,28 @@ echo '{encoded}' | base64 -d > {dir}/{filename}
         for line in output.lines() {
             // Parse summary: "Tests:       1 passed, 1 total" or "Tests:       1 failed, 2 passed, 3 total"
             if line.contains("Tests:") && line.contains("total") {
-                if let Some(caps) = passed_regex().captures(line) {
+                if let Some(caps) = regex::Regex::new(r"(\d+) passed")
+                    .ok()
+                    .and_then(|re| re.captures(line))
+                {
                     passed = caps
                         .get(1)
                         .and_then(|m| m.as_str().parse().ok())
                         .unwrap_or(0);
                 }
-                if let Some(caps) = failed_regex().captures(line) {
+                if let Some(caps) = regex::Regex::new(r"(\d+) failed")
+                    .ok()
+                    .and_then(|re| re.captures(line))
+                {
                     failed = caps
                         .get(1)
                         .and_then(|m| m.as_str().parse().ok())
                         .unwrap_or(0);
                 }
-                if let Some(caps) = total_regex().captures(line) {
+                if let Some(caps) = regex::Regex::new(r"(\d+) total")
+                    .ok()
+                    .and_then(|re| re.captures(line))
+                {
                     total = caps
                         .get(1)
                         .and_then(|m| m.as_str().parse().ok())
@@ -1121,7 +1099,7 @@ fn base64_encode(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dasein_agentic_sandbox::ProcessSandbox;
+    use agentic_sandbox::ProcessSandbox;
 
     #[tokio::test]
     async fn test_valid_rust_code() {

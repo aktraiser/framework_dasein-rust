@@ -28,7 +28,7 @@ cargo add agentic-core agentic-llm agentic-sandbox tokio --features tokio/full
 ### 1. Simple LLM Call
 
 ```rust
-use dasein_agentic_llm::{GeminiAdapter, LLMAdapter, LLMMessage};
+use agentic_llm::{GeminiAdapter, LLMAdapter, LLMMessage};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -54,9 +54,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### 2. Full Agent with Sandbox
 
 ```rust
-use dasein_agentic_core::{Agent, AgentConfig, ExecutionMode, TaskPayload};
-use dasein_agentic_llm::OpenAIAdapter;
-use dasein_agentic_sandbox::ProcessSandbox;
+use agentic_core::{Agent, AgentConfig, ExecutionMode, TaskPayload};
+use agentic_llm::OpenAIAdapter;
+use agentic_sandbox::ProcessSandbox;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -93,7 +93,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### 3. Streaming Response
 
 ```rust
-use dasein_agentic_llm::{AnthropicAdapter, LLMAdapter, LLMMessage};
+use agentic_llm::{AnthropicAdapter, LLMAdapter, LLMMessage};
 use futures::StreamExt;
 
 #[tokio::main]

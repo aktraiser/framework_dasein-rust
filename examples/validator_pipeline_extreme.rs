@@ -6,11 +6,11 @@
 //!
 //! Run with: CONTEXT7_API_KEY=xxx cargo run --example validator_pipeline_extreme
 
-use dasein_agentic_core::distributed::{
+use agentic_core::distributed::{
     Executor, MCPDocConfig, MCPDocValidator, PipelineResult, SandboxPipelineValidator,
     ValidatorInput, ValidatorPipeline,
 };
-use dasein_agentic_sandbox::ProcessSandbox;
+use agentic_sandbox::ProcessSandbox;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -158,6 +158,14 @@ Return ONLY compilable Rust code, no explanations."#;
                 "  ⚠️  Same code as previous iteration (stuck: {})",
                 stuck_count
             );
+            if stuck_count >= 2 {
+                println!("  🔄 Adding hint to break the loop...");
+                current_prompt = format!(
+                    "{}\n\nIMPORTANT: Your previous code had syntax errors (unbalanced braces). \
+                    Start fresh with a SIMPLER implementation. Focus on getting the basic structure right first.",
+                    current_prompt
+                );
+            }
         } else {
             stuck_count = 0;
         }

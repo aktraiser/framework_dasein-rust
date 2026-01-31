@@ -11,7 +11,7 @@
 //! # Quick Start
 //!
 //! ```rust,no_run
-//! use dasein_agentic_core::distributed::bus::BusCoordinator;
+//! use agentic_core::distributed::bus::BusCoordinator;
 //!
 //! let coordinator = BusCoordinator::connect("nats://localhost:4222").await?;
 //! coordinator.start().await?;

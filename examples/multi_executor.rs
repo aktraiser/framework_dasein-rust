@@ -23,7 +23,7 @@
 //!
 //! If a stage fails, regenerate ONLY that stage.
 
-use dasein_agentic_core::distributed::{
+use agentic_core::distributed::{
     bus::{
         AuditCollector, AuditEvent, BusCoordinator, BusLinter, ErrorFingerprinter, ModelTier,
         RollbackDecision, RollbackManager, StateStore, TraceSequencer,
@@ -33,8 +33,8 @@ use dasein_agentic_core::distributed::{
     ValidatorInput, ValidatorPipeline,
 };
 #[cfg(feature = "remote")]
-use dasein_agentic_sandbox::RemoteSandbox;
-use dasein_agentic_sandbox::{ProcessSandbox, Sandbox};
+use agentic_sandbox::RemoteSandbox;
+use agentic_sandbox::{ProcessSandbox, Sandbox};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -286,7 +286,6 @@ Include tests."#;
 /// On failure, errors are fed back into the prompt for the next attempt.
 /// Uses RollbackManager to prevent regressions (rolling back if code stops compiling).
 /// Uses ErrorFingerprinter to escalate to smart model for complex errors.
-#[allow(clippy::too_many_arguments)]
 async fn generate_and_lock_stage(
     stage: Stage,
     fast_executor: &Executor,
@@ -360,7 +359,7 @@ async fn generate_and_lock_stage(
                 ModelTier::Smart | ModelTier::Expert => smart_executor,
             }
         } else {
-            // First iteration or no errors - use fast model
+            current_tier = ModelTier::Fast;
             consecutive_fast_failures = 0;
             fast_executor
         };
@@ -426,7 +425,7 @@ async fn generate_and_lock_stage(
                     trace.next(),
                     "BusLinter",
                     false,
-                    std::slice::from_ref(&err),
+                    &[err.clone()],
                 ))
                 .await?;
 

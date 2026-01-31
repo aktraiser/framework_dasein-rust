@@ -4,9 +4,9 @@
 //!
 //! Requires: OPENAI_API_KEY environment variable
 
-use dasein_agentic_core::{Agent, AgentConfig, ExecutionMode, TaskPayload};
-use dasein_agentic_llm::OllamaAdapter;
-use dasein_agentic_sandbox::ProcessSandbox;
+use agentic_core::{Agent, AgentConfig, ExecutionMode, TaskPayload};
+use agentic_llm::OllamaAdapter;
+use agentic_sandbox::ProcessSandbox;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
