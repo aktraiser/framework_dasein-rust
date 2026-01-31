@@ -39,6 +39,8 @@
 
 mod context;
 mod executor;
+#[cfg(test)]
+mod integration_test;
 mod types;
 
 // PR #1: Executor Trait
