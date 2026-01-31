@@ -71,8 +71,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (compile_pipeline, test_pipeline) = {
         if let Ok(url) = std::env::var("FIRECRACKER_URL") {
             println!("✓ Firecracker: {}", url);
-            let sandbox1 = RemoteSandbox::new(&url).timeout_ms(60_000).build();
-            let sandbox2 = RemoteSandbox::new(&url).timeout_ms(60_000).build();
+            let sandbox1 = RemoteSandbox::builder(&url).timeout_ms(60_000).build();
+            let sandbox2 = RemoteSandbox::builder(&url).timeout_ms(60_000).build();
             (
                 ValidatorPipeline::new().add(
                     SandboxPipelineValidator::new(sandbox1)
