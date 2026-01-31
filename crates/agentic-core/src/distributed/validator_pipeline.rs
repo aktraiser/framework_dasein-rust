@@ -284,11 +284,10 @@ mod tests {
         }
 
         async fn validate(&self, _input: &ValidatorInput) -> Result<ValidatorOutput, String> {
-            Ok(ValidatorOutput::failure(
-                "mock-fail",
-                vec!["Test error".to_string()],
+            Ok(
+                ValidatorOutput::failure("mock-fail", vec!["Test error".to_string()])
+                    .with_recommendations(vec!["Fix the error".to_string()]),
             )
-            .with_recommendations(vec!["Fix the error".to_string()]))
         }
     }
 

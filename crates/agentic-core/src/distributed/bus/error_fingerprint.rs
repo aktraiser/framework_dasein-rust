@@ -98,319 +98,415 @@ impl ErrorFingerprinter {
 
         // === FAST TIER (Simple lookup) ===
 
-        patterns.insert("E0432".to_string(), ErrorFingerprint {
-            code: Some("E0432".to_string()),
-            category: ErrorCategory::Lookup,
-            recommended_tier: ModelTier::Fast,
-            description: "Unresolved import".to_string(),
-            needs_type_context: false,
-            needs_full_context: false,
-        });
+        patterns.insert(
+            "E0432".to_string(),
+            ErrorFingerprint {
+                code: Some("E0432".to_string()),
+                category: ErrorCategory::Lookup,
+                recommended_tier: ModelTier::Fast,
+                description: "Unresolved import".to_string(),
+                needs_type_context: false,
+                needs_full_context: false,
+            },
+        );
 
-        patterns.insert("E0433".to_string(), ErrorFingerprint {
-            code: Some("E0433".to_string()),
-            category: ErrorCategory::Lookup,
-            recommended_tier: ModelTier::Fast,
-            description: "Failed to resolve module".to_string(),
-            needs_type_context: false,
-            needs_full_context: false,
-        });
+        patterns.insert(
+            "E0433".to_string(),
+            ErrorFingerprint {
+                code: Some("E0433".to_string()),
+                category: ErrorCategory::Lookup,
+                recommended_tier: ModelTier::Fast,
+                description: "Failed to resolve module".to_string(),
+                needs_type_context: false,
+                needs_full_context: false,
+            },
+        );
 
-        patterns.insert("E0425".to_string(), ErrorFingerprint {
-            code: Some("E0425".to_string()),
-            category: ErrorCategory::Lookup,
-            recommended_tier: ModelTier::Fast,
-            description: "Cannot find value in scope".to_string(),
-            needs_type_context: false,
-            needs_full_context: false,
-        });
+        patterns.insert(
+            "E0425".to_string(),
+            ErrorFingerprint {
+                code: Some("E0425".to_string()),
+                category: ErrorCategory::Lookup,
+                recommended_tier: ModelTier::Fast,
+                description: "Cannot find value in scope".to_string(),
+                needs_type_context: false,
+                needs_full_context: false,
+            },
+        );
 
-        patterns.insert("E0412".to_string(), ErrorFingerprint {
-            code: Some("E0412".to_string()),
-            category: ErrorCategory::Lookup,
-            recommended_tier: ModelTier::Fast,
-            description: "Cannot find type in scope".to_string(),
-            needs_type_context: true,
-            needs_full_context: false,
-        });
+        patterns.insert(
+            "E0412".to_string(),
+            ErrorFingerprint {
+                code: Some("E0412".to_string()),
+                category: ErrorCategory::Lookup,
+                recommended_tier: ModelTier::Fast,
+                description: "Cannot find type in scope".to_string(),
+                needs_type_context: true,
+                needs_full_context: false,
+            },
+        );
 
         // E0599 can be simple (method not found) or complex (trait bounds not satisfied)
         // We classify it as Smart because "trait bounds not satisfied" is common
-        patterns.insert("E0599".to_string(), ErrorFingerprint {
-            code: Some("E0599".to_string()),
-            category: ErrorCategory::TypeSystem,
-            recommended_tier: ModelTier::Smart,
-            description: "Method not found or trait bounds not satisfied".to_string(),
-            needs_type_context: true,
-            needs_full_context: true,
-        });
+        patterns.insert(
+            "E0599".to_string(),
+            ErrorFingerprint {
+                code: Some("E0599".to_string()),
+                category: ErrorCategory::TypeSystem,
+                recommended_tier: ModelTier::Smart,
+                description: "Method not found or trait bounds not satisfied".to_string(),
+                needs_type_context: true,
+                needs_full_context: true,
+            },
+        );
 
         // === SMART TIER (Ownership/Borrowing) ===
 
-        patterns.insert("E0382".to_string(), ErrorFingerprint {
-            code: Some("E0382".to_string()),
-            category: ErrorCategory::Ownership,
-            recommended_tier: ModelTier::Smart,
-            description: "Use of moved value".to_string(),
-            needs_type_context: true,
-            needs_full_context: true,
-        });
+        patterns.insert(
+            "E0382".to_string(),
+            ErrorFingerprint {
+                code: Some("E0382".to_string()),
+                category: ErrorCategory::Ownership,
+                recommended_tier: ModelTier::Smart,
+                description: "Use of moved value".to_string(),
+                needs_type_context: true,
+                needs_full_context: true,
+            },
+        );
 
-        patterns.insert("E0502".to_string(), ErrorFingerprint {
-            code: Some("E0502".to_string()),
-            category: ErrorCategory::Ownership,
-            recommended_tier: ModelTier::Smart,
-            description: "Cannot borrow as mutable (already borrowed)".to_string(),
-            needs_type_context: true,
-            needs_full_context: true,
-        });
+        patterns.insert(
+            "E0502".to_string(),
+            ErrorFingerprint {
+                code: Some("E0502".to_string()),
+                category: ErrorCategory::Ownership,
+                recommended_tier: ModelTier::Smart,
+                description: "Cannot borrow as mutable (already borrowed)".to_string(),
+                needs_type_context: true,
+                needs_full_context: true,
+            },
+        );
 
-        patterns.insert("E0503".to_string(), ErrorFingerprint {
-            code: Some("E0503".to_string()),
-            category: ErrorCategory::Ownership,
-            recommended_tier: ModelTier::Smart,
-            description: "Cannot use value because it was mutably borrowed".to_string(),
-            needs_type_context: true,
-            needs_full_context: true,
-        });
+        patterns.insert(
+            "E0503".to_string(),
+            ErrorFingerprint {
+                code: Some("E0503".to_string()),
+                category: ErrorCategory::Ownership,
+                recommended_tier: ModelTier::Smart,
+                description: "Cannot use value because it was mutably borrowed".to_string(),
+                needs_type_context: true,
+                needs_full_context: true,
+            },
+        );
 
-        patterns.insert("E0505".to_string(), ErrorFingerprint {
-            code: Some("E0505".to_string()),
-            category: ErrorCategory::Ownership,
-            recommended_tier: ModelTier::Smart,
-            description: "Cannot move out of borrowed content".to_string(),
-            needs_type_context: true,
-            needs_full_context: true,
-        });
+        patterns.insert(
+            "E0505".to_string(),
+            ErrorFingerprint {
+                code: Some("E0505".to_string()),
+                category: ErrorCategory::Ownership,
+                recommended_tier: ModelTier::Smart,
+                description: "Cannot move out of borrowed content".to_string(),
+                needs_type_context: true,
+                needs_full_context: true,
+            },
+        );
 
-        patterns.insert("E0507".to_string(), ErrorFingerprint {
-            code: Some("E0507".to_string()),
-            category: ErrorCategory::Ownership,
-            recommended_tier: ModelTier::Smart,
-            description: "Cannot move out of borrowed content".to_string(),
-            needs_type_context: true,
-            needs_full_context: true,
-        });
+        patterns.insert(
+            "E0507".to_string(),
+            ErrorFingerprint {
+                code: Some("E0507".to_string()),
+                category: ErrorCategory::Ownership,
+                recommended_tier: ModelTier::Smart,
+                description: "Cannot move out of borrowed content".to_string(),
+                needs_type_context: true,
+                needs_full_context: true,
+            },
+        );
 
         // === SMART TIER (Type System) ===
 
-        patterns.insert("E0277".to_string(), ErrorFingerprint {
-            code: Some("E0277".to_string()),
-            category: ErrorCategory::TypeSystem,
-            recommended_tier: ModelTier::Smart,
-            description: "Trait bound not satisfied".to_string(),
-            needs_type_context: true,
-            needs_full_context: true,
-        });
+        patterns.insert(
+            "E0277".to_string(),
+            ErrorFingerprint {
+                code: Some("E0277".to_string()),
+                category: ErrorCategory::TypeSystem,
+                recommended_tier: ModelTier::Smart,
+                description: "Trait bound not satisfied".to_string(),
+                needs_type_context: true,
+                needs_full_context: true,
+            },
+        );
 
-        patterns.insert("E0308".to_string(), ErrorFingerprint {
-            code: Some("E0308".to_string()),
-            category: ErrorCategory::TypeSystem,
-            recommended_tier: ModelTier::Smart,
-            description: "Mismatched types".to_string(),
-            needs_type_context: true,
-            needs_full_context: false,
-        });
+        patterns.insert(
+            "E0308".to_string(),
+            ErrorFingerprint {
+                code: Some("E0308".to_string()),
+                category: ErrorCategory::TypeSystem,
+                recommended_tier: ModelTier::Smart,
+                description: "Mismatched types".to_string(),
+                needs_type_context: true,
+                needs_full_context: false,
+            },
+        );
 
-        patterns.insert("E0282".to_string(), ErrorFingerprint {
-            code: Some("E0282".to_string()),
-            category: ErrorCategory::TypeSystem,
-            recommended_tier: ModelTier::Fast,
-            description: "Type annotations needed".to_string(),
-            needs_type_context: true,
-            needs_full_context: false,
-        });
+        patterns.insert(
+            "E0282".to_string(),
+            ErrorFingerprint {
+                code: Some("E0282".to_string()),
+                category: ErrorCategory::TypeSystem,
+                recommended_tier: ModelTier::Fast,
+                description: "Type annotations needed".to_string(),
+                needs_type_context: true,
+                needs_full_context: false,
+            },
+        );
 
         // === SMART TIER (Async) ===
 
-        patterns.insert("E0733".to_string(), ErrorFingerprint {
-            code: Some("E0733".to_string()),
-            category: ErrorCategory::Async,
-            recommended_tier: ModelTier::Smart,
-            description: "Async recursion detected".to_string(),
-            needs_type_context: true,
-            needs_full_context: true,
-        });
+        patterns.insert(
+            "E0733".to_string(),
+            ErrorFingerprint {
+                code: Some("E0733".to_string()),
+                category: ErrorCategory::Async,
+                recommended_tier: ModelTier::Smart,
+                description: "Async recursion detected".to_string(),
+                needs_type_context: true,
+                needs_full_context: true,
+            },
+        );
 
-        patterns.insert("E0728".to_string(), ErrorFingerprint {
-            code: Some("E0728".to_string()),
-            category: ErrorCategory::Async,
-            recommended_tier: ModelTier::Smart,
-            description: "await used outside of async context".to_string(),
-            needs_type_context: false,
-            needs_full_context: true,
-        });
+        patterns.insert(
+            "E0728".to_string(),
+            ErrorFingerprint {
+                code: Some("E0728".to_string()),
+                category: ErrorCategory::Async,
+                recommended_tier: ModelTier::Smart,
+                description: "await used outside of async context".to_string(),
+                needs_type_context: false,
+                needs_full_context: true,
+            },
+        );
 
         // === EXPERT TIER (Lifetimes) ===
 
-        patterns.insert("E0106".to_string(), ErrorFingerprint {
-            code: Some("E0106".to_string()),
-            category: ErrorCategory::Lifetime,
-            recommended_tier: ModelTier::Expert,
-            description: "Missing lifetime specifier".to_string(),
-            needs_type_context: true,
-            needs_full_context: true,
-        });
+        patterns.insert(
+            "E0106".to_string(),
+            ErrorFingerprint {
+                code: Some("E0106".to_string()),
+                category: ErrorCategory::Lifetime,
+                recommended_tier: ModelTier::Expert,
+                description: "Missing lifetime specifier".to_string(),
+                needs_type_context: true,
+                needs_full_context: true,
+            },
+        );
 
-        patterns.insert("E0495".to_string(), ErrorFingerprint {
-            code: Some("E0495".to_string()),
-            category: ErrorCategory::Lifetime,
-            recommended_tier: ModelTier::Expert,
-            description: "Cannot infer appropriate lifetime".to_string(),
-            needs_type_context: true,
-            needs_full_context: true,
-        });
+        patterns.insert(
+            "E0495".to_string(),
+            ErrorFingerprint {
+                code: Some("E0495".to_string()),
+                category: ErrorCategory::Lifetime,
+                recommended_tier: ModelTier::Expert,
+                description: "Cannot infer appropriate lifetime".to_string(),
+                needs_type_context: true,
+                needs_full_context: true,
+            },
+        );
 
-        patterns.insert("E0521".to_string(), ErrorFingerprint {
-            code: Some("E0521".to_string()),
-            category: ErrorCategory::Lifetime,
-            recommended_tier: ModelTier::Expert,
-            description: "Borrowed data escapes outside of method".to_string(),
-            needs_type_context: true,
-            needs_full_context: true,
-        });
+        patterns.insert(
+            "E0521".to_string(),
+            ErrorFingerprint {
+                code: Some("E0521".to_string()),
+                category: ErrorCategory::Lifetime,
+                recommended_tier: ModelTier::Expert,
+                description: "Borrowed data escapes outside of method".to_string(),
+                needs_type_context: true,
+                needs_full_context: true,
+            },
+        );
 
         // === TYPESCRIPT ERRORS ===
 
         // TS1005: ',' expected (and similar syntax errors)
-        patterns.insert("TS1005".to_string(), ErrorFingerprint {
-            code: Some("TS1005".to_string()),
-            category: ErrorCategory::Syntax,
-            recommended_tier: ModelTier::Fast,
-            description: "TypeScript syntax error - missing delimiter".to_string(),
-            needs_type_context: false,
-            needs_full_context: false,
-        });
+        patterns.insert(
+            "TS1005".to_string(),
+            ErrorFingerprint {
+                code: Some("TS1005".to_string()),
+                category: ErrorCategory::Syntax,
+                recommended_tier: ModelTier::Fast,
+                description: "TypeScript syntax error - missing delimiter".to_string(),
+                needs_type_context: false,
+                needs_full_context: false,
+            },
+        );
 
         // TS1109: Expression expected
-        patterns.insert("TS1109".to_string(), ErrorFingerprint {
-            code: Some("TS1109".to_string()),
-            category: ErrorCategory::Syntax,
-            recommended_tier: ModelTier::Fast,
-            description: "TypeScript syntax error - expression expected".to_string(),
-            needs_type_context: false,
-            needs_full_context: false,
-        });
+        patterns.insert(
+            "TS1109".to_string(),
+            ErrorFingerprint {
+                code: Some("TS1109".to_string()),
+                category: ErrorCategory::Syntax,
+                recommended_tier: ModelTier::Fast,
+                description: "TypeScript syntax error - expression expected".to_string(),
+                needs_type_context: false,
+                needs_full_context: false,
+            },
+        );
 
         // TS1128: Declaration or statement expected
-        patterns.insert("TS1128".to_string(), ErrorFingerprint {
-            code: Some("TS1128".to_string()),
-            category: ErrorCategory::Syntax,
-            recommended_tier: ModelTier::Fast,
-            description: "TypeScript syntax error - declaration expected".to_string(),
-            needs_type_context: false,
-            needs_full_context: false,
-        });
+        patterns.insert(
+            "TS1128".to_string(),
+            ErrorFingerprint {
+                code: Some("TS1128".to_string()),
+                category: ErrorCategory::Syntax,
+                recommended_tier: ModelTier::Fast,
+                description: "TypeScript syntax error - declaration expected".to_string(),
+                needs_type_context: false,
+                needs_full_context: false,
+            },
+        );
 
         // TS2304: Cannot find name 'xxx'
-        patterns.insert("TS2304".to_string(), ErrorFingerprint {
-            code: Some("TS2304".to_string()),
-            category: ErrorCategory::Lookup,
-            recommended_tier: ModelTier::Fast,
-            description: "TypeScript cannot find name".to_string(),
-            needs_type_context: false,
-            needs_full_context: false,
-        });
+        patterns.insert(
+            "TS2304".to_string(),
+            ErrorFingerprint {
+                code: Some("TS2304".to_string()),
+                category: ErrorCategory::Lookup,
+                recommended_tier: ModelTier::Fast,
+                description: "TypeScript cannot find name".to_string(),
+                needs_type_context: false,
+                needs_full_context: false,
+            },
+        );
 
         // TS2339: Property 'xxx' does not exist on type
-        patterns.insert("TS2339".to_string(), ErrorFingerprint {
-            code: Some("TS2339".to_string()),
-            category: ErrorCategory::TypeSystem,
-            recommended_tier: ModelTier::Smart,
-            description: "TypeScript property does not exist".to_string(),
-            needs_type_context: true,
-            needs_full_context: false,
-        });
+        patterns.insert(
+            "TS2339".to_string(),
+            ErrorFingerprint {
+                code: Some("TS2339".to_string()),
+                category: ErrorCategory::TypeSystem,
+                recommended_tier: ModelTier::Smart,
+                description: "TypeScript property does not exist".to_string(),
+                needs_type_context: true,
+                needs_full_context: false,
+            },
+        );
 
         // TS2345: Argument of type 'X' is not assignable to parameter of type 'Y'
-        patterns.insert("TS2345".to_string(), ErrorFingerprint {
-            code: Some("TS2345".to_string()),
-            category: ErrorCategory::TypeSystem,
-            recommended_tier: ModelTier::Smart,
-            description: "TypeScript type mismatch in argument".to_string(),
-            needs_type_context: true,
-            needs_full_context: false,
-        });
+        patterns.insert(
+            "TS2345".to_string(),
+            ErrorFingerprint {
+                code: Some("TS2345".to_string()),
+                category: ErrorCategory::TypeSystem,
+                recommended_tier: ModelTier::Smart,
+                description: "TypeScript type mismatch in argument".to_string(),
+                needs_type_context: true,
+                needs_full_context: false,
+            },
+        );
 
         // TS2322: Type 'X' is not assignable to type 'Y'
-        patterns.insert("TS2322".to_string(), ErrorFingerprint {
-            code: Some("TS2322".to_string()),
-            category: ErrorCategory::TypeSystem,
-            recommended_tier: ModelTier::Smart,
-            description: "TypeScript type not assignable".to_string(),
-            needs_type_context: true,
-            needs_full_context: false,
-        });
+        patterns.insert(
+            "TS2322".to_string(),
+            ErrorFingerprint {
+                code: Some("TS2322".to_string()),
+                category: ErrorCategory::TypeSystem,
+                recommended_tier: ModelTier::Smart,
+                description: "TypeScript type not assignable".to_string(),
+                needs_type_context: true,
+                needs_full_context: false,
+            },
+        );
 
         // TS7006: Parameter 'x' implicitly has an 'any' type
-        patterns.insert("TS7006".to_string(), ErrorFingerprint {
-            code: Some("TS7006".to_string()),
-            category: ErrorCategory::TypeSystem,
-            recommended_tier: ModelTier::Fast,
-            description: "TypeScript implicit any type".to_string(),
-            needs_type_context: true,
-            needs_full_context: false,
-        });
+        patterns.insert(
+            "TS7006".to_string(),
+            ErrorFingerprint {
+                code: Some("TS7006".to_string()),
+                category: ErrorCategory::TypeSystem,
+                recommended_tier: ModelTier::Fast,
+                description: "TypeScript implicit any type".to_string(),
+                needs_type_context: true,
+                needs_full_context: false,
+            },
+        );
 
         // TS2307: Cannot find module 'xxx'
-        patterns.insert("TS2307".to_string(), ErrorFingerprint {
-            code: Some("TS2307".to_string()),
-            category: ErrorCategory::Lookup,
-            recommended_tier: ModelTier::Fast,
-            description: "TypeScript cannot find module".to_string(),
-            needs_type_context: false,
-            needs_full_context: false,
-        });
+        patterns.insert(
+            "TS2307".to_string(),
+            ErrorFingerprint {
+                code: Some("TS2307".to_string()),
+                category: ErrorCategory::Lookup,
+                recommended_tier: ModelTier::Fast,
+                description: "TypeScript cannot find module".to_string(),
+                needs_type_context: false,
+                needs_full_context: false,
+            },
+        );
 
         // TS2551: Property 'x' does not exist. Did you mean 'y'?
-        patterns.insert("TS2551".to_string(), ErrorFingerprint {
-            code: Some("TS2551".to_string()),
-            category: ErrorCategory::Lookup,
-            recommended_tier: ModelTier::Fast,
-            description: "TypeScript property typo".to_string(),
-            needs_type_context: false,
-            needs_full_context: false,
-        });
+        patterns.insert(
+            "TS2551".to_string(),
+            ErrorFingerprint {
+                code: Some("TS2551".to_string()),
+                category: ErrorCategory::Lookup,
+                recommended_tier: ModelTier::Fast,
+                description: "TypeScript property typo".to_string(),
+                needs_type_context: false,
+                needs_full_context: false,
+            },
+        );
 
         // TS2571: Object is of type 'unknown'
-        patterns.insert("TS2571".to_string(), ErrorFingerprint {
-            code: Some("TS2571".to_string()),
-            category: ErrorCategory::TypeSystem,
-            recommended_tier: ModelTier::Smart,
-            description: "TypeScript unknown type".to_string(),
-            needs_type_context: true,
-            needs_full_context: false,
-        });
+        patterns.insert(
+            "TS2571".to_string(),
+            ErrorFingerprint {
+                code: Some("TS2571".to_string()),
+                category: ErrorCategory::TypeSystem,
+                recommended_tier: ModelTier::Smart,
+                description: "TypeScript unknown type".to_string(),
+                needs_type_context: true,
+                needs_full_context: false,
+            },
+        );
 
         // TS2532: Object is possibly 'undefined'
-        patterns.insert("TS2532".to_string(), ErrorFingerprint {
-            code: Some("TS2532".to_string()),
-            category: ErrorCategory::TypeSystem,
-            recommended_tier: ModelTier::Fast,
-            description: "TypeScript possibly undefined".to_string(),
-            needs_type_context: true,
-            needs_full_context: false,
-        });
+        patterns.insert(
+            "TS2532".to_string(),
+            ErrorFingerprint {
+                code: Some("TS2532".to_string()),
+                category: ErrorCategory::TypeSystem,
+                recommended_tier: ModelTier::Fast,
+                description: "TypeScript possibly undefined".to_string(),
+                needs_type_context: true,
+                needs_full_context: false,
+            },
+        );
 
         // TS1003: Identifier expected
-        patterns.insert("TS1003".to_string(), ErrorFingerprint {
-            code: Some("TS1003".to_string()),
-            category: ErrorCategory::Syntax,
-            recommended_tier: ModelTier::Fast,
-            description: "TypeScript identifier expected".to_string(),
-            needs_type_context: false,
-            needs_full_context: false,
-        });
+        patterns.insert(
+            "TS1003".to_string(),
+            ErrorFingerprint {
+                code: Some("TS1003".to_string()),
+                category: ErrorCategory::Syntax,
+                recommended_tier: ModelTier::Fast,
+                description: "TypeScript identifier expected".to_string(),
+                needs_type_context: false,
+                needs_full_context: false,
+            },
+        );
 
         // TS18046: 'x' is of type 'unknown'
-        patterns.insert("TS18046".to_string(), ErrorFingerprint {
-            code: Some("TS18046".to_string()),
-            category: ErrorCategory::TypeSystem,
-            recommended_tier: ModelTier::Smart,
-            description: "TypeScript value is unknown type".to_string(),
-            needs_type_context: true,
-            needs_full_context: false,
-        });
+        patterns.insert(
+            "TS18046".to_string(),
+            ErrorFingerprint {
+                code: Some("TS18046".to_string()),
+                category: ErrorCategory::TypeSystem,
+                recommended_tier: ModelTier::Smart,
+                description: "TypeScript value is unknown type".to_string(),
+                needs_type_context: true,
+                needs_full_context: false,
+            },
+        );
 
         Self { patterns }
     }
@@ -425,7 +521,10 @@ impl ErrorFingerprinter {
         }
 
         // Check for timeout errors (deadlock, infinite loop)
-        if error.contains("timed out") || error.contains("Execution timed out") || error.contains("TIMEOUT") {
+        if error.contains("timed out")
+            || error.contains("Execution timed out")
+            || error.contains("TIMEOUT")
+        {
             return ErrorFingerprint {
                 code: None,
                 category: ErrorCategory::Timeout,
@@ -552,9 +651,7 @@ impl ErrorFingerprinter {
             };
         }
 
-        if error_lower.contains("typeerror")
-            || error_lower.contains("attributeerror")
-        {
+        if error_lower.contains("typeerror") || error_lower.contains("attributeerror") {
             return ErrorFingerprint {
                 code: None,
                 category: ErrorCategory::TypeSystem,
@@ -565,9 +662,7 @@ impl ErrorFingerprinter {
             };
         }
 
-        if error_lower.contains("indentationerror")
-            || error_lower.contains("invalid syntax")
-        {
+        if error_lower.contains("indentationerror") || error_lower.contains("invalid syntax") {
             return ErrorFingerprint {
                 code: None,
                 category: ErrorCategory::Syntax,
@@ -585,7 +680,7 @@ impl ErrorFingerprinter {
         {
             return ErrorFingerprint {
                 code: None,
-                category: ErrorCategory::Syntax,  // Treat as syntax (follows the real error)
+                category: ErrorCategory::Syntax, // Treat as syntax (follows the real error)
                 recommended_tier: ModelTier::Fast,
                 description: "Compilation meta-error".to_string(),
                 needs_type_context: false,
@@ -598,7 +693,7 @@ impl ErrorFingerprinter {
         ErrorFingerprint {
             code: None,
             category: ErrorCategory::Unknown,
-            recommended_tier: ModelTier::Fast,  // Changed from Smart
+            recommended_tier: ModelTier::Fast, // Changed from Smart
             description: "Unknown error".to_string(),
             needs_type_context: false,
             needs_full_context: false,
@@ -664,7 +759,10 @@ impl ErrorFingerprinter {
         if let Some(pos) = error.find("TS") {
             let rest = &error[pos..];
             let code: String = rest.chars().take_while(|c| c.is_alphanumeric()).collect();
-            if code.len() >= 5 && code.starts_with("TS") && code[2..].chars().all(|c| c.is_ascii_digit()) {
+            if code.len() >= 5
+                && code.starts_with("TS")
+                && code[2..].chars().all(|c| c.is_ascii_digit())
+            {
                 return Some(code);
             }
         }
@@ -745,7 +843,9 @@ impl ErrorFingerprinter {
                 hints.push("- Check for missing/extra commas, semicolons, braces");
                 hints.push("- Verify function/class declarations are complete");
                 hints.push("- Check for unclosed strings or template literals");
-                hints.push("- IMPORTANT: Template strings MUST use backticks: `text ${var}` NOT quotes");
+                hints.push(
+                    "- IMPORTANT: Template strings MUST use backticks: `text ${var}` NOT quotes",
+                );
                 hints.push("- Ensure proper indentation (Python)");
             }
             ErrorCategory::Unknown => {

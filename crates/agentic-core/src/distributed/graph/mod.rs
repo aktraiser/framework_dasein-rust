@@ -41,13 +41,10 @@ mod executor;
 mod types;
 
 // PR #1: Executor Trait
-pub use executor::{
-    Executor, ExecutorKind, ExecutorContext, LogLevel, ValidationResult,
-};
+pub use executor::{Executor, ExecutorContext, ExecutorKind, LogLevel, ValidationResult};
 pub use types::{
-    ExecutorId, TaskId, WorkflowId,
-    GraphError, GraphResult, ExecutorError, ErrorCategory,
-    ExecutorEvent, EdgeEvent,
+    EdgeEvent, ErrorCategory, ExecutorError, ExecutorEvent, ExecutorId, GraphError, GraphResult,
+    TaskId, WorkflowId,
 };
 
 // Future PRs will add:

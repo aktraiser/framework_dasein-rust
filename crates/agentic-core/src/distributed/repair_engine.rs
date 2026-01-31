@@ -95,7 +95,13 @@ impl ErrorContext {
         if let Some(code) = &self.error_code {
             output.push_str(&format!("    Code: {}\n", code));
         }
-        output.push_str(&format!("    Message: {}\n", self.error_message.lines().next().unwrap_or(&self.error_message)));
+        output.push_str(&format!(
+            "    Message: {}\n",
+            self.error_message
+                .lines()
+                .next()
+                .unwrap_or(&self.error_message)
+        ));
         output.push('\n');
 
         // Context lines before
@@ -197,7 +203,8 @@ impl ErrorContextExtractor {
 
     /// Extract context for all errors.
     pub fn extract_all(&self, code: &str, errors: &[String]) -> Vec<ErrorContext> {
-        errors.iter()
+        errors
+            .iter()
             .filter_map(|err| self.extract(code, err))
             .collect()
     }
@@ -213,9 +220,7 @@ impl ErrorContextExtractor {
         let error_code = self.extract_error_code(error);
 
         // Get the code line if we have a line number
-        let code_line = line.and_then(|ln| {
-            lines.get((ln - 1) as usize).map(|s| s.to_string())
-        });
+        let code_line = line.and_then(|ln| lines.get((ln - 1) as usize).map(|s| s.to_string()));
 
         // Get context lines (2 before, 2 after)
         let lines_before = if let Some(ln) = line {
@@ -231,9 +236,9 @@ impl ErrorContextExtractor {
         };
 
         // Detect patterns
-        let detected_pattern = code_line.as_ref().and_then(|cl| {
-            self.detect_pattern(cl, error, &error_code)
-        });
+        let detected_pattern = code_line
+            .as_ref()
+            .and_then(|cl| self.detect_pattern(cl, error, &error_code));
 
         Some(ErrorContext {
             error_message: error.to_string(),
@@ -277,11 +282,7 @@ impl ErrorContextExtractor {
 
         // Try Python pattern
         if let Some(caps) = self.python_location.captures(error) {
-            return (
-                Some(caps[1].to_string()),
-                caps[2].parse().ok(),
-                None,
-            );
+            return (Some(caps[1].to_string()), caps[2].parse().ok(), None);
         }
 
         // Try Go pattern
@@ -312,7 +313,13 @@ impl ErrorContextExtractor {
     }
 
     /// Get context lines around a target line.
-    fn get_context_lines(&self, lines: &[&str], target_line: u32, from_offset: i32, to_offset: i32) -> Vec<(u32, String)> {
+    fn get_context_lines(
+        &self,
+        lines: &[&str],
+        target_line: u32,
+        from_offset: i32,
+        to_offset: i32,
+    ) -> Vec<(u32, String)> {
         let mut result = vec![];
         for offset in from_offset..=to_offset {
             let line_num = (target_line as i32 + offset) as u32;
@@ -325,7 +332,12 @@ impl ErrorContextExtractor {
     }
 
     /// Detect error patterns in the code line.
-    fn detect_pattern(&self, code_line: &str, error: &str, error_code: &Option<String>) -> Option<ErrorPattern> {
+    fn detect_pattern(
+        &self,
+        code_line: &str,
+        error: &str,
+        error_code: &Option<String>,
+    ) -> Option<ErrorPattern> {
         let error_lower = error.to_lowercase();
 
         // Pattern 1: Template literal without backticks
@@ -348,13 +360,15 @@ impl ErrorContextExtractor {
         }
 
         // Pattern 2: Missing await on Promise
-        if error_lower.contains("promise") &&
-            (error_lower.contains("not assignable") || error_lower.contains("is not a function")) {
+        if error_lower.contains("promise")
+            && (error_lower.contains("not assignable") || error_lower.contains("is not a function"))
+        {
             if code_line.contains("Promise") || self.missing_await_pattern.is_match(code_line) {
                 return Some(ErrorPattern {
                     id: "MISSING_AWAIT",
                     description: "Promise returned but not awaited".to_string(),
-                    fix_instruction: "Add 'await' before the Promise-returning expression".to_string(),
+                    fix_instruction: "Add 'await' before the Promise-returning expression"
+                        .to_string(),
                     example_fix: None,
                     confidence: 0.8,
                 });
@@ -368,7 +382,8 @@ impl ErrorContextExtractor {
                 return Some(ErrorPattern {
                     id: "TS1005_TEMPLATE_LITERAL",
                     description: "TS1005 caused by template literal without backticks".to_string(),
-                    fix_instruction: "The ${} syntax requires backticks around the string".to_string(),
+                    fix_instruction: "The ${} syntax requires backticks around the string"
+                        .to_string(),
                     example_fix: Some(self.suggest_backtick_fix(code_line)),
                     confidence: 0.9,
                 });
@@ -376,7 +391,10 @@ impl ErrorContextExtractor {
         }
 
         // Pattern 4: Rust move errors
-        if error_code.as_deref().map_or(false, |c| c == "E0382" || c == "E0505") {
+        if error_code
+            .as_deref()
+            .map_or(false, |c| c == "E0382" || c == "E0505")
+        {
             return Some(ErrorPattern {
                 id: "RUST_MOVE_ERROR",
                 description: "Value moved or borrowed incorrectly".to_string(),
@@ -387,9 +405,11 @@ impl ErrorContextExtractor {
         }
 
         // Pattern 5: Python f-string issues
-        if code_line.contains('{') && code_line.contains('}') &&
-            !code_line.trim_start().starts_with('f') &&
-            (code_line.contains('"') || code_line.contains('\'')) {
+        if code_line.contains('{')
+            && code_line.contains('}')
+            && !code_line.trim_start().starts_with('f')
+            && (code_line.contains('"') || code_line.contains('\''))
+        {
             return Some(ErrorPattern {
                 id: "PYTHON_MISSING_FSTRING",
                 description: "String interpolation without f-prefix".to_string(),
@@ -483,7 +503,8 @@ pub struct RepairSuggestion {
 impl RepairSuggestion {
     /// Generate suggestions from error contexts.
     pub fn from_contexts(contexts: &[ErrorContext]) -> Vec<Self> {
-        contexts.iter()
+        contexts
+            .iter()
             .filter_map(|ctx| Self::from_context(ctx))
             .collect()
     }
@@ -505,7 +526,8 @@ impl RepairSuggestion {
                     line: ctx.line,
                     original: code_line.clone(),
                     suggested,
-                    explanation: "Template literals with ${} require backticks, not quotes".to_string(),
+                    explanation: "Template literals with ${} require backticks, not quotes"
+                        .to_string(),
                     confidence: pattern.confidence,
                 })
             }
@@ -532,21 +554,30 @@ impl RepairSuggestion {
         let re = Regex::new(r#"Error\(([^`"'][^)]*\$\{[^}]+\}[^)]*)\)"#).unwrap();
         if let Some(caps) = re.captures(line) {
             let content = &caps[1];
-            result = line.replace(&format!("Error({})", content), &format!("Error(`{}`)", content));
+            result = line.replace(
+                &format!("Error({})", content),
+                &format!("Error(`{}`)", content),
+            );
         }
 
         // Pattern 2: Error("text ${var}") - quotes instead of backticks
         let re2 = Regex::new(r#"Error\("([^"]*\$\{[^}]+\}[^"]*)"\)"#).unwrap();
         if let Some(caps) = re2.captures(line) {
             let content = &caps[1];
-            result = line.replace(&format!("Error(\"{}\")", content), &format!("Error(`{}`)", content));
+            result = line.replace(
+                &format!("Error(\"{}\")", content),
+                &format!("Error(`{}`)", content),
+            );
         }
 
         // Pattern 3: Error('text ${var}') - single quotes
         let re3 = Regex::new(r#"Error\('([^']*\$\{[^}]+\}[^']*)'\)"#).unwrap();
         if let Some(caps) = re3.captures(line) {
             let content = &caps[1];
-            result = line.replace(&format!("Error('{}')", content), &format!("Error(`{}`)", content));
+            result = line.replace(
+                &format!("Error('{}')", content),
+                &format!("Error(`{}`)", content),
+            );
         }
 
         result
@@ -595,9 +626,7 @@ impl SurgicalRepair {
     ///
     /// Returns Some(fixed_code) if any fixes were applied, None otherwise.
     pub fn apply(code: &str, suggestions: &[RepairSuggestion]) -> Option<String> {
-        let auto_apply: Vec<_> = suggestions.iter()
-            .filter(|s| s.can_auto_apply())
-            .collect();
+        let auto_apply: Vec<_> = suggestions.iter().filter(|s| s.can_auto_apply()).collect();
 
         if auto_apply.is_empty() {
             return None;
@@ -794,10 +823,15 @@ impl SurgicalRepair {
             let after_eq = line[eq_idx + 3..].trim();
 
             // Check if it's an unquoted template literal
-            if after_eq.contains("${") && !after_eq.starts_with('`') && !after_eq.starts_with('"') && !after_eq.starts_with('\'') {
+            if after_eq.contains("${")
+                && !after_eq.starts_with('`')
+                && !after_eq.starts_with('"')
+                && !after_eq.starts_with('\'')
+            {
                 // Find where the expression ends (semicolon, comma, or end of line)
                 let end_chars = [';', ','];
-                let expr_end = after_eq.find(|c| end_chars.contains(&c))
+                let expr_end = after_eq
+                    .find(|c| end_chars.contains(&c))
                     .unwrap_or(after_eq.len());
 
                 let expr = &after_eq[..expr_end];
@@ -963,7 +997,9 @@ impl FocusedPromptBuilder {
             Language::TypeScript | Language::JavaScript => {
                 prompt.push_str("TypeScript/JavaScript:\n");
                 prompt.push_str("  - Template literals: `text ${var}` (BACKTICKS required)\n");
-                prompt.push_str("  - WRONG: \"text ${var}\" or 'text ${var}' or Error(text ${var})\n");
+                prompt.push_str(
+                    "  - WRONG: \"text ${var}\" or 'text ${var}' or Error(text ${var})\n",
+                );
                 prompt.push_str("  - RIGHT: `text ${var}` or Error(`text ${var}`)\n");
             }
             Language::Python => {
@@ -1063,7 +1099,13 @@ impl RepairEngine {
     }
 
     /// Analyze errors and generate repair suggestions.
-    pub fn analyze(&self, code: &str, errors: &[String], language: Language, task: Option<&str>) -> RepairAnalysis {
+    pub fn analyze(
+        &self,
+        code: &str,
+        errors: &[String],
+        language: Language,
+        task: Option<&str>,
+    ) -> RepairAnalysis {
         // Extract contexts
         let contexts = self.extractor.extract_all(code, errors);
 
@@ -1163,7 +1205,10 @@ mod tests {
 
         let ctx = extractor.extract(code, error).unwrap();
         assert!(ctx.detected_pattern.is_some());
-        assert_eq!(ctx.detected_pattern.as_ref().unwrap().id, "TEMPLATE_LITERAL_NO_BACKTICKS");
+        assert_eq!(
+            ctx.detected_pattern.as_ref().unwrap().id,
+            "TEMPLATE_LITERAL_NO_BACKTICKS"
+        );
     }
 
     #[test]

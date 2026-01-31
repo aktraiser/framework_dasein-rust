@@ -53,8 +53,7 @@ pub struct VectorSearchResult {
 #[async_trait]
 pub trait VectorStore: Send + Sync {
     /// Upsert points into a collection.
-    async fn upsert(&self, collection: &str, points: Vec<VectorPoint>)
-        -> Result<(), StorageError>;
+    async fn upsert(&self, collection: &str, points: Vec<VectorPoint>) -> Result<(), StorageError>;
 
     /// Search for similar vectors.
     async fn search(

@@ -16,8 +16,8 @@
 //!
 //! Run with: CONTEXT7_API_KEY=xxx cargo run --example grounded_loop_with_mcp
 
-use agentic_core::distributed::{Executor, SandboxValidator, SandboxValidationResult};
-use agentic_mcp::{MCPConfig, MCPServerConfig, MCPClientPool};
+use agentic_core::distributed::{Executor, SandboxValidationResult, SandboxValidator};
+use agentic_mcp::{MCPClientPool, MCPConfig, MCPServerConfig};
 use agentic_sandbox::ProcessSandbox;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -85,12 +85,16 @@ Include tests for:
     println!("[1/4] Querying documentation via Code Mode...\n");
 
     let doc_context = query_documentation(&executor, workspace).await?;
-    println!("     Retrieved {} chars of documentation context\n", doc_context.len());
+    println!(
+        "     Retrieved {} chars of documentation context\n",
+        doc_context.len()
+    );
 
     // === Phase 5: Grounded Loop with documentation context ===
     println!("[2/4] Starting grounded validation loop...\n");
 
-    let system_prompt = format!(r#"You are an expert Rust developer specializing in async programming.
+    let system_prompt = format!(
+        r#"You are an expert Rust developer specializing in async programming.
 
 RELEVANT DOCUMENTATION:
 {}
@@ -100,7 +104,9 @@ Include comprehensive tests in a #[cfg(test)] module.
 The code must compile and all tests must pass.
 
 IMPORTANT: Return ONLY the Rust code, no markdown, no explanations.
-The code should be a complete lib.rs file."#, doc_context);
+The code should be a complete lib.rs file."#,
+        doc_context
+    );
 
     let total_start = Instant::now();
     let mut iteration = 0;
@@ -113,7 +119,11 @@ The code should be a complete lib.rs file."#, doc_context);
         // Generate code
         let gen_start = Instant::now();
         let result = executor.execute(&system_prompt, &current_prompt).await?;
-        println!("Generated {} chars in {}ms", result.content.len(), gen_start.elapsed().as_millis());
+        println!(
+            "Generated {} chars in {}ms",
+            result.content.len(),
+            gen_start.elapsed().as_millis()
+        );
 
         let code = clean_code(&result.content);
 
@@ -128,8 +138,11 @@ The code should be a complete lib.rs file."#, doc_context);
 
                 if validation.passed {
                     println!("\n{}", "=".repeat(70));
-                    println!("SUCCESS after {} iterations ({}ms total)",
-                        iteration, total_start.elapsed().as_millis());
+                    println!(
+                        "SUCCESS after {} iterations ({}ms total)",
+                        iteration,
+                        total_start.elapsed().as_millis()
+                    );
                     println!("{}\n", "=".repeat(70));
                     println!("{}", code);
                     return Ok(());
@@ -160,13 +173,12 @@ async fn setup_mcp_workspace(workspace: &Path) -> bool {
 
     if let Some(key) = api_key {
         // Try real Context7
-        let config = MCPConfig::new()
-            .add_server(
-                "context7",
-                MCPServerConfig::http("https://mcp.context7.com/mcp")
-                    .header("CONTEXT7_API_KEY", &key)
-                    .timeout(30000),
-            );
+        let config = MCPConfig::new().add_server(
+            "context7",
+            MCPServerConfig::http("https://mcp.context7.com/mcp")
+                .header("CONTEXT7_API_KEY", &key)
+                .timeout(30000),
+        );
 
         if let Ok(pool) = MCPClientPool::new(config).await {
             if pool.generate_typescript(workspace).await.is_ok() {
@@ -261,8 +273,10 @@ fn build_retry_prompt(task: &str, code: &str, validation: &SandboxValidationResu
         }
         prompt.push_str("```\n");
     } else if !validation.tests_passed {
-        prompt.push_str(&format!("=== TESTS FAILED ({}/{}) ===\n```\n",
-            validation.tests_ok, validation.test_count));
+        prompt.push_str(&format!(
+            "=== TESTS FAILED ({}/{}) ===\n```\n",
+            validation.tests_ok, validation.test_count
+        ));
         for e in &validation.test_errors {
             prompt.push_str(e);
             prompt.push('\n');

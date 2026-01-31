@@ -261,12 +261,18 @@ impl AllocationManager {
 
     /// Record a grant where we are the lender.
     pub async fn record_lent(&self, grant: AllocationGrant) {
-        self.lent_grants.write().await.insert(grant.lease_id.clone(), grant);
+        self.lent_grants
+            .write()
+            .await
+            .insert(grant.lease_id.clone(), grant);
     }
 
     /// Record a grant where we are the borrower.
     pub async fn record_borrowed(&self, grant: AllocationGrant) {
-        self.borrowed_grants.write().await.insert(grant.lease_id.clone(), grant);
+        self.borrowed_grants
+            .write()
+            .await
+            .insert(grant.lease_id.clone(), grant);
     }
 
     /// Remove a grant.
@@ -277,14 +283,20 @@ impl AllocationManager {
 
     /// Get count of lent executors.
     pub async fn lent_count(&self) -> usize {
-        self.lent_grants.read().await.values()
+        self.lent_grants
+            .read()
+            .await
+            .values()
             .map(|g| g.executor_ids.len())
             .sum()
     }
 
     /// Get count of borrowed executors.
     pub async fn borrowed_count(&self) -> usize {
-        self.borrowed_grants.read().await.values()
+        self.borrowed_grants
+            .read()
+            .await
+            .values()
             .map(|g| g.executor_ids.len())
             .sum()
     }
@@ -351,14 +363,20 @@ impl AllocationManager {
 
     /// Get all borrowed executor IDs.
     pub async fn borrowed_executor_ids(&self) -> Vec<String> {
-        self.borrowed_grants.read().await.values()
+        self.borrowed_grants
+            .read()
+            .await
+            .values()
             .flat_map(|g| g.executor_ids.clone())
             .collect()
     }
 
     /// Get all lent executor IDs.
     pub async fn lent_executor_ids(&self) -> Vec<String> {
-        self.lent_grants.read().await.values()
+        self.lent_grants
+            .read()
+            .await
+            .values()
             .flat_map(|g| g.executor_ids.clone())
             .collect()
     }
@@ -382,8 +400,8 @@ mod tests {
 
     #[test]
     fn test_allocation_grant() {
-        let grant = AllocationGrant::new("sup-data", "sup-code", vec!["exe-001".into()])
-            .duration_secs(60);
+        let grant =
+            AllocationGrant::new("sup-data", "sup-code", vec!["exe-001".into()]).duration_secs(60);
 
         assert!(!grant.is_expired());
         assert!(grant.remaining_ms() > 0);
@@ -391,9 +409,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_allocation_manager() {
-        let manager = AllocationManager::new("sup-001")
-            .max_lend(4)
-            .max_borrow(4);
+        let manager = AllocationManager::new("sup-001").max_lend(4).max_borrow(4);
 
         assert!(manager.can_lend(2).await);
         assert!(manager.can_borrow(2).await);

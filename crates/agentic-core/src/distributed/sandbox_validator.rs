@@ -86,11 +86,11 @@
 //!
 //! See `examples/grounded_loop.rs` for a complete implementation.
 
-use std::path::PathBuf;
+use agentic_sandbox::{ExecutionResult as SandboxExecutionResult, Sandbox, SandboxError};
 use async_trait::async_trait;
-use agentic_sandbox::{Sandbox, SandboxError, ExecutionResult as SandboxExecutionResult};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info, warn, instrument};
+use std::path::PathBuf;
+use tracing::{debug, info, instrument, warn};
 
 /// Result of sandbox validation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -142,7 +142,10 @@ impl SandboxValidationResult {
         // SAFEGUARD: Never have passed=false with empty errors
         // This prevents confusing "0 errors but failed" scenarios
         let errors = if errors.is_empty() {
-            vec!["Compilation failed but no specific error was captured. Check command output.".to_string()]
+            vec![
+                "Compilation failed but no specific error was captured. Check command output."
+                    .to_string(),
+            ]
         } else {
             errors
         };
@@ -180,7 +183,9 @@ impl SandboxValidationResult {
         };
         let feedback = format!(
             "TESTS FAILED: {}/{} passed\n\nFailures:\n{}\n\nFix these test failures.",
-            tests_ok, test_count, errors.join("\n")
+            tests_ok,
+            test_count,
+            errors.join("\n")
         );
         Self {
             passed: false,
@@ -202,7 +207,10 @@ impl SandboxValidationResult {
     pub fn lint_error(errors: Vec<String>, execution_time_ms: u64) -> Self {
         // SAFEGUARD: Never have passed=false with empty errors
         let errors = if errors.is_empty() {
-            vec!["Lint check failed but no specific error was captured. Check linter output.".to_string()]
+            vec![
+                "Lint check failed but no specific error was captured. Check linter output."
+                    .to_string(),
+            ]
         } else {
             errors
         };
@@ -212,13 +220,13 @@ impl SandboxValidationResult {
         );
         Self {
             passed: false,
-            compiles: true,  // It compiles, but has lint issues
+            compiles: true, // It compiles, but has lint issues
             tests_passed: false,
             test_count: 0,
             tests_ok: 0,
             tests_failed: 0,
             compiler_errors: vec![],
-            test_errors: errors,  // Use test_errors to store lint errors
+            test_errors: errors, // Use test_errors to store lint errors
             warnings: vec![],
             feedback: Some(feedback),
             execution_time_ms,
@@ -276,15 +284,11 @@ impl Language {
                 project_dir
             )),
             // ESLint for JS/TS
-            Self::JavaScript | Self::TypeScript => Some(format!(
-                "cd {} && npx eslint . 2>&1 || true",
-                project_dir
-            )),
+            Self::JavaScript | Self::TypeScript => {
+                Some(format!("cd {} && npx eslint . 2>&1 || true", project_dir))
+            }
             // golint for Go
-            Self::Go => Some(format!(
-                "cd {} && go vet ./... 2>&1",
-                project_dir
-            )),
+            Self::Go => Some(format!("cd {} && go vet ./... 2>&1", project_dir)),
             _ => None,
         }
     }
@@ -339,7 +343,10 @@ impl<S: Sandbox> SandboxValidator<S> {
 
     /// Validate Rust code with real compilation and tests.
     #[instrument(skip(self, code), fields(lang = "rust"))]
-    pub async fn validate_rust_code(&self, code: &str) -> Result<SandboxValidationResult, SandboxError> {
+    pub async fn validate_rust_code(
+        &self,
+        code: &str,
+    ) -> Result<SandboxValidationResult, SandboxError> {
         self.validate_code(code, Language::Rust).await
     }
 
@@ -354,7 +361,11 @@ impl<S: Sandbox> SandboxValidator<S> {
         let project_id = uuid::Uuid::new_v4().to_string();
         let project_dir = self.workspace.join(&project_id);
 
-        info!("Validating {:?} code in {}", language, project_dir.display());
+        info!(
+            "Validating {:?} code in {}",
+            language,
+            project_dir.display()
+        );
 
         // Setup project structure based on language
         let setup_result = match language {
@@ -362,7 +373,10 @@ impl<S: Sandbox> SandboxValidator<S> {
             Language::Python => self.setup_python_project(&project_dir, code).await,
             Language::TypeScript => self.setup_typescript_project(&project_dir, code).await,
             Language::Go => self.setup_go_project(&project_dir, code).await,
-            _ => self.setup_generic_project(&project_dir, code, language).await,
+            _ => {
+                self.setup_generic_project(&project_dir, code, language)
+                    .await
+            }
         }?;
 
         if !setup_result.is_success() {
@@ -378,9 +392,13 @@ impl<S: Sandbox> SandboxValidator<S> {
             let compile_result = self.sandbox.execute(&compile_cmd).await?;
 
             if !compile_result.is_success() {
-                let errors = Self::parse_compiler_errors(&compile_result.stdout, &compile_result.stderr);
+                let errors =
+                    Self::parse_compiler_errors(&compile_result.stdout, &compile_result.stderr);
                 // Cleanup
-                let _ = self.sandbox.execute(&format!("rm -rf {}", project_dir.display())).await;
+                let _ = self
+                    .sandbox
+                    .execute(&format!("rm -rf {}", project_dir.display()))
+                    .await;
                 return Ok(SandboxValidationResult::compile_error(
                     errors,
                     start.elapsed().as_millis() as u64,
@@ -404,7 +422,10 @@ impl<S: Sandbox> SandboxValidator<S> {
                 let errors = Self::parse_clippy_errors(&lint_result.stdout, &lint_result.stderr);
                 if !errors.is_empty() {
                     // Cleanup
-                    let _ = self.sandbox.execute(&format!("rm -rf {}", project_dir.display())).await;
+                    let _ = self
+                        .sandbox
+                        .execute(&format!("rm -rf {}", project_dir.display()))
+                        .await;
                     return Ok(SandboxValidationResult::lint_error(
                         errors,
                         start.elapsed().as_millis() as u64,
@@ -420,7 +441,10 @@ impl<S: Sandbox> SandboxValidator<S> {
             let test_result = self.sandbox.execute(&test_cmd).await?;
 
             // Cleanup
-            let _ = self.sandbox.execute(&format!("rm -rf {}", project_dir.display())).await;
+            let _ = self
+                .sandbox
+                .execute(&format!("rm -rf {}", project_dir.display()))
+                .await;
 
             // Parse test results
             let (total, passed, failed, errors) =
@@ -435,17 +459,23 @@ impl<S: Sandbox> SandboxValidator<S> {
                     let output_lines: Vec<&str> = combined.lines().collect();
                     let truncated = if output_lines.len() > 100 {
                         // Too long, take last 80 lines
-                        output_lines[output_lines.len()-80..].join("\n")
+                        output_lines[output_lines.len() - 80..].join("\n")
                     } else {
                         combined.clone()
                     };
 
                     // If still empty, note that
                     let final_output = if truncated.trim().is_empty() {
-                        format!("Test failed with exit code {} but no output captured. \
-                            Check for panics, timeouts, or infinite loops.", test_result.exit_code)
+                        format!(
+                            "Test failed with exit code {} but no output captured. \
+                            Check for panics, timeouts, or infinite loops.",
+                            test_result.exit_code
+                        )
                     } else {
-                        format!("Test failed (exit code {}):\n{}", test_result.exit_code, truncated)
+                        format!(
+                            "Test failed (exit code {}):\n{}",
+                            test_result.exit_code, truncated
+                        )
                     };
 
                     vec![final_output]
@@ -461,11 +491,20 @@ impl<S: Sandbox> SandboxValidator<S> {
                 ));
             }
 
-            Ok(SandboxValidationResult::success(total, start.elapsed().as_millis() as u64))
+            Ok(SandboxValidationResult::success(
+                total,
+                start.elapsed().as_millis() as u64,
+            ))
         } else {
             // Cleanup
-            let _ = self.sandbox.execute(&format!("rm -rf {}", project_dir.display())).await;
-            Ok(SandboxValidationResult::success(0, start.elapsed().as_millis() as u64))
+            let _ = self
+                .sandbox
+                .execute(&format!("rm -rf {}", project_dir.display()))
+                .await;
+            Ok(SandboxValidationResult::success(
+                0,
+                start.elapsed().as_millis() as u64,
+            ))
         }
     }
 
@@ -560,7 +599,8 @@ TEST_EOF
         let encoded = base64_encode(code);
 
         // Check if code contains tests (Jest)
-        let has_tests = code.contains("describe(") || code.contains("it(") || code.contains("test(");
+        let has_tests =
+            code.contains("describe(") || code.contains("it(") || code.contains("test(");
         let filename = if has_tests { "main.test.ts" } else { "main.ts" };
 
         // Generate appropriate tsconfig based on whether we have tests
@@ -687,7 +727,12 @@ echo '{encoded}' | base64 -d > {dir}/{filename}
                 errors.push(line.to_string());
             }
             // Go error pattern: file.go:line:col: message
-            else if line.contains(".go:") && (line.contains("undefined") || line.contains("cannot") || line.contains("expected") || line.contains("invalid")) {
+            else if line.contains(".go:")
+                && (line.contains("undefined")
+                    || line.contains("cannot")
+                    || line.contains("expected")
+                    || line.contains("invalid"))
+            {
                 errors.push(line.to_string());
             }
             // Also capture the context lines (up to 5 after error)
@@ -743,7 +788,10 @@ echo '{encoded}' | base64 -d > {dir}/{filename}
                 current_error = line.to_string();
             }
             // Context lines (location, help suggestions)
-            else if line.contains(" --> ") || line.contains(" | ") || line.trim().starts_with("= help:") {
+            else if line.contains(" --> ")
+                || line.contains(" | ")
+                || line.trim().starts_with("= help:")
+            {
                 if !current_error.is_empty() {
                     current_error.push('\n');
                     current_error.push_str(line);
@@ -764,7 +812,8 @@ echo '{encoded}' | base64 -d > {dir}/{filename}
         }
 
         // Filter out non-actionable items (aborting due to errors, etc.)
-        errors.into_iter()
+        errors
+            .into_iter()
             .filter(|e| !e.contains("aborting due to") && !e.contains("could not compile"))
             .collect()
     }
@@ -802,8 +851,14 @@ echo '{encoded}' | base64 -d > {dir}/{filename}
                     .ok()
                     .and_then(|re| re.captures(line))
                 {
-                    passed = caps.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-                    failed = caps.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+                    passed = caps
+                        .get(1)
+                        .and_then(|m| m.as_str().parse().ok())
+                        .unwrap_or(0);
+                    failed = caps
+                        .get(2)
+                        .and_then(|m| m.as_str().parse().ok())
+                        .unwrap_or(0);
                     total = passed + failed;
                 }
             }
@@ -873,8 +928,10 @@ echo '{encoded}' | base64 -d > {dir}/{filename}
                 // Last resort: include last 30 lines
                 let last_lines: Vec<&str> = output.lines().collect();
                 let start = last_lines.len().saturating_sub(30);
-                errors.push(format!("Test output (last 30 lines):\n{}",
-                    last_lines[start..].join("\n")));
+                errors.push(format!(
+                    "Test output (last 30 lines):\n{}",
+                    last_lines[start..].join("\n")
+                ));
             }
         }
 
@@ -895,13 +952,19 @@ echo '{encoded}' | base64 -d > {dir}/{filename}
                     .ok()
                     .and_then(|re| re.captures(line))
                 {
-                    passed = caps.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+                    passed = caps
+                        .get(1)
+                        .and_then(|m| m.as_str().parse().ok())
+                        .unwrap_or(0);
                 }
                 if let Some(caps) = regex::Regex::new(r"(\d+) failed")
                     .ok()
                     .and_then(|re| re.captures(line))
                 {
-                    failed = caps.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+                    failed = caps
+                        .get(1)
+                        .and_then(|m| m.as_str().parse().ok())
+                        .unwrap_or(0);
                 }
                 total = passed + failed;
             }
@@ -929,19 +992,28 @@ echo '{encoded}' | base64 -d > {dir}/{filename}
                     .ok()
                     .and_then(|re| re.captures(line))
                 {
-                    passed = caps.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+                    passed = caps
+                        .get(1)
+                        .and_then(|m| m.as_str().parse().ok())
+                        .unwrap_or(0);
                 }
                 if let Some(caps) = regex::Regex::new(r"(\d+) failed")
                     .ok()
                     .and_then(|re| re.captures(line))
                 {
-                    failed = caps.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+                    failed = caps
+                        .get(1)
+                        .and_then(|m| m.as_str().parse().ok())
+                        .unwrap_or(0);
                 }
                 if let Some(caps) = regex::Regex::new(r"(\d+) total")
                     .ok()
                     .and_then(|re| re.captures(line))
                 {
-                    total = caps.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+                    total = caps
+                        .get(1)
+                        .and_then(|m| m.as_str().parse().ok())
+                        .unwrap_or(0);
                 }
             }
 
@@ -980,7 +1052,11 @@ echo '{encoded}' | base64 -d > {dir}/{filename}
                 errors.push(line.to_string());
             }
             // Go compile errors
-            if line.contains(".go:") && (line.contains("undefined") || line.contains("cannot") || line.contains("expected")) {
+            if line.contains(".go:")
+                && (line.contains("undefined")
+                    || line.contains("cannot")
+                    || line.contains("expected"))
+            {
                 errors.push(line.to_string());
             }
         }
@@ -1048,7 +1124,11 @@ mod tests {
 "#;
 
         let result = validator.validate_rust_code(code).await.unwrap();
-        assert!(result.compiles, "Code should compile: {:?}", result.compiler_errors);
+        assert!(
+            result.compiles,
+            "Code should compile: {:?}",
+            result.compiler_errors
+        );
     }
 
     #[tokio::test]

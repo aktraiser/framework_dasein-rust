@@ -162,10 +162,10 @@ impl FirecrackerSandbox {
     /// Execute code using firepilot.
     #[cfg(feature = "firecracker")]
     async fn execute_with_firepilot(&self, code: &str) -> Result<ExecutionResult, SandboxError> {
-        use firepilot::builder::{Configuration, Builder};
         use firepilot::builder::drive::DriveBuilder;
-        use firepilot::builder::kernel::KernelBuilder;
         use firepilot::builder::executor::FirecrackerExecutorBuilder;
+        use firepilot::builder::kernel::KernelBuilder;
+        use firepilot::builder::{Builder, Configuration};
         use firepilot::machine::Machine;
         use std::path::PathBuf;
 
@@ -211,13 +211,15 @@ impl FirecrackerSandbox {
         // Create and start the machine
         let mut machine = Machine::new();
 
-        machine.create(config).await.map_err(|e| {
-            SandboxError::StartError(format!("Failed to create VM: {:?}", e))
-        })?;
+        machine
+            .create(config)
+            .await
+            .map_err(|e| SandboxError::StartError(format!("Failed to create VM: {:?}", e)))?;
 
-        machine.start().await.map_err(|e| {
-            SandboxError::StartError(format!("Failed to start VM: {:?}", e))
-        })?;
+        machine
+            .start()
+            .await
+            .map_err(|e| SandboxError::StartError(format!("Failed to start VM: {:?}", e)))?;
 
         debug!("MicroVM started, executing code...");
 
@@ -284,7 +286,10 @@ impl Default for FirecrackerSandbox {
 impl Sandbox for FirecrackerSandbox {
     #[instrument(skip(self, code), fields(sandbox = "firecracker"))]
     async fn execute(&self, code: &str) -> Result<ExecutionResult, SandboxError> {
-        debug!("Executing in Firecracker sandbox: {}...", &code[..code.len().min(50)]);
+        debug!(
+            "Executing in Firecracker sandbox: {}...",
+            &code[..code.len().min(50)]
+        );
 
         #[cfg(feature = "firecracker")]
         {

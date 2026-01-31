@@ -65,11 +65,8 @@ pub use types::{
 
 // Re-export distributed types for convenience
 pub use distributed::{
-    Supervisor, SupervisorBuilder, SupervisorHandle,
-    Executor, ExecutorBuilder, ExecutorState,
-    Validator, ValidatorBuilder, ValidationRule, ValidationResult, ValidationAction,
-    SandboxValidator, SandboxValidationResult, Language,
-    ExecutorPool, PoolConfig,
-    AllocationGrant, AllocationRequest, AllocationManager,
-    Capability, LLMConfig, SandboxConfig,
+    AllocationGrant, AllocationManager, AllocationRequest, Capability, Executor, ExecutorBuilder,
+    ExecutorPool, ExecutorState, LLMConfig, Language, PoolConfig, SandboxConfig,
+    SandboxValidationResult, SandboxValidator, Supervisor, SupervisorBuilder, SupervisorHandle,
+    ValidationAction, ValidationResult, ValidationRule, Validator, ValidatorBuilder,
 };

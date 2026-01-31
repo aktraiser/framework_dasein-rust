@@ -345,10 +345,7 @@ pub struct DocReference {
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum DecisionRecord {
     /// Continue to next attempt
-    Continue {
-        reason: String,
-        next_tier: String,
-    },
+    Continue { reason: String, next_tier: String },
     /// Rollback to best previous attempt
     Rollback {
         reason: String,
@@ -356,13 +353,9 @@ pub enum DecisionRecord {
         best_score: i32,
     },
     /// Accept the result
-    Accept {
-        final_score: i32,
-    },
+    Accept { final_score: i32 },
     /// Reject and stop
-    Reject {
-        reason: String,
-    },
+    Reject { reason: String },
 }
 
 /// Code snapshot for replay/debugging.
@@ -551,7 +544,9 @@ impl PipelineTracer {
 
         // Update metrics
         let mut trace = self.trace.write().await;
-        *trace.metrics.attempts_by_tier
+        *trace
+            .metrics
+            .attempts_by_tier
             .entry(tier.as_str().to_string())
             .or_insert(0) += 1;
     }
@@ -563,7 +558,9 @@ impl PipelineTracer {
             {
                 let mut trace = self.trace.write().await;
                 trace.metrics.total_tokens += record.tokens.total;
-                *trace.metrics.tokens_by_tier
+                *trace
+                    .metrics
+                    .tokens_by_tier
                     .entry(attempt.model_tier.clone())
                     .or_insert(0) += record.tokens.total;
             }
@@ -580,12 +577,16 @@ impl PipelineTracer {
                 let mut trace = self.trace.write().await;
                 for stage in &record.stages {
                     if !stage.passed {
-                        *trace.metrics.failed_validators
+                        *trace
+                            .metrics
+                            .failed_validators
                             .entry(stage.validator.clone())
                             .or_insert(0) += 1;
                     }
                     for error in &stage.errors {
-                        *trace.metrics.error_categories
+                        *trace
+                            .metrics
+                            .error_categories
                             .entry(error.category.clone())
                             .or_insert(0) += 1;
                     }
@@ -637,10 +638,8 @@ impl PipelineTracer {
         let mut current = self.current_attempt.write().await;
         if let Some(mut attempt) = current.take() {
             attempt.ended_at = Some(Utc::now());
-            attempt.duration_ms = Some(
-                (attempt.ended_at.unwrap() - attempt.started_at)
-                    .num_milliseconds() as u64
-            );
+            attempt.duration_ms =
+                Some((attempt.ended_at.unwrap() - attempt.started_at).num_milliseconds() as u64);
 
             let mut trace = self.trace.write().await;
             trace.attempts.push(attempt);
@@ -662,7 +661,10 @@ impl PipelineTracer {
         trace.status = if success {
             TraceStatus::Success
         } else if trace.attempts.iter().any(|a| {
-            a.validation.as_ref().map(|v| v.score > -1000).unwrap_or(false)
+            a.validation
+                .as_ref()
+                .map(|v| v.score > -1000)
+                .unwrap_or(false)
         }) {
             TraceStatus::PartialSuccess
         } else {
@@ -670,12 +672,14 @@ impl PipelineTracer {
         };
 
         // Calculate total duration
-        trace.metrics.total_duration_ms = (trace.completed_at.unwrap() - trace.started_at)
-            .num_milliseconds() as u64;
+        trace.metrics.total_duration_ms =
+            (trace.completed_at.unwrap() - trace.started_at).num_milliseconds() as u64;
 
         // Build result
         if let Some(code) = final_code {
-            let best_attempt = trace.attempts.iter()
+            let best_attempt = trace
+                .attempts
+                .iter()
                 .filter(|a| a.validation.is_some())
                 .max_by_key(|a| a.validation.as_ref().map(|v| v.score).unwrap_or(i32::MIN));
 
@@ -713,9 +717,11 @@ impl PipelineTracer {
         let mut trace = self.trace.write().await;
         trace.completed_at = Some(Utc::now());
         trace.status = TraceStatus::Cancelled;
-        trace.metadata.insert("cancel_reason".to_string(), serde_json::json!(reason));
-        trace.metrics.total_duration_ms = (trace.completed_at.unwrap() - trace.started_at)
-            .num_milliseconds() as u64;
+        trace
+            .metadata
+            .insert("cancel_reason".to_string(), serde_json::json!(reason));
+        trace.metrics.total_duration_ms =
+            (trace.completed_at.unwrap() - trace.started_at).num_milliseconds() as u64;
 
         trace.clone()
     }
@@ -735,7 +741,8 @@ impl PipelineTracer {
         let subject = format!("pipeline.trace.{}", trace.trace_id);
         let ack = nats.publish_jetstream(&subject, &*trace).await?;
         // Wait for acknowledgment
-        ack.await.map_err(|e| BusError::PublishFailed(e.to_string()))?;
+        ack.await
+            .map_err(|e| BusError::PublishFailed(e.to_string()))?;
         Ok(())
     }
 
@@ -780,37 +787,49 @@ mod tests {
         let tracer = PipelineTracer::new("python", "Create a hello world");
 
         // Configure
-        tracer.set_models(
-            ModelInfo {
-                provider: "gemini".to_string(),
-                model: "gemini-2.0-flash".to_string(),
-                temperature: Some(0.2),
-                max_tokens: Some(8192),
-            },
-            ModelInfo {
-                provider: "anthropic".to_string(),
-                model: "claude-haiku".to_string(),
-                temperature: Some(0.2),
-                max_tokens: Some(8192),
-            },
-        ).await;
+        tracer
+            .set_models(
+                ModelInfo {
+                    provider: "gemini".to_string(),
+                    model: "gemini-2.0-flash".to_string(),
+                    temperature: Some(0.2),
+                    max_tokens: Some(8192),
+                },
+                ModelInfo {
+                    provider: "anthropic".to_string(),
+                    model: "claude-haiku".to_string(),
+                    temperature: Some(0.2),
+                    max_tokens: Some(8192),
+                },
+            )
+            .await;
 
         // Attempt 1
         tracer.start_attempt(1, ModelTier::Fast).await;
-        tracer.record_generation(GenerationRecord {
-            model: "gemini-2.0-flash".to_string(),
-            tokens: TokenUsage { prompt: 100, completion: 50, total: 150 },
-            chars_generated: 500,
-            truncated: false,
-            duration_ms: 1000,
-        }).await;
-        tracer.record_validation(ValidationRecord {
-            passed: true,
-            score: 0,
-            stages: vec![],
-            duration_ms: 500,
-        }).await;
-        tracer.record_decision(DecisionRecord::Accept { final_score: 0 }).await;
+        tracer
+            .record_generation(GenerationRecord {
+                model: "gemini-2.0-flash".to_string(),
+                tokens: TokenUsage {
+                    prompt: 100,
+                    completion: 50,
+                    total: 150,
+                },
+                chars_generated: 500,
+                truncated: false,
+                duration_ms: 1000,
+            })
+            .await;
+        tracer
+            .record_validation(ValidationRecord {
+                passed: true,
+                score: 0,
+                stages: vec![],
+                duration_ms: 500,
+            })
+            .await;
+        tracer
+            .record_decision(DecisionRecord::Accept { final_score: 0 })
+            .await;
         tracer.record_code("print('hello')").await;
 
         // Complete
@@ -832,36 +851,41 @@ mod tests {
         let tracer = PipelineTracer::new("rust", "Create a scheduler");
 
         tracer.start_attempt(1, ModelTier::Fast).await;
-        tracer.record_validation(ValidationRecord {
-            passed: false,
-            score: -300,
-            stages: vec![ValidatorStageRecord {
-                validator: "sandbox".to_string(),
+        tracer
+            .record_validation(ValidationRecord {
                 passed: false,
-                duration_ms: 5000,
-                errors: vec![EnrichedError {
-                    id: "err-001".to_string(),
-                    severity: ErrorSeverity::Error,
-                    category: "type_system".to_string(),
-                    location: Some(ErrorLocation {
-                        file: Some("lib.rs".to_string()),
-                        line: Some(42),
-                        column: None,
-                        function: Some("main".to_string()),
-                    }),
-                    message: "mismatched types".to_string(),
-                    analysis: None,
-                    hints: vec!["Check return type".to_string()],
+                score: -300,
+                stages: vec![ValidatorStageRecord {
+                    validator: "sandbox".to_string(),
+                    passed: false,
+                    duration_ms: 5000,
+                    errors: vec![EnrichedError {
+                        id: "err-001".to_string(),
+                        severity: ErrorSeverity::Error,
+                        category: "type_system".to_string(),
+                        location: Some(ErrorLocation {
+                            file: Some("lib.rs".to_string()),
+                            line: Some(42),
+                            column: None,
+                            function: Some("main".to_string()),
+                        }),
+                        message: "mismatched types".to_string(),
+                        analysis: None,
+                        hints: vec!["Check return type".to_string()],
+                    }],
+                    recommendations: vec![],
+                    documentation: vec![],
                 }],
-                recommendations: vec![],
-                documentation: vec![],
-            }],
-            duration_ms: 5000,
-        }).await;
+                duration_ms: 5000,
+            })
+            .await;
 
         let trace = tracer.complete(false, None).await;
 
         assert_eq!(trace.status, TraceStatus::Failed);
-        assert_eq!(*trace.metrics.error_categories.get("type_system").unwrap(), 1);
+        assert_eq!(
+            *trace.metrics.error_categories.get("type_system").unwrap(),
+            1
+        );
     }
 }

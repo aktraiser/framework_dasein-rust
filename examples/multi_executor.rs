@@ -24,24 +24,22 @@
 //! If a stage fails, regenerate ONLY that stage.
 
 use agentic_core::distributed::{
-    Executor, ValidatorPipeline, SandboxPipelineValidator, MCPDocValidator,
-    MCPDocConfig, ValidatorInput, CodeAssembler,
     bus::{
-        BusCoordinator, StateStore, BusLinter,
-        RollbackManager, RollbackDecision,
-        ErrorFingerprinter, ModelTier,
-        AuditCollector, AuditEvent, TraceSequencer,
+        AuditCollector, AuditEvent, BusCoordinator, BusLinter, ErrorFingerprinter, ModelTier,
+        RollbackDecision, RollbackManager, StateStore, TraceSequencer,
     },
     incremental_pipeline::Stage,
+    CodeAssembler, Executor, MCPDocConfig, MCPDocValidator, SandboxPipelineValidator,
+    ValidatorInput, ValidatorPipeline,
 };
-use agentic_sandbox::{ProcessSandbox, Sandbox};
 #[cfg(feature = "remote")]
 use agentic_sandbox::RemoteSandbox;
+use agentic_sandbox::{ProcessSandbox, Sandbox};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-const MAX_STAGE_RETRIES: u32 = 7;  // More retries with model escalation
+const MAX_STAGE_RETRIES: u32 = 7; // More retries with model escalation
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -57,8 +55,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("{}\n", "=".repeat(60));
 
     // === Setup NATS ===
-    let nats_url = std::env::var("NATS_URL").unwrap_or_else(|_| "nats://localhost:4222".to_string());
-    let bus = match BusCoordinator::builder().nats_url(&nats_url).build_and_start().await {
+    let nats_url =
+        std::env::var("NATS_URL").unwrap_or_else(|_| "nats://localhost:4222".to_string());
+    let bus = match BusCoordinator::builder()
+        .nats_url(&nats_url)
+        .build_and_start()
+        .await
+    {
         Ok(b) => {
             println!("✓ NATS connected");
             Arc::new(b)
@@ -109,7 +112,8 @@ Include tests."#;
     println!("✓ Fast model: {}", fast_model);
 
     // Smart model: Claude for complex errors (borrow checker, lifetimes)
-    let smart_model = std::env::var("SMART_MODEL").unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
+    let smart_model =
+        std::env::var("SMART_MODEL").unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
     let smart_executor = Executor::new("smart-exe", "supervisor")
         .llm_anthropic(&smart_model)
         .build();
@@ -133,8 +137,18 @@ Include tests."#;
                 Ok(health) => {
                     println!("✓ Firecracker Server: {}", firecracker_url);
                     println!("  ├── Status: {}", health.status);
-                    println!("  ├── KVM: {}", if health.kvm_available { "✅" } else { "❌" });
-                    println!("  └── Firecracker: {}", if health.firecracker_available { "✅" } else { "❌" });
+                    println!(
+                        "  ├── KVM: {}",
+                        if health.kvm_available { "✅" } else { "❌" }
+                    );
+                    println!(
+                        "  └── Firecracker: {}",
+                        if health.firecracker_available {
+                            "✅"
+                        } else {
+                            "❌"
+                        }
+                    );
                 }
                 Err(e) => {
                     eprintln!("⚠ Firecracker server not reachable: {}", e);
@@ -178,7 +192,13 @@ Include tests."#;
     let total_start = Instant::now();
 
     // Emit pipeline start
-    audit.emit(AuditEvent::pipeline_started(trace.trace_id(), trace.next(), task)).await?;
+    audit
+        .emit(AuditEvent::pipeline_started(
+            trace.trace_id(),
+            trace.next(),
+            task,
+        ))
+        .await?;
 
     // Stage 1: Generate and lock TYPES (always use fast model)
     println!("\n[Stage 1/3] TYPES");
@@ -194,7 +214,8 @@ Include tests."#;
         "", // No previous context
         &audit,
         &trace,
-    ).await?;
+    )
+    .await?;
     println!("  ✓ Types LOCKED ({} chars)", locked_types.len());
 
     // Stage 2: Generate and lock STUBS (with locked types as context)
@@ -211,7 +232,8 @@ Include tests."#;
         &locked_types, // Previous locked stage
         &audit,
         &trace,
-    ).await?;
+    )
+    .await?;
     println!("  ✓ Stubs LOCKED ({} chars)", locked_stubs.len());
 
     // Stage 3: Generate and validate LOGIC (with locked types+stubs)
@@ -228,11 +250,20 @@ Include tests."#;
         &locked_stubs, // Previous locked stages
         &audit,
         &trace,
-    ).await?;
+    )
+    .await?;
 
     // Emit pipeline completed
     let duration = total_start.elapsed().as_millis();
-    audit.emit(AuditEvent::pipeline_completed(trace.trace_id(), trace.next(), true, duration as u64, 3)).await?;
+    audit
+        .emit(AuditEvent::pipeline_completed(
+            trace.trace_id(),
+            trace.next(),
+            true,
+            duration as u64,
+            3,
+        ))
+        .await?;
 
     // Print audit report
     println!("\n{}", "=".repeat(60));
@@ -268,7 +299,6 @@ async fn generate_and_lock_stage(
     audit: &AuditCollector,
     trace: &TraceSequencer,
 ) -> Result<String, Box<dyn std::error::Error>> {
-
     let system = "You are an expert Rust developer. Return ONLY valid Rust code. No markdown.";
     let stage_name = format!("{:?}", stage);
 
@@ -287,7 +317,14 @@ async fn generate_and_lock_stage(
 
     for attempt in 1..=MAX_STAGE_RETRIES {
         // Emit stage started
-        audit.emit(AuditEvent::stage_started(trace.trace_id(), trace.next(), &stage_name, attempt)).await?;
+        audit
+            .emit(AuditEvent::stage_started(
+                trace.trace_id(),
+                trace.next(),
+                &stage_name,
+                attempt,
+            ))
+            .await?;
 
         // Select executor based on error fingerprinting + escalation on repeated failures
         let executor = if !previous_errors.is_empty() {
@@ -302,8 +339,20 @@ async fn generate_and_lock_stage(
                 "fingerprint recommendation"
             };
 
-            let categories: Vec<String> = analysis.category_counts.keys().map(|c| format!("{:?}", c)).collect();
-            audit.emit(AuditEvent::model_selected(trace.trace_id(), trace.next(), current_tier, reason, categories)).await?;
+            let categories: Vec<String> = analysis
+                .category_counts
+                .keys()
+                .map(|c| format!("{:?}", c))
+                .collect();
+            audit
+                .emit(AuditEvent::model_selected(
+                    trace.trace_id(),
+                    trace.next(),
+                    current_tier,
+                    reason,
+                    categories,
+                ))
+                .await?;
 
             match current_tier {
                 ModelTier::Fast => fast_executor,
@@ -321,7 +370,10 @@ async fn generate_and_lock_stage(
             ModelTier::Expert => "🎓",
         };
 
-        println!("  Attempt {}/{} {}", attempt, MAX_STAGE_RETRIES, tier_indicator);
+        println!(
+            "  Attempt {}/{} {}",
+            attempt, MAX_STAGE_RETRIES, tier_indicator
+        );
 
         // Build prompt with error feedback if this is a retry
         let mut stage_prompt = build_stage_prompt(
@@ -346,18 +398,36 @@ async fn generate_and_lock_stage(
         let code = assembler.clean_for_validation(&result.content);
 
         // Emit code snapshot
-        audit.emit(AuditEvent::code_snapshot(trace.trace_id(), trace.next(), &stage_name, attempt, &code)).await?;
+        audit
+            .emit(AuditEvent::code_snapshot(
+                trace.trace_id(),
+                trace.next(),
+                &stage_name,
+                attempt,
+                &code,
+            ))
+            .await?;
 
         // Quick lint check
         let lint = linter.lint(&code);
         if !lint.passed {
-            let err = lint.errors.first().map(|e| e.message.clone()).unwrap_or_default();
+            let err = lint
+                .errors
+                .first()
+                .map(|e| e.message.clone())
+                .unwrap_or_default();
             println!("    ✗ Lint failed: {}", err);
 
             // Emit validation failed (lint)
-            audit.emit(AuditEvent::validation_completed(
-                trace.trace_id(), trace.next(), "BusLinter", false, &[err.clone()]
-            )).await?;
+            audit
+                .emit(AuditEvent::validation_completed(
+                    trace.trace_id(),
+                    trace.next(),
+                    "BusLinter",
+                    false,
+                    &[err.clone()],
+                ))
+                .await?;
 
             previous_errors = vec![format!("Lint error: {}", err)];
             previous_code = Some(code);
@@ -374,7 +444,16 @@ async fn generate_and_lock_stage(
         if matches!(stage, Stage::Types | Stage::Stubs) {
             println!("    ✓ Lint OK");
             // Emit stage completed
-            audit.emit(AuditEvent::stage_completed(trace.trace_id(), trace.next(), &stage_name, attempt, true, &code)).await?;
+            audit
+                .emit(AuditEvent::stage_completed(
+                    trace.trace_id(),
+                    trace.next(),
+                    &stage_name,
+                    attempt,
+                    true,
+                    &code,
+                ))
+                .await?;
             return Ok(code); // Success - no need to reset counter, we're returning
         }
 
@@ -387,20 +466,40 @@ async fn generate_and_lock_stage(
         let val_result = pipeline.validate(input).await;
 
         // Emit validation result
-        let val_errors: Vec<String> = val_result.results.iter().flat_map(|r| r.errors.clone()).collect();
-        audit.emit(AuditEvent::validation_completed(
-            trace.trace_id(), trace.next(), "SandboxPipeline", val_result.passed, &val_errors
-        )).await?;
+        let val_errors: Vec<String> = val_result
+            .results
+            .iter()
+            .flat_map(|r| r.errors.clone())
+            .collect();
+        audit
+            .emit(AuditEvent::validation_completed(
+                trace.trace_id(),
+                trace.next(),
+                "SandboxPipeline",
+                val_result.passed,
+                &val_errors,
+            ))
+            .await?;
 
         if val_result.passed {
             println!("    ✓ Validation passed");
             // Emit stage completed
-            audit.emit(AuditEvent::stage_completed(trace.trace_id(), trace.next(), &stage_name, attempt, true, &code)).await?;
+            audit
+                .emit(AuditEvent::stage_completed(
+                    trace.trace_id(),
+                    trace.next(),
+                    &stage_name,
+                    attempt,
+                    true,
+                    &code,
+                ))
+                .await?;
             return Ok(code);
         }
 
         // Collect errors for feedback
-        let errors: Vec<String> = val_result.results
+        let errors: Vec<String> = val_result
+            .results
             .iter()
             .flat_map(|r| r.errors.clone())
             .collect();
@@ -420,19 +519,30 @@ async fn generate_and_lock_stage(
         }
 
         match decision {
-            RollbackDecision::Rollback { code: best_code, reason, failing_tests, .. } => {
+            RollbackDecision::Rollback {
+                code: best_code,
+                reason,
+                failing_tests,
+                ..
+            } => {
                 println!("    ↩ ROLLBACK: {}", reason);
 
                 // Emit rollback decision (current attempt failed, rolling back to best)
                 let best_score_val = rollback.best().map(|b| b.score.quality_score());
-                audit.emit(AuditEvent::rollback_decision(
-                    trace.trace_id(), trace.next(),
-                    "rollback", -(errors.len() as i32 * 100), best_score_val, &reason
-                )).await?;
+                audit
+                    .emit(AuditEvent::rollback_decision(
+                        trace.trace_id(),
+                        trace.next(),
+                        "rollback",
+                        -(errors.len() as i32 * 100),
+                        best_score_val,
+                        &reason,
+                    ))
+                    .await?;
 
                 // Use targeted prompt for the failing test
                 if let Some(targeted_prompt) = rollback.generate_targeted_prompt(
-                    failing_tests.first().map(|s| s.as_str()).unwrap_or("test")
+                    failing_tests.first().map(|s| s.as_str()).unwrap_or("test"),
                 ) {
                     previous_errors = failing_tests;
                     previous_code = Some(targeted_prompt);
@@ -441,9 +551,16 @@ async fn generate_and_lock_stage(
                     previous_errors = errors;
                 }
             }
-            RollbackDecision::Continue { current_score, best_score } => {
+            RollbackDecision::Continue {
+                current_score,
+                best_score,
+            } => {
                 let score_info = if let Some(ref best) = best_score {
-                    format!(" (score: {}, best: {})", current_score.quality_score(), best.quality_score())
+                    format!(
+                        " (score: {}, best: {})",
+                        current_score.quality_score(),
+                        best.quality_score()
+                    )
                 } else {
                     format!(" (score: {})", current_score.quality_score())
                 };
@@ -451,10 +568,16 @@ async fn generate_and_lock_stage(
                 println!("    ✗ {} errors{}{}", errors.len(), score_info, tier_info);
 
                 // Emit continue decision
-                audit.emit(AuditEvent::rollback_decision(
-                    trace.trace_id(), trace.next(),
-                    "continue", current_score.quality_score(), best_score.as_ref().map(|s| s.quality_score()), "progressing"
-                )).await?;
+                audit
+                    .emit(AuditEvent::rollback_decision(
+                        trace.trace_id(),
+                        trace.next(),
+                        "continue",
+                        current_score.quality_score(),
+                        best_score.as_ref().map(|s| s.quality_score()),
+                        "progressing",
+                    ))
+                    .await?;
 
                 previous_errors = errors;
                 previous_code = Some(code);
@@ -469,22 +592,41 @@ async fn generate_and_lock_stage(
     // If we have a best attempt that compiles, return it even with test failures
     if let Some(best) = rollback.best() {
         if best.score.compiles {
-            println!("    ⚠ Returning best attempt (compiles, {} tests fail)", best.score.tests_failed);
+            println!(
+                "    ⚠ Returning best attempt (compiles, {} tests fail)",
+                best.score.tests_failed
+            );
             // Emit stage completed with partial success
-            audit.emit(AuditEvent::stage_completed(
-                trace.trace_id(), trace.next(), &stage_name, best.number, true, &best.code
-            )).await?;
+            audit
+                .emit(AuditEvent::stage_completed(
+                    trace.trace_id(),
+                    trace.next(),
+                    &stage_name,
+                    best.number,
+                    true,
+                    &best.code,
+                ))
+                .await?;
             return Ok(best.code.clone());
         }
     }
 
     // Emit stage failed
-    audit.emit(AuditEvent::error(
-        trace.trace_id(), trace.next(), &stage_name,
-        &format!("Failed after {} attempts", MAX_STAGE_RETRIES), false
-    )).await?;
+    audit
+        .emit(AuditEvent::error(
+            trace.trace_id(),
+            trace.next(),
+            &stage_name,
+            &format!("Failed after {} attempts", MAX_STAGE_RETRIES),
+            false,
+        ))
+        .await?;
 
-    Err(format!("Stage {:?} failed after {} attempts", stage, MAX_STAGE_RETRIES).into())
+    Err(format!(
+        "Stage {:?} failed after {} attempts",
+        stage, MAX_STAGE_RETRIES
+    )
+    .into())
 }
 
 /// Build the prompt for a stage, including error feedback if this is a retry.

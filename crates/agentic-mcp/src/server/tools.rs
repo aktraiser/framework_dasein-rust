@@ -189,22 +189,23 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 "#;
-        std::fs::write(project_dir.join("Cargo.toml"), cargo_toml)
-            .map_err(|e| e.to_string())?;
+        std::fs::write(project_dir.join("Cargo.toml"), cargo_toml).map_err(|e| e.to_string())?;
 
         std::fs::create_dir_all(project_dir.join("src")).map_err(|e| e.to_string())?;
         std::fs::write(project_dir.join("src/lib.rs"), code).map_err(|e| e.to_string())?;
 
         // Compile
         let compile_cmd = format!("cd {} && cargo check 2>&1", project_dir.display());
-        let compile_result = self.sandbox.execute(&compile_cmd).await
+        let compile_result = self
+            .sandbox
+            .execute(&compile_cmd)
+            .await
             .map_err(|e| e.to_string())?;
 
         if !compile_result.is_success() {
             return Ok(format!(
                 "COMPILATION FAILED:\n{}{}",
-                compile_result.stdout,
-                compile_result.stderr
+                compile_result.stdout, compile_result.stderr
             ));
         }
 
@@ -214,7 +215,10 @@ tokio = { version = "1", features = ["full"] }
 
         // Run tests
         let test_cmd = format!("cd {} && cargo test 2>&1", project_dir.display());
-        let test_result = self.sandbox.execute(&test_cmd).await
+        let test_result = self
+            .sandbox
+            .execute(&test_cmd)
+            .await
             .map_err(|e| e.to_string())?;
 
         if test_result.is_success() {
@@ -222,8 +226,7 @@ tokio = { version = "1", features = ["full"] }
         } else {
             Ok(format!(
                 "TESTS FAILED:\n{}{}",
-                test_result.stdout,
-                test_result.stderr
+                test_result.stdout, test_result.stderr
             ))
         }
     }
@@ -243,14 +246,16 @@ tokio = { version = "1", features = ["full"] }
             "cd {} && python3 -m py_compile code.py 2>&1",
             project_dir.display()
         );
-        let check_result = self.sandbox.execute(&check_cmd).await
+        let check_result = self
+            .sandbox
+            .execute(&check_cmd)
+            .await
             .map_err(|e| e.to_string())?;
 
         if !check_result.is_success() {
             return Ok(format!(
                 "SYNTAX ERROR:\n{}{}",
-                check_result.stdout,
-                check_result.stderr
+                check_result.stdout, check_result.stderr
             ));
         }
 
@@ -263,13 +268,15 @@ tokio = { version = "1", features = ["full"] }
             "cd {} && python3 -m pytest code.py -v 2>&1 || python3 code.py 2>&1",
             project_dir.display()
         );
-        let test_result = self.sandbox.execute(&test_cmd).await
+        let test_result = self
+            .sandbox
+            .execute(&test_cmd)
+            .await
             .map_err(|e| e.to_string())?;
 
         Ok(format!(
             "EXECUTION RESULT:\n{}{}",
-            test_result.stdout,
-            test_result.stderr
+            test_result.stdout, test_result.stderr
         ))
     }
 
@@ -298,7 +305,9 @@ tokio = { version = "1", features = ["full"] }
 
     /// Analyze Rust code with clippy.
     async fn analyze_rust(&self, code: &str) -> Result<String, String> {
-        let project_dir = self.workspace.join(format!("analyze-{}", uuid::Uuid::new_v4()));
+        let project_dir = self
+            .workspace
+            .join(format!("analyze-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&project_dir).map_err(|e| e.to_string())?;
 
         let cargo_toml = r#"[package]
@@ -306,8 +315,7 @@ name = "analyze"
 version = "0.1.0"
 edition = "2021"
 "#;
-        std::fs::write(project_dir.join("Cargo.toml"), cargo_toml)
-            .map_err(|e| e.to_string())?;
+        std::fs::write(project_dir.join("Cargo.toml"), cargo_toml).map_err(|e| e.to_string())?;
         std::fs::create_dir_all(project_dir.join("src")).map_err(|e| e.to_string())?;
         std::fs::write(project_dir.join("src/lib.rs"), code).map_err(|e| e.to_string())?;
 
@@ -315,20 +323,25 @@ edition = "2021"
             "cd {} && cargo clippy --all-targets -- -W clippy::all 2>&1",
             project_dir.display()
         );
-        let result = self.sandbox.execute(&cmd).await.map_err(|e| e.to_string())?;
+        let result = self
+            .sandbox
+            .execute(&cmd)
+            .await
+            .map_err(|e| e.to_string())?;
 
         let _ = std::fs::remove_dir_all(&project_dir);
 
         Ok(format!(
             "CLIPPY ANALYSIS:\n{}{}",
-            result.stdout,
-            result.stderr
+            result.stdout, result.stderr
         ))
     }
 
     /// Analyze Python code with pylint/flake8.
     async fn analyze_python(&self, code: &str) -> Result<String, String> {
-        let project_dir = self.workspace.join(format!("analyze-{}", uuid::Uuid::new_v4()));
+        let project_dir = self
+            .workspace
+            .join(format!("analyze-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&project_dir).map_err(|e| e.to_string())?;
         std::fs::write(project_dir.join("code.py"), code).map_err(|e| e.to_string())?;
 
@@ -336,14 +349,17 @@ edition = "2021"
             "cd {} && (python3 -m flake8 code.py 2>&1 || python3 -m pylint code.py 2>&1 || echo 'No linter available')",
             project_dir.display()
         );
-        let result = self.sandbox.execute(&cmd).await.map_err(|e| e.to_string())?;
+        let result = self
+            .sandbox
+            .execute(&cmd)
+            .await
+            .map_err(|e| e.to_string())?;
 
         let _ = std::fs::remove_dir_all(&project_dir);
 
         Ok(format!(
             "PYTHON ANALYSIS:\n{}{}",
-            result.stdout,
-            result.stderr
+            result.stdout, result.stderr
         ))
     }
 
@@ -357,46 +373,105 @@ edition = "2021"
 
         // Common security patterns to check
         let security_patterns: HashMap<&str, Vec<(&str, &str, &str)>> = HashMap::from([
-            ("rust", vec![
-                ("unsafe", "high", "Unsafe code block detected"),
-                ("std::process::Command", "medium", "Command execution - check for injection"),
-                ("std::fs::write", "low", "File write - verify path sanitization"),
-                ("unwrap()", "low", "Panic on error - consider proper error handling"),
-                ("panic!", "medium", "Explicit panic - may cause DoS"),
-            ]),
-            ("python", vec![
-                ("eval(", "critical", "eval() is dangerous - code injection risk"),
-                ("exec(", "critical", "exec() is dangerous - code injection risk"),
-                ("subprocess", "high", "Subprocess execution - check for injection"),
-                ("os.system", "high", "OS command execution - injection risk"),
-                ("pickle.load", "high", "Pickle deserialization - arbitrary code execution"),
-                ("__import__", "medium", "Dynamic import - check source"),
-            ]),
-            ("typescript", vec![
-                ("eval(", "critical", "eval() is dangerous - code injection risk"),
-                ("dangerouslySetInnerHTML", "high", "XSS vulnerability risk"),
-                ("innerHTML", "high", "XSS vulnerability risk"),
-                ("child_process", "high", "Command execution - check for injection"),
-                ("fs.writeFile", "medium", "File write - verify path"),
-            ]),
+            (
+                "rust",
+                vec![
+                    ("unsafe", "high", "Unsafe code block detected"),
+                    (
+                        "std::process::Command",
+                        "medium",
+                        "Command execution - check for injection",
+                    ),
+                    (
+                        "std::fs::write",
+                        "low",
+                        "File write - verify path sanitization",
+                    ),
+                    (
+                        "unwrap()",
+                        "low",
+                        "Panic on error - consider proper error handling",
+                    ),
+                    ("panic!", "medium", "Explicit panic - may cause DoS"),
+                ],
+            ),
+            (
+                "python",
+                vec![
+                    (
+                        "eval(",
+                        "critical",
+                        "eval() is dangerous - code injection risk",
+                    ),
+                    (
+                        "exec(",
+                        "critical",
+                        "exec() is dangerous - code injection risk",
+                    ),
+                    (
+                        "subprocess",
+                        "high",
+                        "Subprocess execution - check for injection",
+                    ),
+                    ("os.system", "high", "OS command execution - injection risk"),
+                    (
+                        "pickle.load",
+                        "high",
+                        "Pickle deserialization - arbitrary code execution",
+                    ),
+                    ("__import__", "medium", "Dynamic import - check source"),
+                ],
+            ),
+            (
+                "typescript",
+                vec![
+                    (
+                        "eval(",
+                        "critical",
+                        "eval() is dangerous - code injection risk",
+                    ),
+                    ("dangerouslySetInnerHTML", "high", "XSS vulnerability risk"),
+                    ("innerHTML", "high", "XSS vulnerability risk"),
+                    (
+                        "child_process",
+                        "high",
+                        "Command execution - check for injection",
+                    ),
+                    ("fs.writeFile", "medium", "File write - verify path"),
+                ],
+            ),
         ]);
 
         let severity_order = ["low", "medium", "high", "critical"];
-        let threshold_idx = severity_order.iter().position(|&s| s == threshold).unwrap_or(1);
+        let threshold_idx = severity_order
+            .iter()
+            .position(|&s| s == threshold)
+            .unwrap_or(1);
 
         if let Some(patterns) = security_patterns.get(language) {
             for (pattern, severity, description) in patterns {
                 if code.contains(pattern) {
-                    let sev_idx = severity_order.iter().position(|&s| s == *severity).unwrap_or(0);
+                    let sev_idx = severity_order
+                        .iter()
+                        .position(|&s| s == *severity)
+                        .unwrap_or(0);
                     if sev_idx >= threshold_idx {
-                        findings.push(format!("[{}] {}: {}", severity.to_uppercase(), pattern, description));
+                        findings.push(format!(
+                            "[{}] {}: {}",
+                            severity.to_uppercase(),
+                            pattern,
+                            description
+                        ));
                     }
                 }
             }
         }
 
         let output = if findings.is_empty() {
-            format!("SECURITY AUDIT ({}):\nNo issues found above {} severity.", language, threshold)
+            format!(
+                "SECURITY AUDIT ({}):\nNo issues found above {} severity.",
+                language, threshold
+            )
         } else {
             format!(
                 "SECURITY AUDIT ({}):\nFound {} issues:\n\n{}",

@@ -37,7 +37,10 @@ impl ErrorEnricherValidator {
         enrichers.insert("python".to_string(), Box::new(PythonEnricher::new()));
         enrichers.insert("rust".to_string(), Box::new(RustEnricher::new()));
         enrichers.insert("go".to_string(), Box::new(GoEnricher::new()));
-        enrichers.insert("typescript".to_string(), Box::new(TypeScriptEnricher::new()));
+        enrichers.insert(
+            "typescript".to_string(),
+            Box::new(TypeScriptEnricher::new()),
+        );
 
         Self { enrichers }
     }
@@ -143,7 +146,12 @@ impl EnrichedError {
         }
 
         // Original error (shortened if too long)
-        let short_original: String = self.original.lines().take(3).collect::<Vec<_>>().join(" | ");
+        let short_original: String = self
+            .original
+            .lines()
+            .take(3)
+            .collect::<Vec<_>>()
+            .join(" | ");
         parts.push(format!("ERROR: {}", short_original));
 
         // Hints
@@ -225,8 +233,13 @@ impl ErrorEnricher for PythonEnricher {
 
         // Threading hints
         if error.contains("deadlock") || error.contains("timeout") {
-            enriched.hints.push("Possible deadlock: avoid acquiring locks in nested order".to_string());
-            enriched.hints.push("Use threading.RLock if the same thread needs to acquire the lock multiple times".to_string());
+            enriched
+                .hints
+                .push("Possible deadlock: avoid acquiring locks in nested order".to_string());
+            enriched.hints.push(
+                "Use threading.RLock if the same thread needs to acquire the lock multiple times"
+                    .to_string(),
+            );
         }
 
         // Look for the function in code and add context
@@ -291,7 +304,9 @@ impl ErrorEnricher for RustEnricher {
 
         // Add hints based on error type
         if error.contains("Clone") && error.contains("not satisfied") {
-            enriched.hints.push("Add #[derive(Clone)] to the struct/enum definition".to_string());
+            enriched
+                .hints
+                .push("Add #[derive(Clone)] to the struct/enum definition".to_string());
         }
 
         if error.contains("Send") && error.contains("not satisfied") {
@@ -299,13 +314,21 @@ impl ErrorEnricher for RustEnricher {
         }
 
         if error.contains("type annotations needed") {
-            enriched.hints.push("Add explicit type annotation, e.g., let x: Type = ...".to_string());
-            enriched.hints.push("Or use turbofish syntax: function::<Type>(...)".to_string());
+            enriched
+                .hints
+                .push("Add explicit type annotation, e.g., let x: Type = ...".to_string());
+            enriched
+                .hints
+                .push("Or use turbofish syntax: function::<Type>(...)".to_string());
         }
 
         if error.contains("mismatched types") {
-            enriched.hints.push("Check the return type matches the function signature".to_string());
-            enriched.hints.push("Use .into() or From/Into traits for type conversion".to_string());
+            enriched
+                .hints
+                .push("Check the return type matches the function signature".to_string());
+            enriched
+                .hints
+                .push("Use .into() or From/Into traits for type conversion".to_string());
         }
 
         // Test failures
@@ -345,20 +368,31 @@ impl ErrorEnricher for GoEnricher {
 
         // Go-specific hints
         if error.contains("undefined:") {
-            enriched.hints.push("Variable or function is not defined - check spelling or imports".to_string());
+            enriched.hints.push(
+                "Variable or function is not defined - check spelling or imports".to_string(),
+            );
         }
 
         if error.contains("cannot use") && error.contains("as") {
-            enriched.hints.push("Type mismatch - check if you need type conversion or assertion".to_string());
+            enriched
+                .hints
+                .push("Type mismatch - check if you need type conversion or assertion".to_string());
         }
 
         if error.contains("deadlock") {
-            enriched.hints.push("Deadlock detected - check channel operations and goroutine synchronization".to_string());
-            enriched.hints.push("Ensure all channel sends have corresponding receives".to_string());
+            enriched.hints.push(
+                "Deadlock detected - check channel operations and goroutine synchronization"
+                    .to_string(),
+            );
+            enriched
+                .hints
+                .push("Ensure all channel sends have corresponding receives".to_string());
         }
 
         if error.contains("nil pointer") {
-            enriched.hints.push("Nil pointer dereference - add nil check before using the pointer".to_string());
+            enriched.hints.push(
+                "Nil pointer dereference - add nil check before using the pointer".to_string(),
+            );
         }
 
         enriched
@@ -463,7 +497,9 @@ impl ErrorEnricher for TypeScriptEnricher {
                 // =============== SYNTAX ERRORS (TS1xxx) ===============
                 "1005" | "1003" | "1109" | "1128" => {
                     enriched.problem = Some(match ts_code {
-                        "1005" => "Syntax error: missing delimiter (comma, semicolon, etc.)".to_string(),
+                        "1005" => {
+                            "Syntax error: missing delimiter (comma, semicolon, etc.)".to_string()
+                        }
                         "1003" => "Syntax error: identifier expected".to_string(),
                         "1109" => "Syntax error: expression expected".to_string(),
                         "1128" => "Syntax error: declaration or statement expected".to_string(),
@@ -486,7 +522,8 @@ impl ErrorEnricher for TypeScriptEnricher {
 
                             // Provide the fix
                             enriched.hints.push(
-                                "FIX: Wrap the string with BACKTICKS (`), not quotes (\"/').".to_string()
+                                "FIX: Wrap the string with BACKTICKS (`), not quotes (\"/')."
+                                    .to_string(),
                             );
 
                             // Try to suggest the corrected line
@@ -500,42 +537,66 @@ impl ErrorEnricher for TypeScriptEnricher {
                                 );
                             }
                         } else {
-                            enriched.hints.push(format!("LINE {}: {}", line_num.unwrap_or(0), line.trim()));
-                            enriched.hints.push("Check for missing/extra punctuation at this location.".to_string());
+                            enriched.hints.push(format!(
+                                "LINE {}: {}",
+                                line_num.unwrap_or(0),
+                                line.trim()
+                            ));
+                            enriched.hints.push(
+                                "Check for missing/extra punctuation at this location.".to_string(),
+                            );
                         }
                     }
                 }
 
                 // =============== LOOKUP ERRORS (TS2xxx) ===============
                 "2304" => {
-                    enriched.problem = Some("Cannot find name - identifier is not defined".to_string());
-                    enriched.hints.push("Add the import or define the variable/function.".to_string());
+                    enriched.problem =
+                        Some("Cannot find name - identifier is not defined".to_string());
+                    enriched
+                        .hints
+                        .push("Add the import or define the variable/function.".to_string());
                 }
                 "2307" => {
                     enriched.problem = Some("Cannot find module".to_string());
-                    enriched.hints.push("Check the import path or install the package.".to_string());
+                    enriched
+                        .hints
+                        .push("Check the import path or install the package.".to_string());
                 }
 
                 // =============== TYPE ERRORS (TS2xxx) ===============
                 "2322" => {
                     enriched.problem = Some("Type is not assignable".to_string());
-                    enriched.hints.push("Check that the value matches the expected type.".to_string());
+                    enriched
+                        .hints
+                        .push("Check that the value matches the expected type.".to_string());
                 }
                 "2339" => {
                     enriched.problem = Some("Property does not exist on type".to_string());
-                    enriched.hints.push("Check the spelling or add the property to the type definition.".to_string());
+                    enriched.hints.push(
+                        "Check the spelling or add the property to the type definition."
+                            .to_string(),
+                    );
                 }
                 "2345" => {
-                    enriched.problem = Some("Argument type is not assignable to parameter type".to_string());
-                    enriched.hints.push("Convert the argument to the expected type.".to_string());
+                    enriched.problem =
+                        Some("Argument type is not assignable to parameter type".to_string());
+                    enriched
+                        .hints
+                        .push("Convert the argument to the expected type.".to_string());
                 }
                 "2551" => {
-                    enriched.problem = Some("Property does not exist, did you mean...?".to_string());
-                    enriched.hints.push("Check for typos in property name.".to_string());
+                    enriched.problem =
+                        Some("Property does not exist, did you mean...?".to_string());
+                    enriched
+                        .hints
+                        .push("Check for typos in property name.".to_string());
                 }
                 "7006" => {
                     enriched.problem = Some("Parameter implicitly has 'any' type".to_string());
-                    enriched.hints.push("Add explicit type annotation to the parameter.".to_string());
+                    enriched
+                        .hints
+                        .push("Add explicit type annotation to the parameter.".to_string());
                 }
 
                 _ => {
@@ -547,17 +608,24 @@ impl ErrorEnricher for TypeScriptEnricher {
         // Always show the faulty line if we have it and haven't shown it yet
         if let Some(ref line) = faulty_line {
             if enriched.hints.is_empty() || !enriched.hints.iter().any(|h| h.contains("LINE")) {
-                enriched.hints.insert(0, format!("CODE AT LINE {}: {}", line_num.unwrap_or(0), line.trim()));
+                enriched.hints.insert(
+                    0,
+                    format!("CODE AT LINE {}: {}", line_num.unwrap_or(0), line.trim()),
+                );
             }
         }
 
         // Jest test failures
         if error.contains("expect(") && error.contains("toBe") {
-            enriched.hints.push("Jest assertion failed - check expected vs received values".to_string());
+            enriched
+                .hints
+                .push("Jest assertion failed - check expected vs received values".to_string());
         }
 
         if error.contains("async") && error.contains("Promise") {
-            enriched.hints.push("Ensure async functions are properly awaited".to_string());
+            enriched
+                .hints
+                .push("Ensure async functions are properly awaited".to_string());
         }
 
         enriched
@@ -587,7 +655,10 @@ mod tests {
         let enriched = enricher.enrich(error, "");
 
         assert!(enriched.problem.is_some());
-        assert!(enriched.hints.iter().any(|h| h.contains("#[derive(Clone)]")));
+        assert!(enriched
+            .hints
+            .iter()
+            .any(|h| h.contains("#[derive(Clone)]")));
     }
 
     #[tokio::test]

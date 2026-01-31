@@ -12,7 +12,7 @@
 //!
 //! Run with: cargo run --example grounded_loop
 
-use agentic_core::distributed::{Executor, SandboxValidator, SandboxValidationResult};
+use agentic_core::distributed::{Executor, SandboxValidationResult, SandboxValidator};
 use agentic_sandbox::ProcessSandbox;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -22,9 +22,7 @@ const MAX_ITERATIONS: u32 = 8;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
-    tracing_subscriber::fmt()
-        .with_target(false)
-        .init();
+    tracing_subscriber::fmt().with_target(false).init();
 
     println!("\n{}", "=".repeat(60));
     println!("  GROUNDED VALIDATION LOOP");
@@ -110,10 +108,7 @@ The code should be a complete Rust library file (lib.rs compatible)."#;
                 match validator.validate_rust_code(&code).await {
                     Ok(validation) => {
                         print_validation_result(&validation);
-                        println!(
-                            "     Validation took {}ms",
-                            val_start.elapsed().as_millis()
-                        );
+                        println!("     Validation took {}ms", val_start.elapsed().as_millis());
 
                         // Phase 3: Check if passed or need retry
                         println!("\n[3/3] Decision...");
@@ -206,7 +201,11 @@ fn clean_code(content: &str) -> String {
 }
 
 /// Build a feedback prompt with real compiler/test errors.
-fn build_feedback_prompt(original_task: &str, code: &str, validation: &SandboxValidationResult) -> String {
+fn build_feedback_prompt(
+    original_task: &str,
+    code: &str,
+    validation: &SandboxValidationResult,
+) -> String {
     let mut prompt = String::new();
 
     prompt.push_str("=== ORIGINAL TASK ===\n");

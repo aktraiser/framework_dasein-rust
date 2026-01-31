@@ -128,11 +128,7 @@ impl<L: LLMAdapter + 'static, S: Sandbox + 'static> Orchestrator<L, S> {
             // Find steps ready to execute (dependencies satisfied)
             let ready_steps: Vec<_> = pending_steps
                 .iter()
-                .filter(|step| {
-                    step.depends_on
-                        .iter()
-                        .all(|dep| results.contains_key(dep))
-                })
+                .filter(|step| step.depends_on.iter().all(|dep| results.contains_key(dep)))
                 .cloned()
                 .collect();
 

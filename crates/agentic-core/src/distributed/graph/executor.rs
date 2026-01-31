@@ -106,11 +106,7 @@ pub trait Executor: Send + Sync {
     /// - `ctx.yield_output(out)` - Produce output for caller
     /// - `ctx.add_event(evt)` - Emit observability event
     /// - `ctx.previous_errors()` - Access previous attempt errors
-    async fn handle<Ctx>(
-        &self,
-        input: Self::Input,
-        ctx: &mut Ctx,
-    ) -> Result<(), ExecutorError>
+    async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
     where
         Ctx: ExecutorContext<Self::Message, Self::Output> + Send;
 
@@ -149,7 +145,11 @@ where
     async fn yield_output(&mut self, output: TOutput) -> Result<(), ExecutorError>;
 
     /// Emit a custom event for observability.
-    async fn add_event(&mut self, event_type: &str, data: serde_json::Value) -> Result<(), ExecutorError>;
+    async fn add_event(
+        &mut self,
+        event_type: &str,
+        data: serde_json::Value,
+    ) -> Result<(), ExecutorError>;
 
     /// Get errors from previous execution attempts.
     fn previous_errors(&self) -> &[ExecutorError];

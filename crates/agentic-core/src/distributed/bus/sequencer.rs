@@ -231,11 +231,9 @@ mod tests {
         let seq = Sequencer::new();
 
         // Task B depends on Task A
-        seq.publish(
-            Task::new("b", "sup", json!({})).with_depends_on(vec!["a".to_string()]),
-        )
-        .await
-        .unwrap();
+        seq.publish(Task::new("b", "sup", json!({})).with_depends_on(vec!["a".to_string()]))
+            .await
+            .unwrap();
 
         // B should be blocked
         assert!(seq.next().await.is_none());

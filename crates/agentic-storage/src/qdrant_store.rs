@@ -62,12 +62,12 @@ impl QdrantStore {
 #[async_trait]
 impl VectorStore for QdrantStore {
     #[instrument(skip(self, points), fields(collection = %collection, point_count = points.len()))]
-    async fn upsert(
-        &self,
-        collection: &str,
-        points: Vec<VectorPoint>,
-    ) -> Result<(), StorageError> {
-        debug!("Upserting {} points to collection {}", points.len(), collection);
+    async fn upsert(&self, collection: &str, points: Vec<VectorPoint>) -> Result<(), StorageError> {
+        debug!(
+            "Upserting {} points to collection {}",
+            points.len(),
+            collection
+        );
 
         let qdrant_points: Vec<PointStruct> = points
             .into_iter()
@@ -146,7 +146,11 @@ impl VectorStore for QdrantStore {
 
     #[instrument(skip(self, ids), fields(collection = %collection, id_count = ids.len()))]
     async fn delete(&self, collection: &str, ids: Vec<String>) -> Result<(), StorageError> {
-        debug!("Deleting {} points from collection {}", ids.len(), collection);
+        debug!(
+            "Deleting {} points from collection {}",
+            ids.len(),
+            collection
+        );
 
         let point_ids: Vec<qdrant_client::qdrant::PointId> = ids
             .into_iter()
@@ -169,7 +173,10 @@ impl VectorStore for QdrantStore {
 
     #[instrument(skip(self), fields(collection = %name, vector_size = vector_size))]
     async fn create_collection(&self, name: &str, vector_size: u64) -> Result<(), StorageError> {
-        debug!("Creating collection {} with vector size {}", name, vector_size);
+        debug!(
+            "Creating collection {} with vector size {}",
+            name, vector_size
+        );
 
         self.client
             .create_collection(
@@ -202,11 +209,8 @@ fn qdrant_value_to_json(value: qdrant_client::qdrant::Value) -> serde_json::Valu
         Some(Kind::NullValue(_)) => serde_json::Value::Null,
         Some(Kind::BoolValue(b)) => serde_json::Value::Bool(b),
         Some(Kind::IntegerValue(i)) => serde_json::Value::Number(i.into()),
-        Some(Kind::DoubleValue(d)) => {
-            serde_json::Number::from_f64(d).map_or(serde_json::Value::Null, |n| {
-                serde_json::Value::Number(n)
-            })
-        }
+        Some(Kind::DoubleValue(d)) => serde_json::Number::from_f64(d)
+            .map_or(serde_json::Value::Null, |n| serde_json::Value::Number(n)),
         Some(Kind::StringValue(s)) => serde_json::Value::String(s),
         Some(Kind::ListValue(list)) => {
             let arr: Vec<serde_json::Value> =

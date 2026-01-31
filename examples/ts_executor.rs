@@ -17,26 +17,26 @@
 //! ```
 
 use agentic_core::distributed::{
-    Executor, ValidatorPipeline, SandboxPipelineValidator,
-    ValidatorInput, CodeAssembler, ErrorEnricherValidator,
-    SandboxValidator, Language,
-    incremental_pipeline::{
-        IncrementalPipeline, Stage, get_extractor,
-    },
     bus::{
-        BusCoordinator,
-        RollbackManager, RollbackDecision,
-        ErrorFingerprinter, ModelTier,
-        PipelineTracer, ModelInfo, GenerationRecord, TokenUsage,
-        ValidationRecord, ValidatorStageRecord, DecisionRecord,
-        EnrichedError, ErrorSeverity, ErrorLocation,
+        BusCoordinator, DecisionRecord, EnrichedError, ErrorFingerprinter, ErrorLocation,
+        ErrorSeverity, GenerationRecord, ModelInfo, ModelTier, PipelineTracer, RollbackDecision,
+        RollbackManager, TokenUsage, ValidationRecord, ValidatorStageRecord,
     },
+    incremental_pipeline::{get_extractor, IncrementalPipeline, Stage},
     // NEW: Repair Engine for targeted error fixes
     repair_engine::RepairEngine,
+    CodeAssembler,
+    ErrorEnricherValidator,
+    Executor,
+    Language,
+    SandboxPipelineValidator,
+    SandboxValidator,
+    ValidatorInput,
+    ValidatorPipeline,
 };
-use agentic_sandbox::{ProcessSandbox, Sandbox};
 #[cfg(feature = "remote")]
 use agentic_sandbox::RemoteSandbox;
+use agentic_sandbox::{ProcessSandbox, Sandbox};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -91,8 +91,13 @@ Requirements:
 "#;
 
     // === Setup NATS (optional) ===
-    let nats_url = std::env::var("NATS_URL").unwrap_or_else(|_| "nats://localhost:4222".to_string());
-    let bus = match BusCoordinator::builder().nats_url(&nats_url).build_and_start().await {
+    let nats_url =
+        std::env::var("NATS_URL").unwrap_or_else(|_| "nats://localhost:4222".to_string());
+    let bus = match BusCoordinator::builder()
+        .nats_url(&nats_url)
+        .build_and_start()
+        .await
+    {
         Ok(b) => {
             println!("✓ NATS connected");
             Some(Arc::new(b))
@@ -105,7 +110,10 @@ Requirements:
 
     // === Setup Pipeline Tracer (unified JSON document) ===
     let tracer = Arc::new(PipelineTracer::new("typescript", task));
-    println!("✓ Pipeline Tracer enabled (trace: {})", &tracer.trace_id().await[..8]);
+    println!(
+        "✓ Pipeline Tracer enabled (trace: {})",
+        &tracer.trace_id().await[..8]
+    );
 
     let fingerprinter = ErrorFingerprinter::new();
 
@@ -117,27 +125,30 @@ Requirements:
     println!("✓ Fast model: {}", fast_model);
 
     // Smart model: Claude for complex errors (no truncation issues)
-    let smart_model = std::env::var("SMART_MODEL").unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
+    let smart_model =
+        std::env::var("SMART_MODEL").unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
     let smart_executor = Executor::new("ts-smart", "supervisor")
         .llm_anthropic(&smart_model)
         .build();
     println!("✓ Smart model: {} (Anthropic)", smart_model);
 
     // Configure tracer with model info
-    tracer.set_models(
-        ModelInfo {
-            provider: "gemini".to_string(),
-            model: fast_model.clone(),
-            temperature: Some(0.2),
-            max_tokens: Some(8192),
-        },
-        ModelInfo {
-            provider: "anthropic".to_string(),
-            model: smart_model.clone(),
-            temperature: Some(0.2),
-            max_tokens: Some(8192),
-        },
-    ).await;
+    tracer
+        .set_models(
+            ModelInfo {
+                provider: "gemini".to_string(),
+                model: fast_model.clone(),
+                temperature: Some(0.2),
+                max_tokens: Some(8192),
+            },
+            ModelInfo {
+                provider: "anthropic".to_string(),
+                model: smart_model.clone(),
+                temperature: Some(0.2),
+                max_tokens: Some(8192),
+            },
+        )
+        .await;
 
     let assembler = CodeAssembler::new();
 
@@ -158,8 +169,18 @@ Requirements:
                 Ok(health) => {
                     println!("✓ Firecracker Server: {}", firecracker_url);
                     println!("  ├── Status: {}", health.status);
-                    println!("  ├── KVM: {}", if health.kvm_available { "✅" } else { "❌" });
-                    println!("  └── Firecracker: {}", if health.firecracker_available { "✅" } else { "❌" });
+                    println!(
+                        "  ├── KVM: {}",
+                        if health.kvm_available { "✅" } else { "❌" }
+                    );
+                    println!(
+                        "  └── Firecracker: {}",
+                        if health.firecracker_available {
+                            "✅"
+                        } else {
+                            "❌"
+                        }
+                    );
                 }
                 Err(e) => {
                     eprintln!("⚠ Firecracker server not reachable: {}", e);
@@ -192,13 +213,15 @@ Requirements:
     let incremental = IncrementalPipeline::new(sandbox_validator, Language::TypeScript);
     let ts_extractor = get_extractor(Language::TypeScript);
 
-    tracer.set_validators(vec![
-        "incremental-types".to_string(),
-        "incremental-stubs".to_string(),
-        "incremental-logic".to_string(),
-        "sandbox".to_string(),
-        "error-enricher".to_string(),
-    ]).await;
+    tracer
+        .set_validators(vec![
+            "incremental-types".to_string(),
+            "incremental-stubs".to_string(),
+            "incremental-logic".to_string(),
+            "sandbox".to_string(),
+            "error-enricher".to_string(),
+        ])
+        .await;
     tracer.set_max_retries(MAX_RETRIES).await;
     println!("✓ Incremental Pipeline enabled (Types → Stubs → Logic)");
     println!("✓ Error Enricher enabled");
@@ -221,10 +244,10 @@ CRITICAL: For string interpolation, ALWAYS use backticks:
     let mut previous_code: Option<String> = None;
     let mut rollback = RollbackManager::new();
     let mut current_tier = ModelTier::Fast;
-    let mut total_failures = 0;  // Track all failures, not just Fast
-    let mut used_smart = false;  // Once we use Smart, don't go back to Fast
-    let mut last_error_signature: Option<String> = None;  // Track repeated errors
-    let mut repeated_error_count = 0;  // Count consecutive identical errors
+    let mut total_failures = 0; // Track all failures, not just Fast
+    let mut used_smart = false; // Once we use Smart, don't go back to Fast
+    let mut last_error_signature: Option<String> = None; // Track repeated errors
+    let mut repeated_error_count = 0; // Count consecutive identical errors
 
     let mut final_code: Option<String> = None;
 
@@ -238,7 +261,8 @@ CRITICAL: For string interpolation, ALWAYS use backticks:
             let fingerprint_tier = analysis.recommended_tier;
 
             // Log fingerprint analysis for debugging
-            println!("  [Fingerprint] Category: {:?}, Tier: {:?}, Errors analyzed: {}",
+            println!(
+                "  [Fingerprint] Category: {:?}, Tier: {:?}, Errors analyzed: {}",
                 analysis.dominant_category,
                 fingerprint_tier,
                 analysis.fingerprints.len()
@@ -298,16 +322,25 @@ CRITICAL: For string interpolation, ALWAYS use backticks:
         // If surgical fix is available with high confidence, use it directly!
         if let Some(ref analysis) = repair_analysis {
             if let Some(ref fixed_code) = analysis.surgical_fix {
-                println!("  [SurgicalRepair] Applied {} direct fixes (no LLM needed)", analysis.surgical_fix_count);
+                println!(
+                    "  [SurgicalRepair] Applied {} direct fixes (no LLM needed)",
+                    analysis.surgical_fix_count
+                );
 
                 // Record as a "surgical" generation (0 tokens, instant)
-                tracer.record_generation(GenerationRecord {
-                    model: "surgical-repair".to_string(),
-                    tokens: TokenUsage { prompt: 0, completion: 0, total: 0 },
-                    chars_generated: fixed_code.len(),
-                    truncated: false,
-                    duration_ms: 0,
-                }).await;
+                tracer
+                    .record_generation(GenerationRecord {
+                        model: "surgical-repair".to_string(),
+                        tokens: TokenUsage {
+                            prompt: 0,
+                            completion: 0,
+                            total: 0,
+                        },
+                        chars_generated: fixed_code.len(),
+                        truncated: false,
+                        duration_ms: 0,
+                    })
+                    .await;
 
                 // Validate the surgically fixed code
                 let val_start = Instant::now();
@@ -319,15 +352,24 @@ CRITICAL: For string interpolation, ALWAYS use backticks:
                 let val_result = pipeline.validate(input).await;
                 let val_duration = val_start.elapsed().as_millis() as u64;
 
-                let errors: Vec<String> = val_result.results.iter().flat_map(|r| r.errors.clone()).collect();
+                let errors: Vec<String> = val_result
+                    .results
+                    .iter()
+                    .flat_map(|r| r.errors.clone())
+                    .collect();
 
                 if val_result.passed {
                     println!("  ✓ Surgical fix passed all tests!");
-                    tracer.record_decision(DecisionRecord::Accept { final_score: 0 }).await;
+                    tracer
+                        .record_decision(DecisionRecord::Accept { final_score: 0 })
+                        .await;
                     final_code = Some(fixed_code.clone());
                     break;
                 } else {
-                    println!("  ✗ Surgical fix failed ({} errors) - falling back to LLM", errors.len());
+                    println!(
+                        "  ✗ Surgical fix failed ({} errors) - falling back to LLM",
+                        errors.len()
+                    );
                     // Continue to LLM-based repair below
                 }
             }
@@ -338,16 +380,28 @@ CRITICAL: For string interpolation, ALWAYS use backticks:
         } else if let Some(ref analysis) = repair_analysis {
             if analysis.has_suggestions {
                 // RepairEngine found specific fixes to suggest
-                println!("  [RepairEngine] {} suggestions (confidence: {:.0}%)",
+                println!(
+                    "  [RepairEngine] {} suggestions (confidence: {:.0}%)",
                     analysis.suggestions.len(),
                     analysis.confidence * 100.0
                 );
                 for suggestion in analysis.suggestions.iter().take(5) {
                     if let Some(line) = suggestion.line {
-                        println!("    Line {}: {} → {}",
+                        println!(
+                            "    Line {}: {} → {}",
                             line,
-                            suggestion.original.trim().chars().take(40).collect::<String>(),
-                            suggestion.suggested.trim().chars().take(40).collect::<String>()
+                            suggestion
+                                .original
+                                .trim()
+                                .chars()
+                                .take(40)
+                                .collect::<String>(),
+                            suggestion
+                                .suggested
+                                .trim()
+                                .chars()
+                                .take(40)
+                                .collect::<String>()
                         );
                     }
                 }
@@ -373,52 +427,61 @@ CRITICAL: For string interpolation, ALWAYS use backticks:
         let gen_duration = gen_start.elapsed().as_millis() as u64;
 
         // Record generation in tracer
-        tracer.record_generation(GenerationRecord {
-            model: result.model.clone(),
-            tokens: TokenUsage {
-                prompt: 0, // Not available from executor
-                completion: result.tokens_used,
-                total: result.tokens_used,
-            },
-            chars_generated: result.content.len(),
-            truncated: result.truncated,
-            duration_ms: gen_duration,
-        }).await;
+        tracer
+            .record_generation(GenerationRecord {
+                model: result.model.clone(),
+                tokens: TokenUsage {
+                    prompt: 0, // Not available from executor
+                    completion: result.tokens_used,
+                    total: result.tokens_used,
+                },
+                chars_generated: result.content.len(),
+                truncated: result.truncated,
+                duration_ms: gen_duration,
+            })
+            .await;
 
         // CRITICAL: Check for truncation
         if result.truncated {
             println!("  ⚠️ OUTPUT TRUNCATED (hit max_tokens) - skipping validation");
 
-            tracer.record_validation(ValidationRecord {
-                passed: false,
-                score: -1000,
-                stages: vec![ValidatorStageRecord {
-                    validator: "truncation-check".to_string(),
+            tracer
+                .record_validation(ValidationRecord {
                     passed: false,
-                    duration_ms: 0,
-                    errors: vec![EnrichedError {
-                        id: format!("err-trunc-{}", attempt),
-                        severity: ErrorSeverity::Critical,
-                        category: "truncation".to_string(),
-                        location: None,
-                        message: "Output was truncated due to max_tokens limit".to_string(),
-                        analysis: None,
-                        hints: vec!["Increase max_tokens or simplify the task".to_string()],
+                    score: -1000,
+                    stages: vec![ValidatorStageRecord {
+                        validator: "truncation-check".to_string(),
+                        passed: false,
+                        duration_ms: 0,
+                        errors: vec![EnrichedError {
+                            id: format!("err-trunc-{}", attempt),
+                            severity: ErrorSeverity::Critical,
+                            category: "truncation".to_string(),
+                            location: None,
+                            message: "Output was truncated due to max_tokens limit".to_string(),
+                            analysis: None,
+                            hints: vec!["Increase max_tokens or simplify the task".to_string()],
+                        }],
+                        recommendations: vec![],
+                        documentation: vec![],
                     }],
-                    recommendations: vec![],
-                    documentation: vec![],
-                }],
-                duration_ms: 0,
-            }).await;
+                    duration_ms: 0,
+                })
+                .await;
 
-            tracer.record_decision(DecisionRecord::Continue {
-                reason: "truncated output".to_string(),
-                next_tier: "smart".to_string(),
-            }).await;
+            tracer
+                .record_decision(DecisionRecord::Continue {
+                    reason: "truncated output".to_string(),
+                    next_tier: "smart".to_string(),
+                })
+                .await;
 
-            previous_errors = vec!["Output was truncated due to max_tokens limit. Generated code is incomplete.".to_string()];
+            previous_errors = vec![
+                "Output was truncated due to max_tokens limit. Generated code is incomplete."
+                    .to_string(),
+            ];
             previous_code = Some(result.content.clone());
-            total_failures += 1;  // Truncation counts as a failure
+            total_failures += 1; // Truncation counts as a failure
             continue;
         }
 
@@ -446,7 +509,11 @@ CRITICAL: For string interpolation, ALWAYS use backticks:
         let val_duration = val_start.elapsed().as_millis() as u64;
 
         // Convert errors to enriched format for tracer
-        let errors: Vec<String> = val_result.results.iter().flat_map(|r| r.errors.clone()).collect();
+        let errors: Vec<String> = val_result
+            .results
+            .iter()
+            .flat_map(|r| r.errors.clone())
+            .collect();
 
         // Determine which stage failed based on error analysis
         let failed_stage = if errors.iter().any(|e| {
@@ -469,47 +536,61 @@ CRITICAL: For string interpolation, ALWAYS use backticks:
             Some(Stage::Logic)
         };
 
-        let enriched_errors: Vec<EnrichedError> = errors.iter().enumerate().map(|(i, e)| {
-            EnrichedError {
+        let enriched_errors: Vec<EnrichedError> = errors
+            .iter()
+            .enumerate()
+            .map(|(i, e)| EnrichedError {
                 id: format!("err-{}-{}", attempt, i),
-                severity: if e.contains("error") || e.contains("FAILED") { ErrorSeverity::Error } else { ErrorSeverity::Warning },
+                severity: if e.contains("error") || e.contains("FAILED") {
+                    ErrorSeverity::Error
+                } else {
+                    ErrorSeverity::Warning
+                },
                 category: categorize_error(e),
                 location: extract_location(e),
                 message: e.clone(),
                 analysis: None,
                 hints: vec![],
-            }
-        }).collect();
+            })
+            .collect();
 
-        let recommendations: Vec<String> = val_result.results.iter()
+        let recommendations: Vec<String> = val_result
+            .results
+            .iter()
             .flat_map(|r| r.recommendations.clone())
             .collect();
 
         // Calculate score
-        let score = if val_result.passed { 0 } else { -(errors.len() as i32 * 100) };
+        let score = if val_result.passed {
+            0
+        } else {
+            -(errors.len() as i32 * 100)
+        };
 
         // Record validation in tracer with stage info
         let stage_name = failed_stage.map(|s| s.name()).unwrap_or("logic");
-        tracer.record_validation(ValidationRecord {
-            passed: val_result.passed,
-            score,
-            stages: vec![ValidatorStageRecord {
-                validator: format!("incremental-{}", stage_name),
+        tracer
+            .record_validation(ValidationRecord {
                 passed: val_result.passed,
+                score,
+                stages: vec![ValidatorStageRecord {
+                    validator: format!("incremental-{}", stage_name),
+                    passed: val_result.passed,
+                    duration_ms: val_duration,
+                    errors: enriched_errors,
+                    recommendations,
+                    documentation: vec![],
+                }],
                 duration_ms: val_duration,
-                errors: enriched_errors,
-                recommendations,
-                documentation: vec![],
-            }],
-            duration_ms: val_duration,
-        }).await;
+            })
+            .await;
 
         if val_result.passed {
             println!("  ✓ All stages passed!");
 
-            tracer.record_decision(DecisionRecord::Accept {
-                final_score: 0,
-            }).await;
+            tracer
+                .record_decision(DecisionRecord::Accept { final_score: 0 })
+                .await;
 
             final_code = Some(code);
             break;
@@ -517,7 +598,11 @@ CRITICAL: For string interpolation, ALWAYS use backticks:
 
         // Log which stage failed
         if let Some(stage) = failed_stage {
-            println!("  ✗ Failed at stage: {} ({} errors)", stage.name(), errors.len());
+            println!(
+                "  ✗ Failed at stage: {} ({} errors)",
+                stage.name(),
+                errors.len()
+            );
         }
 
         // Record attempt and check rollback
@@ -527,31 +612,48 @@ CRITICAL: For string interpolation, ALWAYS use backticks:
         total_failures += 1;
 
         // Detect repeated identical errors - escalate faster if same errors keep appearing
-        let error_signature = errors.iter().take(5).map(|e| e.as_str()).collect::<Vec<_>>().join("|");
+        let error_signature = errors
+            .iter()
+            .take(5)
+            .map(|e| e.as_str())
+            .collect::<Vec<_>>()
+            .join("|");
         if let Some(ref last_sig) = last_error_signature {
             if *last_sig == error_signature {
                 repeated_error_count += 1;
                 if repeated_error_count >= 2 && current_tier == ModelTier::Fast {
-                    println!("  [Repeated Errors] Same errors {} times → forcing Smart", repeated_error_count + 1);
+                    println!(
+                        "  [Repeated Errors] Same errors {} times → forcing Smart",
+                        repeated_error_count + 1
+                    );
                     current_tier = ModelTier::Smart;
                     used_smart = true;
                 }
             } else {
-                repeated_error_count = 0;  // Different errors, reset counter
+                repeated_error_count = 0; // Different errors, reset counter
             }
         }
         last_error_signature = Some(error_signature);
 
         match decision {
-            RollbackDecision::Rollback { reason, failing_tests, .. } => {
+            RollbackDecision::Rollback {
+                reason,
+                failing_tests,
+                ..
+            } => {
                 println!("  ↩ ROLLBACK: {}", reason);
-                let best_score = rollback.best().map(|b| b.score.quality_score()).unwrap_or(0);
+                let best_score = rollback
+                    .best()
+                    .map(|b| b.score.quality_score())
+                    .unwrap_or(0);
 
-                tracer.record_decision(DecisionRecord::Rollback {
-                    reason: reason.clone(),
-                    rollback_to_attempt: rollback.best().map(|b| b.number).unwrap_or(1),
-                    best_score,
-                }).await;
+                tracer
+                    .record_decision(DecisionRecord::Rollback {
+                        reason: reason.clone(),
+                        rollback_to_attempt: rollback.best().map(|b| b.number).unwrap_or(1),
+                        best_score,
+                    })
+                    .await;
 
                 previous_errors = failing_tests;
                 previous_code = rollback.best().map(|b| b.code.clone());
@@ -567,10 +669,12 @@ CRITICAL: For string interpolation, ALWAYS use backticks:
                     current_tier.as_str()
                 };
 
-                tracer.record_decision(DecisionRecord::Continue {
-                    reason: format!("failed at {}", stage_name),
-                    next_tier: next_tier.to_string(),
-                }).await;
+                tracer
+                    .record_decision(DecisionRecord::Continue {
+                        reason: format!("failed at {}", stage_name),
+                        next_tier: next_tier.to_string(),
+                    })
+                    .await;
 
                 previous_errors = errors;
                 previous_code = Some(code);
@@ -589,13 +693,18 @@ CRITICAL: For string interpolation, ALWAYS use backticks:
     // Fallback to best attempt
     if final_code.is_none() {
         if let Some(best) = rollback.best() {
-            println!("\n  ⚠ Returning best attempt ({} errors)", best.errors.len());
+            println!(
+                "\n  ⚠ Returning best attempt ({} errors)",
+                best.errors.len()
+            );
             final_code = Some(best.code.clone());
         }
     }
 
     // Complete the trace
-    let trace = tracer.complete(final_code.is_some(), final_code.as_deref()).await;
+    let trace = tracer
+        .complete(final_code.is_some(), final_code.as_deref())
+        .await;
 
     // Publish to NATS if connected
     if let Some(ref b) = bus {
@@ -611,7 +720,8 @@ CRITICAL: For string interpolation, ALWAYS use backticks:
     println!("Trace ID: {}", trace.trace_id);
     println!("Status: {:?}", trace.status);
     println!("Duration: {}ms", trace.metrics.total_duration_ms);
-    println!("Attempts: {} (fast: {}, smart: {})",
+    println!(
+        "Attempts: {} (fast: {}, smart: {})",
         trace.attempts.len(),
         trace.metrics.attempts_by_tier.get("fast").unwrap_or(&0),
         trace.metrics.attempts_by_tier.get("smart").unwrap_or(&0),
@@ -661,13 +771,21 @@ fn categorize_error(error: &str) -> String {
     let lower = error.to_lowercase();
 
     // TypeScript specific errors
-    if lower.contains("ts1005") || lower.contains("ts1003") || lower.contains("ts1109") || lower.contains("ts1128") {
+    if lower.contains("ts1005")
+        || lower.contains("ts1003")
+        || lower.contains("ts1109")
+        || lower.contains("ts1128")
+    {
         return "ts_syntax".to_string();
     }
     if lower.contains("ts2304") || lower.contains("ts2307") || lower.contains("ts2551") {
         return "ts_lookup".to_string();
     }
-    if lower.contains("ts2339") || lower.contains("ts2345") || lower.contains("ts2322") || lower.contains("ts2571") {
+    if lower.contains("ts2339")
+        || lower.contains("ts2345")
+        || lower.contains("ts2322")
+        || lower.contains("ts2571")
+    {
         return "ts_type".to_string();
     }
     if lower.contains("error ts") {

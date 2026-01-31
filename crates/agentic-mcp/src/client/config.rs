@@ -1,8 +1,8 @@
 //! MCP Client configuration.
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
-use serde::{Deserialize, Serialize};
 
 use crate::MCPError;
 
@@ -175,7 +175,10 @@ mod tests {
         let server = config.get("context7").unwrap();
 
         assert_eq!(server.url.as_deref(), Some("https://mcp.context7.com/mcp"));
-        assert_eq!(server.headers.get("CONTEXT7_API_KEY"), Some(&"test-key".to_string()));
+        assert_eq!(
+            server.headers.get("CONTEXT7_API_KEY"),
+            Some(&"test-key".to_string())
+        );
         assert!(matches!(server.transport_type(), TransportType::Http));
     }
 
@@ -197,19 +200,29 @@ mod tests {
         let server = config.get("github").unwrap();
 
         assert_eq!(server.command.as_deref(), Some("npx"));
-        assert_eq!(server.args, vec!["-y", "@modelcontextprotocol/server-github"]);
+        assert_eq!(
+            server.args,
+            vec!["-y", "@modelcontextprotocol/server-github"]
+        );
         assert!(matches!(server.transport_type(), TransportType::Stdio));
     }
 
     #[test]
     fn test_builder() {
         let config = MCPConfig::new()
-            .add_server("context7", MCPServerConfig::http("https://mcp.context7.com/mcp")
-                .header("CONTEXT7_API_KEY", "test-key")
-                .timeout(60000)
+            .add_server(
+                "context7",
+                MCPServerConfig::http("https://mcp.context7.com/mcp")
+                    .header("CONTEXT7_API_KEY", "test-key")
+                    .timeout(60000),
             )
-            .add_server("github", MCPServerConfig::stdio("npx", vec!["-y".into(), "@modelcontextprotocol/server-github".into()])
-                .env_var("GITHUB_TOKEN", "ghp_xxx")
+            .add_server(
+                "github",
+                MCPServerConfig::stdio(
+                    "npx",
+                    vec!["-y".into(), "@modelcontextprotocol/server-github".into()],
+                )
+                .env_var("GITHUB_TOKEN", "ghp_xxx"),
             );
 
         assert_eq!(config.server_names().len(), 2);

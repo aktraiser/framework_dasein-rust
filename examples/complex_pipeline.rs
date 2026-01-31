@@ -14,9 +14,9 @@
 //! GEMINI_API_KEY=your-key cargo run --example complex_pipeline
 //! ```
 
-use agentic_core::distributed::{Supervisor, Capability};
-use std::time::Instant;
+use agentic_core::distributed::{Capability, Supervisor};
 use futures::future::join_all;
+use std::time::Instant;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -27,7 +27,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     // Check API key
-    if std::env::var("GEMINI_API_KEY").unwrap_or_default().is_empty() {
+    if std::env::var("GEMINI_API_KEY")
+        .unwrap_or_default()
+        .is_empty()
+    {
         println!("⚠ GEMINI_API_KEY not set");
         println!("  export GEMINI_API_KEY=your-api-key");
         return Ok(());
@@ -95,7 +98,7 @@ Return ONLY Rust code, no markdown, no explanations."#;
 4. A `TaskHandler` trait with async fn handle(&self, task: &Task) -> TaskResult
 5. A `Priority` enum (Low, Normal, High, Critical)
 
-Use generics where appropriate. Include derive macros for Debug, Clone, etc."#
+Use generics where appropriate. Include derive macros for Debug, Clone, etc."#,
         ),
         (
             "Task 2: Priority Queue",
@@ -106,7 +109,7 @@ Use generics where appropriate. Include derive macros for Debug, Clone, etc."#
 4. Implement Clone for the queue
 5. Add a method peek() to see the next task without removing it
 
-Make it generic over the task type with appropriate trait bounds."#
+Make it generic over the task type with appropriate trait bounds."#,
         ),
         (
             "Task 3: Worker Pool",
@@ -118,7 +121,7 @@ Make it generic over the task type with appropriate trait bounds."#
 5. Methods: new(size), spawn(), shutdown()
 6. Workers should handle panics gracefully
 
-Include proper async/await patterns with tokio."#
+Include proper async/await patterns with tokio."#,
         ),
         (
             "Task 4: Retry Logic",
@@ -129,7 +132,7 @@ Include proper async/await patterns with tokio."#
 4. Method to calculate next delay: delay = min(initial * multiplier^attempt, max_delay)
 5. Add jitter option to prevent thundering herd
 
-Include a builder pattern for RetryPolicy."#
+Include a builder pattern for RetryPolicy."#,
         ),
         (
             "Task 5: Metrics",
@@ -140,25 +143,29 @@ Include a builder pattern for RetryPolicy."#
 4. Method to get a snapshot: get_stats() -> MetricsSnapshot
 5. Include timestamps for first_task_at, last_task_at
 
-Use std::sync::atomic for thread-safety."#
+Use std::sync::atomic for thread-safety."#,
         ),
     ];
 
     let start = Instant::now();
 
     // Execute all tasks in parallel
-    let handles: Vec<_> = executors.iter().zip(tasks.iter()).map(|(executor, (name, prompt))| {
-        let executor = executor.clone();
-        let name = name.to_string();
-        let prompt = prompt.to_string();
-        let system = system_prompt.to_string();
+    let handles: Vec<_> = executors
+        .iter()
+        .zip(tasks.iter())
+        .map(|(executor, (name, prompt))| {
+            let executor = executor.clone();
+            let name = name.to_string();
+            let prompt = prompt.to_string();
+            let system = system_prompt.to_string();
 
-        tokio::spawn(async move {
-            println!("  ▶ {} starting...", name);
-            let result = executor.execute(&system, &prompt).await;
-            (name, result)
+            tokio::spawn(async move {
+                println!("  ▶ {} starting...", name);
+                let result = executor.execute(&system, &prompt).await;
+                (name, result)
+            })
         })
-    }).collect();
+        .collect();
 
     // Wait for all
     let results: Vec<_> = join_all(handles).await;
@@ -175,8 +182,10 @@ Use std::sync::atomic for thread-safety."#
     for result in results {
         match result {
             Ok((name, Ok(exec_result))) => {
-                println!("  ✓ {} - {} tokens, {}ms",
-                    name, exec_result.tokens_used, exec_result.duration_ms);
+                println!(
+                    "  ✓ {} - {} tokens, {}ms",
+                    name, exec_result.tokens_used, exec_result.duration_ms
+                );
                 total_tokens += exec_result.tokens_used;
                 all_code.push_str(&format!("\n// === {} ===\n", name));
                 all_code.push_str(&exec_result.content);
@@ -204,7 +213,11 @@ Use std::sync::atomic for thread-safety."#
     // Validate with all 3 validators
     for i in 0..3 {
         let result = supervisor.validate_with(i, &all_code, 0);
-        let status = if result.passed { "✓ PASS" } else { "✗ FAIL" };
+        let status = if result.passed {
+            "✓ PASS"
+        } else {
+            "✗ FAIL"
+        };
         println!("  Validator {}: {} (score: {})", i, status, result.score);
         if let Some(feedback) = &result.feedback {
             println!("    └── {}", feedback);
@@ -218,7 +231,10 @@ Use std::sync::atomic for thread-safety."#
     println!("═══════════════════════════════════════════════════════════════════════");
     println!();
 
-    let reviewer = supervisor.get_executor().await.expect("Should have executor");
+    let reviewer = supervisor
+        .get_executor()
+        .await
+        .expect("Should have executor");
 
     let review_prompt = format!(
         r#"Review this Rust code and provide a structured analysis:
@@ -240,15 +256,20 @@ Be concise and specific."#,
     );
 
     let review_start = Instant::now();
-    let review_result = reviewer.execute(
-        "You are a senior Rust engineer doing code review. Be critical but constructive.",
-        &review_prompt
-    ).await;
+    let review_result = reviewer
+        .execute(
+            "You are a senior Rust engineer doing code review. Be critical but constructive.",
+            &review_prompt,
+        )
+        .await;
 
     match review_result {
         Ok(review) => {
-            println!("  Review completed in {:?} ({} tokens)",
-                review_start.elapsed(), review.tokens_used);
+            println!(
+                "  Review completed in {:?} ({} tokens)",
+                review_start.elapsed(),
+                review.tokens_used
+            );
             println!();
             println!("┌─────────────────────────────────────────────────────────────────────┐");
             println!("│                         CODE REVIEW                                 │");
@@ -270,11 +291,26 @@ Be concise and specific."#,
     println!("╔══════════════════════════════════════════════════════════════════════╗");
     println!("║                         FINAL STATISTICS                             ║");
     println!("╠══════════════════════════════════════════════════════════════════════╣");
-    println!("║  Executors used:       {:>4}                                         ║", 6);
-    println!("║  Total tokens:         {:>4}                                         ║", total_tokens);
-    println!("║  Phase 1 (parallel):   {:>10?}                                  ║", phase1_duration);
-    println!("║  Code generated:       {:>4} lines                                   ║", all_code.lines().count());
-    println!("║  Validators passed:    {:>4}/3                                       ║", 3);
+    println!(
+        "║  Executors used:       {:>4}                                         ║",
+        6
+    );
+    println!(
+        "║  Total tokens:         {:>4}                                         ║",
+        total_tokens
+    );
+    println!(
+        "║  Phase 1 (parallel):   {:>10?}                                  ║",
+        phase1_duration
+    );
+    println!(
+        "║  Code generated:       {:>4} lines                                   ║",
+        all_code.lines().count()
+    );
+    println!(
+        "║  Validators passed:    {:>4}/3                                       ║",
+        3
+    );
     println!("╚══════════════════════════════════════════════════════════════════════╝");
 
     // ========== OBJECTIVE CHECKS ==========
@@ -282,16 +318,43 @@ Be concise and specific."#,
     println!("▶ Objective Verification:");
 
     let checks = [
-        ("Priority Queue", all_code.contains("PriorityQueue") || all_code.contains("priority")),
-        ("Worker Pool", all_code.contains("Worker") || all_code.contains("worker")),
-        ("Retry Logic", all_code.contains("Retry") || all_code.contains("backoff")),
-        ("Metrics", all_code.contains("Metrics") || all_code.contains("metrics")),
-        ("Thread-safe (Arc/Mutex)", all_code.contains("Arc") || all_code.contains("Mutex")),
-        ("Async support", all_code.contains("async") || all_code.contains("tokio")),
-        ("Error handling", all_code.contains("Error") || all_code.contains("Result")),
-        ("Unit tests", all_code.contains("#[test]") || all_code.contains("fn test_")),
+        (
+            "Priority Queue",
+            all_code.contains("PriorityQueue") || all_code.contains("priority"),
+        ),
+        (
+            "Worker Pool",
+            all_code.contains("Worker") || all_code.contains("worker"),
+        ),
+        (
+            "Retry Logic",
+            all_code.contains("Retry") || all_code.contains("backoff"),
+        ),
+        (
+            "Metrics",
+            all_code.contains("Metrics") || all_code.contains("metrics"),
+        ),
+        (
+            "Thread-safe (Arc/Mutex)",
+            all_code.contains("Arc") || all_code.contains("Mutex"),
+        ),
+        (
+            "Async support",
+            all_code.contains("async") || all_code.contains("tokio"),
+        ),
+        (
+            "Error handling",
+            all_code.contains("Error") || all_code.contains("Result"),
+        ),
+        (
+            "Unit tests",
+            all_code.contains("#[test]") || all_code.contains("fn test_"),
+        ),
         ("Documentation", all_code.contains("///")),
-        ("No TODOs", !all_code.contains("TODO") && !all_code.contains("FIXME")),
+        (
+            "No TODOs",
+            !all_code.contains("TODO") && !all_code.contains("FIXME"),
+        ),
     ];
 
     let passed = checks.iter().filter(|(_, ok)| *ok).count();
@@ -302,11 +365,17 @@ Be concise and specific."#,
     println!();
     if passed >= 8 {
         println!("╔══════════════════════════════════════════════════════════════════════╗");
-        println!("║  ✓ SUCCESS - Complex objective achieved! ({}/10 checks passed)       ║", passed);
+        println!(
+            "║  ✓ SUCCESS - Complex objective achieved! ({}/10 checks passed)       ║",
+            passed
+        );
         println!("╚══════════════════════════════════════════════════════════════════════╝");
     } else {
         println!("╔══════════════════════════════════════════════════════════════════════╗");
-        println!("║  ⚠ PARTIAL - Some objectives not met ({}/10 checks passed)           ║", passed);
+        println!(
+            "║  ⚠ PARTIAL - Some objectives not met ({}/10 checks passed)           ║",
+            passed
+        );
         println!("╚══════════════════════════════════════════════════════════════════════╝");
     }
 
