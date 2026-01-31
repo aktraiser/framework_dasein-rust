@@ -147,10 +147,18 @@ impl StateStore {
 
     /// Ensure KV buckets exist.
     async fn ensure_buckets(&self) -> Result<(), BusError> {
-        let js = self.nats.jetstream()
+        let js = self
+            .nats
+            .jetstream()
             .ok_or_else(|| BusError::StreamNotFound("JetStream not enabled".to_string()))?;
 
-        for bucket_name in [BUCKET_TYPES, BUCKET_FUNCTIONS, BUCKET_FIELDS, BUCKET_IMPORTS, BUCKET_PATTERNS] {
+        for bucket_name in [
+            BUCKET_TYPES,
+            BUCKET_FUNCTIONS,
+            BUCKET_FIELDS,
+            BUCKET_IMPORTS,
+            BUCKET_PATTERNS,
+        ] {
             match js.get_key_value(bucket_name).await {
                 Ok(_) => {
                     debug!("Using existing KV bucket: {}", bucket_name);
@@ -175,17 +183,21 @@ impl StateStore {
 
     /// Store a validated type definition.
     pub async fn put_type(&self, type_def: TypeDef) -> Result<(), BusError> {
-        let js = self.nats.jetstream()
+        let js = self
+            .nats
+            .jetstream()
             .ok_or_else(|| BusError::StreamNotFound("JetStream not enabled".to_string()))?;
 
-        let store = js.get_key_value(BUCKET_TYPES)
+        let store = js
+            .get_key_value(BUCKET_TYPES)
             .await
             .map_err(|e| BusError::StreamNotFound(e.to_string()))?;
 
         let value = serde_json::to_vec(&type_def)
             .map_err(|e| BusError::SerializationFailed(e.to_string()))?;
 
-        store.put(&type_def.name, value.into())
+        store
+            .put(&type_def.name, value.into())
             .await
             .map_err(|e| BusError::PublishFailed(e.to_string()))?;
 
@@ -207,10 +219,13 @@ impl StateStore {
         }
 
         // Fetch from NATS KV
-        let js = self.nats.jetstream()
+        let js = self
+            .nats
+            .jetstream()
             .ok_or_else(|| BusError::StreamNotFound("JetStream not enabled".to_string()))?;
 
-        let store = js.get_key_value(BUCKET_TYPES)
+        let store = js
+            .get_key_value(BUCKET_TYPES)
             .await
             .map_err(|e| BusError::StreamNotFound(e.to_string()))?;
 
@@ -232,15 +247,21 @@ impl StateStore {
 
     /// Get all validated types.
     pub async fn get_all_types(&self) -> Result<Vec<TypeDef>, BusError> {
-        let js = self.nats.jetstream()
+        let js = self
+            .nats
+            .jetstream()
             .ok_or_else(|| BusError::StreamNotFound("JetStream not enabled".to_string()))?;
 
-        let store = js.get_key_value(BUCKET_TYPES)
+        let store = js
+            .get_key_value(BUCKET_TYPES)
             .await
             .map_err(|e| BusError::StreamNotFound(e.to_string()))?;
 
         let mut types = Vec::new();
-        let mut keys = store.keys().await.map_err(|e| BusError::SubscribeFailed(e.to_string()))?;
+        let mut keys = store
+            .keys()
+            .await
+            .map_err(|e| BusError::SubscribeFailed(e.to_string()))?;
 
         while let Some(Ok(key)) = keys.next().await {
             if let Ok(Some(entry)) = store.get(&key).await {
@@ -257,10 +278,13 @@ impl StateStore {
 
     /// Store a validated function signature.
     pub async fn put_function(&self, func: FunctionSig) -> Result<(), BusError> {
-        let js = self.nats.jetstream()
+        let js = self
+            .nats
+            .jetstream()
             .ok_or_else(|| BusError::StreamNotFound("JetStream not enabled".to_string()))?;
 
-        let store = js.get_key_value(BUCKET_FUNCTIONS)
+        let store = js
+            .get_key_value(BUCKET_FUNCTIONS)
             .await
             .map_err(|e| BusError::StreamNotFound(e.to_string()))?;
 
@@ -270,10 +294,11 @@ impl StateStore {
             None => format!("::{}", func.name),
         };
 
-        let value = serde_json::to_vec(&func)
-            .map_err(|e| BusError::SerializationFailed(e.to_string()))?;
+        let value =
+            serde_json::to_vec(&func).map_err(|e| BusError::SerializationFailed(e.to_string()))?;
 
-        store.put(&key, value.into())
+        store
+            .put(&key, value.into())
             .await
             .map_err(|e| BusError::PublishFailed(e.to_string()))?;
 
@@ -285,7 +310,11 @@ impl StateStore {
     }
 
     /// Get a function signature.
-    pub async fn get_function(&self, type_name: Option<&str>, func_name: &str) -> Result<Option<FunctionSig>, BusError> {
+    pub async fn get_function(
+        &self,
+        type_name: Option<&str>,
+        func_name: &str,
+    ) -> Result<Option<FunctionSig>, BusError> {
         let key = match type_name {
             Some(t) => format!("{}::{}", t, func_name),
             None => format!("::{}", func_name),
@@ -300,10 +329,13 @@ impl StateStore {
         }
 
         // Fetch from NATS KV
-        let js = self.nats.jetstream()
+        let js = self
+            .nats
+            .jetstream()
             .ok_or_else(|| BusError::StreamNotFound("JetStream not enabled".to_string()))?;
 
-        let store = js.get_key_value(BUCKET_FUNCTIONS)
+        let store = js
+            .get_key_value(BUCKET_FUNCTIONS)
             .await
             .map_err(|e| BusError::StreamNotFound(e.to_string()))?;
 
@@ -324,17 +356,23 @@ impl StateStore {
 
     /// Get all functions for a type.
     pub async fn get_methods(&self, type_name: &str) -> Result<Vec<FunctionSig>, BusError> {
-        let js = self.nats.jetstream()
+        let js = self
+            .nats
+            .jetstream()
             .ok_or_else(|| BusError::StreamNotFound("JetStream not enabled".to_string()))?;
 
-        let store = js.get_key_value(BUCKET_FUNCTIONS)
+        let store = js
+            .get_key_value(BUCKET_FUNCTIONS)
             .await
             .map_err(|e| BusError::StreamNotFound(e.to_string()))?;
 
         let prefix = format!("{}::", type_name);
         let mut functions = Vec::new();
 
-        let mut keys = store.keys().await.map_err(|e| BusError::SubscribeFailed(e.to_string()))?;
+        let mut keys = store
+            .keys()
+            .await
+            .map_err(|e| BusError::SubscribeFailed(e.to_string()))?;
 
         while let Some(Ok(key)) = keys.next().await {
             if key.starts_with(&prefix) {
@@ -353,17 +391,21 @@ impl StateStore {
 
     /// Store validated imports.
     pub async fn put_imports(&self, imports: Vec<String>) -> Result<(), BusError> {
-        let js = self.nats.jetstream()
+        let js = self
+            .nats
+            .jetstream()
             .ok_or_else(|| BusError::StreamNotFound("JetStream not enabled".to_string()))?;
 
-        let store = js.get_key_value(BUCKET_IMPORTS)
+        let store = js
+            .get_key_value(BUCKET_IMPORTS)
             .await
             .map_err(|e| BusError::StreamNotFound(e.to_string()))?;
 
         let value = serde_json::to_vec(&imports)
             .map_err(|e| BusError::SerializationFailed(e.to_string()))?;
 
-        store.put("validated_imports", value.into())
+        store
+            .put("validated_imports", value.into())
             .await
             .map_err(|e| BusError::PublishFailed(e.to_string()))?;
 
@@ -382,10 +424,13 @@ impl StateStore {
             }
         }
 
-        let js = self.nats.jetstream()
+        let js = self
+            .nats
+            .jetstream()
             .ok_or_else(|| BusError::StreamNotFound("JetStream not enabled".to_string()))?;
 
-        let store = js.get_key_value(BUCKET_IMPORTS)
+        let store = js
+            .get_key_value(BUCKET_IMPORTS)
             .await
             .map_err(|e| BusError::StreamNotFound(e.to_string()))?;
 
@@ -408,14 +453,18 @@ impl StateStore {
 
     /// Store a reference pattern for injection into prompts.
     pub async fn put_pattern(&self, name: &str, code: &str) -> Result<(), BusError> {
-        let js = self.nats.jetstream()
+        let js = self
+            .nats
+            .jetstream()
             .ok_or_else(|| BusError::StreamNotFound("JetStream not enabled".to_string()))?;
 
-        let store = js.get_key_value(BUCKET_PATTERNS)
+        let store = js
+            .get_key_value(BUCKET_PATTERNS)
             .await
             .map_err(|e| BusError::StreamNotFound(e.to_string()))?;
 
-        store.put(name, code.to_string().into_bytes().into())
+        store
+            .put(name, code.to_string().into_bytes().into())
             .await
             .map_err(|e| BusError::PublishFailed(e.to_string()))?;
 
@@ -425,10 +474,13 @@ impl StateStore {
 
     /// Get a reference pattern by name.
     pub async fn get_pattern(&self, name: &str) -> Result<Option<String>, BusError> {
-        let js = self.nats.jetstream()
+        let js = self
+            .nats
+            .jetstream()
             .ok_or_else(|| BusError::StreamNotFound("JetStream not enabled".to_string()))?;
 
-        let store = js.get_key_value(BUCKET_PATTERNS)
+        let store = js
+            .get_key_value(BUCKET_PATTERNS)
             .await
             .map_err(|e| BusError::StreamNotFound(e.to_string()))?;
 
@@ -444,15 +496,21 @@ impl StateStore {
 
     /// Get all stored patterns.
     pub async fn get_all_patterns(&self) -> Result<HashMap<String, String>, BusError> {
-        let js = self.nats.jetstream()
+        let js = self
+            .nats
+            .jetstream()
             .ok_or_else(|| BusError::StreamNotFound("JetStream not enabled".to_string()))?;
 
-        let store = js.get_key_value(BUCKET_PATTERNS)
+        let store = js
+            .get_key_value(BUCKET_PATTERNS)
             .await
             .map_err(|e| BusError::StreamNotFound(e.to_string()))?;
 
         let mut patterns = HashMap::new();
-        let mut keys = store.keys().await.map_err(|e| BusError::SubscribeFailed(e.to_string()))?;
+        let mut keys = store
+            .keys()
+            .await
+            .map_err(|e| BusError::SubscribeFailed(e.to_string()))?;
 
         while let Some(Ok(key)) = keys.next().await {
             if let Ok(Some(entry)) = store.get(&key).await {
@@ -498,10 +556,17 @@ impl StateStore {
 
     /// Clear all stored state (for new pipeline run).
     pub async fn clear(&self) -> Result<(), BusError> {
-        let js = self.nats.jetstream()
+        let js = self
+            .nats
+            .jetstream()
             .ok_or_else(|| BusError::StreamNotFound("JetStream not enabled".to_string()))?;
 
-        for bucket_name in [BUCKET_TYPES, BUCKET_FUNCTIONS, BUCKET_FIELDS, BUCKET_IMPORTS] {
+        for bucket_name in [
+            BUCKET_TYPES,
+            BUCKET_FUNCTIONS,
+            BUCKET_FIELDS,
+            BUCKET_IMPORTS,
+        ] {
             if let Ok(store) = js.get_key_value(bucket_name).await {
                 if let Ok(mut keys) = store.keys().await {
                     while let Some(Ok(key)) = keys.next().await {
@@ -531,9 +596,9 @@ pub fn extract_types(code: &str) -> Vec<TypeDef> {
         r"(?m)^(?:#\[derive\([^\]]+\)\]\s*)?pub\s+struct\s+(\w+)(?:<[^>]+>)?\s*(?:\([^)]+\);|\{[^}]*\})"
     ).unwrap();
 
-    let enum_re = regex::Regex::new(
-        r"(?m)^(?:#\[derive\([^\]]+\)\]\s*)?pub\s+enum\s+(\w+)\s*\{[^}]*\}"
-    ).unwrap();
+    let enum_re =
+        regex::Regex::new(r"(?m)^(?:#\[derive\([^\]]+\)\]\s*)?pub\s+enum\s+(\w+)\s*\{[^}]*\}")
+            .unwrap();
 
     for cap in struct_re.captures_iter(code) {
         if let Some(name) = cap.get(1) {

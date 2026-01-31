@@ -26,8 +26,8 @@
 //! let fixed = liaison.fix(&results, &executor).await?;
 //! ```
 
-use super::task_decomposer::SubTaskResult;
 use super::executor::Executor;
+use super::task_decomposer::SubTaskResult;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 
@@ -148,7 +148,11 @@ impl LiaisonArchitect {
     }
 
     /// Generate a prompt for an LLM to fix coherence issues.
-    pub fn generate_fix_prompt(&self, results: &[SubTaskResult], report: &CoherenceReport) -> String {
+    pub fn generate_fix_prompt(
+        &self,
+        results: &[SubTaskResult],
+        report: &CoherenceReport,
+    ) -> String {
         let mut prompt = String::new();
 
         prompt.push_str("You are a Rust code coherence expert. Multiple agents generated code parts in parallel, \
@@ -156,7 +160,10 @@ impl LiaisonArchitect {
 
         prompt.push_str("=== COHERENCE ISSUES DETECTED ===\n");
         for issue in &report.issues {
-            prompt.push_str(&format!("- {:?}: {} (in {})\n", issue.category, issue.description, issue.location));
+            prompt.push_str(&format!(
+                "- {:?}: {} (in {})\n",
+                issue.category, issue.description, issue.location
+            ));
         }
 
         prompt.push_str("\n=== DEFINED TYPES ===\n");
@@ -189,13 +196,19 @@ impl LiaisonArchitect {
         prompt.push_str("3. Has impl blocks that use ONLY the fields defined in the structs\n");
         prompt.push_str("4. Has tests that use ONLY the methods defined in impl\n");
         prompt.push_str("5. Uses ONLY stable Rust features\n\n");
-        prompt.push_str("Return ONLY the complete, working Rust code. No markdown, no explanations.\n");
+        prompt.push_str(
+            "Return ONLY the complete, working Rust code. No markdown, no explanations.\n",
+        );
 
         prompt
     }
 
     /// Generate a minimal fix prompt when there are few issues.
-    pub fn generate_minimal_fix_prompt(&self, assembled_code: &str, report: &CoherenceReport) -> Option<String> {
+    pub fn generate_minimal_fix_prompt(
+        &self,
+        assembled_code: &str,
+        report: &CoherenceReport,
+    ) -> Option<String> {
         if report.issues.is_empty() {
             return None;
         }
@@ -251,7 +264,8 @@ impl LiaisonArchitect {
             for field_cap in field_re.captures_iter(body) {
                 let field_name = field_cap[1].to_string();
                 if field_name != "pub" {
-                    report.defined_fields
+                    report
+                        .defined_fields
                         .entry(struct_name.clone())
                         .or_default()
                         .insert(field_name);
@@ -268,8 +282,13 @@ impl LiaisonArchitect {
             let type_name = cap[1].to_string();
 
             // Skip trait impls like "impl Default for X"
-            if type_name == "Default" || type_name == "Clone" || type_name == "Debug"
-                || type_name == "Display" || type_name == "Error" || type_name == "From" {
+            if type_name == "Default"
+                || type_name == "Clone"
+                || type_name == "Debug"
+                || type_name == "Display"
+                || type_name == "Error"
+                || type_name == "From"
+            {
                 continue;
             }
 
@@ -290,7 +309,8 @@ impl LiaisonArchitect {
             for method_cap in method_re.captures_iter(code) {
                 let method_name = method_cap[1].to_string();
                 if method_name != "new" && method_name != "default" && method_name != "fmt" {
-                    report.defined_methods
+                    report
+                        .defined_methods
                         .entry(type_name.clone())
                         .or_default()
                         .insert(method_name);
@@ -304,7 +324,8 @@ impl LiaisonArchitect {
             let field_name = cap[1].to_string();
             // We need to associate with the right type, but for now collect all
             for type_name in report.defined_types.iter() {
-                report.used_fields
+                report
+                    .used_fields
                     .entry(type_name.clone())
                     .or_default()
                     .insert(field_name.clone());
@@ -318,12 +339,28 @@ impl LiaisonArchitect {
         for cap in method_call_re.captures_iter(code) {
             let method_name = cap[1].to_string();
             // Common methods to ignore
-            if ["await", "unwrap", "expect", "is_ok", "is_err", "len", "clone",
-                "to_string", "into", "as_ref", "as_mut", "iter", "collect"].contains(&method_name.as_str()) {
+            if [
+                "await",
+                "unwrap",
+                "expect",
+                "is_ok",
+                "is_err",
+                "len",
+                "clone",
+                "to_string",
+                "into",
+                "as_ref",
+                "as_mut",
+                "iter",
+                "collect",
+            ]
+            .contains(&method_name.as_str())
+            {
                 continue;
             }
             for type_name in report.defined_types.iter() {
-                report.used_methods
+                report
+                    .used_methods
                     .entry(type_name.clone())
                     .or_default()
                     .insert(method_name.clone());
@@ -340,7 +377,10 @@ impl LiaisonArchitect {
                     if !defined.contains(field) {
                         report.issues.push(CoherenceIssue {
                             category: IssueCategory::MissingField,
-                            description: format!("Field '{}' used but not defined in struct '{}'", field, type_name),
+                            description: format!(
+                                "Field '{}' used but not defined in struct '{}'",
+                                field, type_name
+                            ),
                             location: format!("impl {}", type_name),
                         });
                     }
@@ -356,7 +396,10 @@ impl LiaisonArchitect {
                     if !defined.contains(method) && method != "new" {
                         report.issues.push(CoherenceIssue {
                             category: IssueCategory::MissingMethod,
-                            description: format!("Method '{}' called but not defined in impl '{}'", method, type_name),
+                            description: format!(
+                                "Method '{}' called but not defined in impl '{}'",
+                                method, type_name
+                            ),
                             location: "tests".to_string(),
                         });
                     }
@@ -401,7 +444,12 @@ impl LiaisonArchitect {
     /// Check if coherence issues are severe enough to need fixing.
     pub fn needs_fixing(&self, report: &CoherenceReport) -> bool {
         report.issues.iter().any(|i| {
-            matches!(i.category, IssueCategory::MissingField | IssueCategory::MissingMethod | IssueCategory::MissingType)
+            matches!(
+                i.category,
+                IssueCategory::MissingField
+                    | IssueCategory::MissingMethod
+                    | IssueCategory::MissingType
+            )
         })
     }
 
@@ -425,7 +473,8 @@ impl LiaisonArchitect {
         if !self.needs_fixing(&report) {
             tracing::info!("No critical coherence issues - returning assembled results");
             // Just combine the results
-            let code = results.iter()
+            let code = results
+                .iter()
                 .filter(|r| r.success)
                 .map(|r| r.code.as_str())
                 .collect::<Vec<_>>()
@@ -553,7 +602,8 @@ impl LiaisonArchitect {
             *counts.entry(cat).or_default() += 1;
         }
 
-        let parts: Vec<String> = counts.iter()
+        let parts: Vec<String> = counts
+            .iter()
             .map(|(k, v)| format!("{}: {}", k, v))
             .collect();
 
@@ -625,7 +675,9 @@ mod tests {
         let report = architect.analyze(&results);
 
         // Should detect that 'y' is used but 'x' is defined
-        let has_field_issue = report.issues.iter()
+        let has_field_issue = report
+            .issues
+            .iter()
             .any(|i| matches!(i.category, IssueCategory::MissingField));
         assert!(has_field_issue, "Should detect missing field 'y'");
     }

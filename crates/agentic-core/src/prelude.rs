@@ -55,41 +55,41 @@ pub use crate::AgentError;
 
 // Distributed architecture - essential types only
 pub use crate::distributed::{
-    // Core components
-    Supervisor,
-    Executor,
-
-    // Validation
-    Validator,
-    ValidationRule,
-    ValidationResult,
-    SandboxValidator,
-    SandboxValidationResult,
-    ValidatorPipeline,
-    ValidatorInput,
-
-    // Configuration
-    LLMConfig,
-    SandboxConfig,
     Capability,
 
     // Results
     ExecutionResult,
+    Executor,
+
+    // Configuration
+    LLMConfig,
     Language,
+    SandboxConfig,
+    SandboxValidationResult,
+    SandboxValidator,
+    // Core components
+    Supervisor,
+    ValidationResult,
+    ValidationRule,
+    // Validation
+    Validator,
+    ValidatorInput,
+
+    ValidatorPipeline,
 };
 
 // Bus components for advanced users
 pub use crate::distributed::bus::{
-    BusCoordinator,
-    BusLinter,
-    RollbackManager,
-    ErrorFingerprinter,
-    ModelTier,
-
     // Audit trail (new)
     AuditCollector,
     AuditEvent,
     AuditEventType,
     AuditReport,
+    BusCoordinator,
+    BusLinter,
+    ErrorFingerprinter,
+    ModelTier,
+
+    RollbackManager,
     TraceSequencer,
 };

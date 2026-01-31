@@ -15,9 +15,7 @@ pub trait Channel: Send + Sync {
     async fn publish(&self, message: &Message) -> Result<(), BusError>;
 
     /// Subscribe to messages on this channel.
-    async fn subscribe(
-        &self,
-    ) -> Result<Pin<Box<dyn Stream<Item = Message> + Send>>, BusError>;
+    async fn subscribe(&self) -> Result<Pin<Box<dyn Stream<Item = Message> + Send>>, BusError>;
 
     /// Send a request and wait for response.
     async fn request(&self, message: &Message, timeout_ms: u64) -> Result<Message, BusError>;

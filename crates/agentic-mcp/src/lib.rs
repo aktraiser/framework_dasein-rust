@@ -100,10 +100,10 @@
 //! println!("Agent sees: {}", result.stdout);  // Just the summary
 //! ```
 
-mod error;
 pub mod client;
+mod error;
 pub mod server;
 
+pub use client::{MCPClientPool, MCPConfig, MCPServerConfig, TransportType};
 pub use error::MCPError;
-pub use client::{MCPConfig, MCPServerConfig, TransportType, MCPClientPool};
 pub use server::ValidatorMCPServer;

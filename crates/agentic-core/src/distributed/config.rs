@@ -50,8 +50,8 @@ impl LLMConfig {
             provider: "gemini".into(),
             model: model.into(),
             api_key: std::env::var("GEMINI_API_KEY").unwrap_or_default(),
-            temperature: 0.2,  // Low for reliable code generation
-            max_tokens: 8192,  // Increased for larger outputs
+            temperature: 0.2, // Low for reliable code generation
+            max_tokens: 8192, // Increased for larger outputs
         }
     }
 
@@ -72,8 +72,8 @@ impl LLMConfig {
             provider: "anthropic".into(),
             model: model.into(),
             api_key: std::env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
-            temperature: 0.2,  // Low for reliable code generation
-            max_tokens: 8192,  // Claude supports large outputs
+            temperature: 0.2, // Low for reliable code generation
+            max_tokens: 8192, // Claude supports large outputs
         }
     }
 

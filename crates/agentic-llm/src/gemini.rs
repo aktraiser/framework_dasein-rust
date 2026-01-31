@@ -69,15 +69,18 @@ impl GeminiAdapter {
     }
 
     /// Convert messages to Gemini format.
-    fn convert_messages(messages: &[LLMMessage]) -> (Option<GeminiSystemInstruction>, Vec<GeminiContent>) {
-        let system_instruction = messages
-            .iter()
-            .find(|m| m.role == Role::System)
-            .map(|m| GeminiSystemInstruction {
-                parts: vec![GeminiPart {
-                    text: m.content.clone(),
-                }],
-            });
+    fn convert_messages(
+        messages: &[LLMMessage],
+    ) -> (Option<GeminiSystemInstruction>, Vec<GeminiContent>) {
+        let system_instruction =
+            messages
+                .iter()
+                .find(|m| m.role == Role::System)
+                .map(|m| GeminiSystemInstruction {
+                    parts: vec![GeminiPart {
+                        text: m.content.clone(),
+                    }],
+                });
 
         let contents = messages
             .iter()
@@ -369,10 +372,7 @@ impl LLMAdapter for GeminiAdapter {
 
     async fn health_check(&self) -> Result<bool, LLMError> {
         // List models endpoint to check API connectivity
-        let url = format!(
-            "{}/{}?key={}",
-            GEMINI_API_BASE, self.model, self.api_key
-        );
+        let url = format!("{}/{}?key={}", GEMINI_API_BASE, self.model, self.api_key);
 
         let response = self
             .client

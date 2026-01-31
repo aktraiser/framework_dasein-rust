@@ -1,10 +1,10 @@
 //! MCP Client Pool - manages connections to multiple MCP servers.
 
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use tracing::{debug, info, warn};
 
 use super::config::{MCPConfig, MCPServerConfig, TransportType};
@@ -106,16 +106,23 @@ impl MCPClientPool {
 
         // Store connection
         let mut servers = self.servers.write().await;
-        servers.insert(name.to_string(), ConnectedServer {
-            config: config.clone(),
-            tools,
-        });
+        servers.insert(
+            name.to_string(),
+            ConnectedServer {
+                config: config.clone(),
+                tools,
+            },
+        );
 
         Ok(())
     }
 
     /// Discover tools from a server.
-    async fn discover_tools(&self, name: &str, config: &MCPServerConfig) -> Result<Vec<ToolDefinition>, MCPError> {
+    async fn discover_tools(
+        &self,
+        name: &str,
+        config: &MCPServerConfig,
+    ) -> Result<Vec<ToolDefinition>, MCPError> {
         match config.transport_type() {
             TransportType::Http => self.discover_tools_http(name, config).await,
             TransportType::Stdio => self.discover_tools_stdio(name, config).await,
@@ -123,8 +130,14 @@ impl MCPClientPool {
     }
 
     /// Discover tools via HTTP transport.
-    async fn discover_tools_http(&self, _name: &str, config: &MCPServerConfig) -> Result<Vec<ToolDefinition>, MCPError> {
-        let url = config.url.as_ref()
+    async fn discover_tools_http(
+        &self,
+        _name: &str,
+        config: &MCPServerConfig,
+    ) -> Result<Vec<ToolDefinition>, MCPError> {
+        let url = config
+            .url
+            .as_ref()
             .ok_or_else(|| MCPError::ConnectionFailed("No URL configured".into()))?;
 
         // Build HTTP client with headers
@@ -142,15 +155,18 @@ impl MCPClientPool {
                 let bearer = format!("Bearer {}", value);
                 headers.insert(
                     reqwest::header::AUTHORIZATION,
-                    reqwest::header::HeaderValue::from_str(&bearer)
-                        .map_err(|e| MCPError::ConnectionFailed(format!("Invalid auth value: {}", e)))?,
+                    reqwest::header::HeaderValue::from_str(&bearer).map_err(|e| {
+                        MCPError::ConnectionFailed(format!("Invalid auth value: {}", e))
+                    })?,
                 );
             } else {
                 headers.insert(
-                    reqwest::header::HeaderName::from_bytes(key.as_bytes())
-                        .map_err(|e| MCPError::ConnectionFailed(format!("Invalid header name: {}", e)))?,
-                    reqwest::header::HeaderValue::from_str(value)
-                        .map_err(|e| MCPError::ConnectionFailed(format!("Invalid header value: {}", e)))?,
+                    reqwest::header::HeaderName::from_bytes(key.as_bytes()).map_err(|e| {
+                        MCPError::ConnectionFailed(format!("Invalid header name: {}", e))
+                    })?,
+                    reqwest::header::HeaderValue::from_str(value).map_err(|e| {
+                        MCPError::ConnectionFailed(format!("Invalid header value: {}", e))
+                    })?,
                 );
             }
         }
@@ -169,13 +185,16 @@ impl MCPClientPool {
             "params": {}
         });
 
-        let response = client.post(url)
+        let response = client
+            .post(url)
             .json(&request)
             .send()
             .await
             .map_err(|e| MCPError::ConnectionFailed(format!("HTTP request failed: {}", e)))?;
 
-        let response_json: Value = response.json().await
+        let response_json: Value = response
+            .json()
+            .await
             .map_err(|e| MCPError::SerializationError(format!("Invalid response: {}", e)))?;
 
         // Parse tools from response
@@ -191,10 +210,16 @@ impl MCPClientPool {
     }
 
     /// Discover tools via stdio transport.
-    async fn discover_tools_stdio(&self, _name: &str, _config: &MCPServerConfig) -> Result<Vec<ToolDefinition>, MCPError> {
+    async fn discover_tools_stdio(
+        &self,
+        _name: &str,
+        _config: &MCPServerConfig,
+    ) -> Result<Vec<ToolDefinition>, MCPError> {
         // TODO: Implement stdio transport using tokio::process
         // This requires spawning a child process and communicating via stdin/stdout
-        Err(MCPError::ConnectionFailed("Stdio transport not yet implemented".into()))
+        Err(MCPError::ConnectionFailed(
+            "Stdio transport not yet implemented".into(),
+        ))
     }
 
     /// List all connected servers.
@@ -206,7 +231,8 @@ impl MCPClientPool {
     /// List tools from a specific server.
     pub async fn list_tools(&self, server_name: &str) -> Result<Vec<ToolDefinition>, MCPError> {
         let servers = self.servers.read().await;
-        let server = servers.get(server_name)
+        let server = servers
+            .get(server_name)
             .ok_or_else(|| MCPError::ServerNotFound(server_name.to_string()))?;
 
         Ok(server.tools.clone())
@@ -215,7 +241,8 @@ impl MCPClientPool {
     /// List all tools from all servers.
     pub async fn list_all_tools(&self) -> HashMap<String, Vec<ToolDefinition>> {
         let servers = self.servers.read().await;
-        servers.iter()
+        servers
+            .iter()
             .map(|(name, server)| (name.clone(), server.tools.clone()))
             .collect()
     }
@@ -228,16 +255,18 @@ impl MCPClientPool {
         arguments: Value,
     ) -> Result<ToolResult, MCPError> {
         let servers = self.servers.read().await;
-        let server = servers.get(server_name)
+        let server = servers
+            .get(server_name)
             .ok_or_else(|| MCPError::ServerNotFound(server_name.to_string()))?;
 
         match server.config.transport_type() {
             TransportType::Http => {
-                self.call_tool_http(&server.config, tool_name, arguments).await
+                self.call_tool_http(&server.config, tool_name, arguments)
+                    .await
             }
-            TransportType::Stdio => {
-                Err(MCPError::CallFailed("Stdio transport not yet implemented".into()))
-            }
+            TransportType::Stdio => Err(MCPError::CallFailed(
+                "Stdio transport not yet implemented".into(),
+            )),
         }
     }
 
@@ -248,7 +277,9 @@ impl MCPClientPool {
         tool_name: &str,
         arguments: Value,
     ) -> Result<ToolResult, MCPError> {
-        let url = config.url.as_ref()
+        let url = config
+            .url
+            .as_ref()
             .ok_or_else(|| MCPError::CallFailed("No URL configured".into()))?;
 
         let mut headers = reqwest::header::HeaderMap::new();
@@ -268,7 +299,7 @@ impl MCPClientPool {
                 }
             } else if let (Ok(name), Ok(val)) = (
                 reqwest::header::HeaderName::from_bytes(key.as_bytes()),
-                reqwest::header::HeaderValue::from_str(value)
+                reqwest::header::HeaderValue::from_str(value),
             ) {
                 headers.insert(name, val);
             }
@@ -290,13 +321,16 @@ impl MCPClientPool {
             }
         });
 
-        let response = client.post(url)
+        let response = client
+            .post(url)
             .json(&request)
             .send()
             .await
             .map_err(|e| MCPError::CallFailed(format!("HTTP request failed: {}", e)))?;
 
-        let response_json: Value = response.json().await
+        let response_json: Value = response
+            .json()
+            .await
             .map_err(|e| MCPError::SerializationError(format!("Invalid response: {}", e)))?;
 
         // Check for error
@@ -305,7 +339,8 @@ impl MCPClientPool {
         }
 
         // Parse result
-        let result = response_json.get("result")
+        let result = response_json
+            .get("result")
             .ok_or_else(|| MCPError::CallFailed("No result in response".into()))?;
 
         serde_json::from_value(result.clone())
@@ -332,10 +367,14 @@ impl MCPClientPool {
                 let filename = format!("{}.ts", tool.name);
                 let filepath = server_dir.join(&filename);
 
-                std::fs::write(&filepath, ts_code)
-                    .map_err(|e| MCPError::ConnectionFailed(format!("Failed to write file: {}", e)))?;
+                std::fs::write(&filepath, ts_code).map_err(|e| {
+                    MCPError::ConnectionFailed(format!("Failed to write file: {}", e))
+                })?;
 
-                index_exports.push(format!("export {{ {} }} from './{}';\n", tool.name, tool.name));
+                index_exports.push(format!(
+                    "export {{ {} }} from './{}';\n",
+                    tool.name, tool.name
+                ));
             }
 
             // Write index.ts
@@ -357,7 +396,8 @@ impl MCPClientPool {
         let description = tool.description.as_deref().unwrap_or("No description");
         let input_schema = serde_json::to_string_pretty(&tool.input_schema).unwrap_or_default();
 
-        format!(r#"import {{ callMCPTool }} from '../../client';
+        format!(
+            r#"import {{ callMCPTool }} from '../../client';
 
 /**
  * {description}
@@ -405,7 +445,8 @@ export async function callMCPTool(server: string, tool: string, input: any): Pro
 
   return json.result;
 }
-"#.to_string()
+"#
+        .to_string()
     }
 }
 

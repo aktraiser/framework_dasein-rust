@@ -12,11 +12,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let api_key = std::env::var("GEMINI_API_KEY").expect(
         "GEMINI_API_KEY environment variable not set.\n\
-         Usage: GEMINI_API_KEY=your-key cargo run --example test_gemini"
+         Usage: GEMINI_API_KEY=your-key cargo run --example test_gemini",
     );
 
-    let gemini = GeminiAdapter::new(api_key, "gemini-2.0-flash")
-        .with_temperature(0.7);
+    let gemini = GeminiAdapter::new(api_key, "gemini-2.0-flash").with_temperature(0.7);
 
     println!("Testing Gemini adapter...");
     println!("Provider: {}", gemini.provider());
@@ -41,7 +40,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(response) => {
             println!("   ✓ Response: {}", response.content.trim());
             println!("   Model: {}", response.model);
-            println!("   Tokens: prompt={}, completion={}, total={}",
+            println!(
+                "   Tokens: prompt={}, completion={}, total={}",
                 response.tokens_used.prompt,
                 response.tokens_used.completion,
                 response.tokens_used.total
@@ -52,9 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test streaming
     println!("\n3. Stream completion...");
-    let messages = vec![
-        LLMMessage::user("Count from 1 to 5, one number per line."),
-    ];
+    let messages = vec![LLMMessage::user("Count from 1 to 5, one number per line.")];
 
     use futures::StreamExt;
     let mut stream = gemini.generate_stream(&messages);

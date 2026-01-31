@@ -398,7 +398,10 @@ mod tests {
 
         collector.info("agent-1", "From agent 1").await.unwrap();
         collector.info("agent-2", "From agent 2").await.unwrap();
-        collector.info("agent-1", "Another from agent 1").await.unwrap();
+        collector
+            .info("agent-1", "Another from agent 1")
+            .await
+            .unwrap();
 
         let logs = collector.query(LogQuery::for_agent("agent-1")).await;
         assert_eq!(logs.len(), 2);

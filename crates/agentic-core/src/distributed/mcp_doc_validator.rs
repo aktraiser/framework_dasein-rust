@@ -311,10 +311,11 @@ impl PipelineValidator for MCPDocValidator {
 
         if topics.is_empty() {
             info!("No extractable topics from errors");
-            return Ok(ValidatorOutput::success("mcp-doc")
-                .with_recommendations(vec![
+            return Ok(
+                ValidatorOutput::success("mcp-doc").with_recommendations(vec![
                     "Could not extract specific topics from errors".to_string(),
-                ]));
+                ]),
+            );
         }
 
         info!("Fetching docs for {} topics: {:?}", topics.len(), topics);
@@ -334,7 +335,8 @@ impl PipelineValidator for MCPDocValidator {
                                 topic: topic.clone(),
                                 content,
                             });
-                            recommendations.push(format!("See {} documentation for {}", library_id, topic));
+                            recommendations
+                                .push(format!("See {} documentation for {}", library_id, topic));
                         }
                         Err(e) => {
                             debug!("Failed to query docs for {}: {}", topic, e);
@@ -362,7 +364,8 @@ mod tests {
         let config = MCPDocConfig::context7("test");
         let validator = MCPDocValidator::new(config);
 
-        let error = "error[E0433]: failed to resolve: use of unresolved module or unlinked crate `tokio`";
+        let error =
+            "error[E0433]: failed to resolve: use of unresolved module or unlinked crate `tokio`";
         let topic = validator.extract_rust_topic(error);
 
         assert!(topic.is_some());

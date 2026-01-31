@@ -13,20 +13,14 @@ use agentic_sandbox::Sandbox;
 use crate::{
     error::AgentError,
     types::{
-        AgentConfig, AgentMetrics, AgentState, AgentStatus, Artifact, ArtifactType,
-        ExecutionMode, ResultMetrics, ResultPayload, ResultStatus, TaskPayload,
+        AgentConfig, AgentMetrics, AgentState, AgentStatus, Artifact, ArtifactType, ExecutionMode,
+        ResultMetrics, ResultPayload, ResultStatus, TaskPayload,
     },
 };
 
 /// Actions that trigger code execution by default.
 const EXECUTABLE_ACTIONS: &[&str] = &[
-    "execute",
-    "run",
-    "test",
-    "build",
-    "deploy",
-    "install",
-    "validate",
+    "execute", "run", "test", "build", "deploy", "install", "validate",
 ];
 
 /// Actions that do NOT trigger execution by default.
@@ -349,10 +343,10 @@ impl<L: LLMAdapter, S: Sandbox> Agent<L, S> {
     /// Build the system prompt.
     fn build_system_prompt(&self) -> String {
         let execution_instructions = match self.config.execution_mode {
-            ExecutionMode::Always => {
-                "The code you generate will ALWAYS be executed in a sandbox."
+            ExecutionMode::Always => "The code you generate will ALWAYS be executed in a sandbox.",
+            ExecutionMode::Never => {
+                "The code you generate will NOT be executed. Provide explanations."
             }
-            ExecutionMode::Never => "The code you generate will NOT be executed. Provide explanations.",
             ExecutionMode::Auto => {
                 "Use [EXECUTE] or [NO_EXECUTE] markers to indicate if code should run."
             }
@@ -393,7 +387,10 @@ impl<L: LLMAdapter, S: Sandbox> Agent<L, S> {
         }
 
         if !task.constraints.is_empty() {
-            parts.push(format!("## Constraints:\n- {}", task.constraints.join("\n- ")));
+            parts.push(format!(
+                "## Constraints:\n- {}",
+                task.constraints.join("\n- ")
+            ));
         }
 
         parts.join("\n\n")
@@ -401,8 +398,8 @@ impl<L: LLMAdapter, S: Sandbox> Agent<L, S> {
 
     /// Extract code from markdown code blocks.
     fn extract_code(&self, content: &str) -> Option<String> {
-        let re = Regex::new(r"```(?:rust|typescript|javascript|python|bash|sh)\n([\s\S]*?)```")
-            .ok()?;
+        let re =
+            Regex::new(r"```(?:rust|typescript|javascript|python|bash|sh)\n([\s\S]*?)```").ok()?;
 
         re.captures(content)
             .and_then(|cap| cap.get(1))

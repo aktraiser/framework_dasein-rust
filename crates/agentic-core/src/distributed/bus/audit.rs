@@ -41,9 +41,9 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
 
+use super::error_fingerprint::ModelTier;
 use super::nats_client::{NatsClient, StreamConfig, StreamRetention};
 use super::types::BusError;
-use super::error_fingerprint::ModelTier;
 
 /// Stream name for audit events.
 pub const AUDIT_STREAM: &str = "AGENTIC_AUDIT";
@@ -69,10 +69,7 @@ pub enum AuditEventType {
     },
 
     /// A stage started.
-    StageStarted {
-        stage: String,
-        attempt: u32,
-    },
+    StageStarted { stage: String, attempt: u32 },
 
     /// A stage completed.
     StageCompleted {
@@ -91,10 +88,7 @@ pub enum AuditEventType {
     },
 
     /// LLM generation requested.
-    LlmRequested {
-        model: String,
-        prompt_tokens: usize,
-    },
+    LlmRequested { model: String, prompt_tokens: usize },
 
     /// LLM generation completed.
     LlmCompleted {
@@ -104,9 +98,7 @@ pub enum AuditEventType {
     },
 
     /// Validation started.
-    ValidationStarted {
-        validator: String,
-    },
+    ValidationStarted { validator: String },
 
     /// Validation completed.
     ValidationCompleted {
@@ -193,88 +185,173 @@ impl AuditEvent {
             task.to_string()
         };
 
-        Self::new(trace_id, seq, AuditEventType::PipelineStarted {
-            task_hash,
-            task_preview,
-        })
+        Self::new(
+            trace_id,
+            seq,
+            AuditEventType::PipelineStarted {
+                task_hash,
+                task_preview,
+            },
+        )
     }
 
-    pub fn pipeline_completed(trace_id: &str, seq: u64, success: bool, duration_ms: u64, stages: u32) -> Self {
-        Self::new(trace_id, seq, AuditEventType::PipelineCompleted {
-            success,
-            duration_ms,
-            stages_completed: stages,
-        })
+    pub fn pipeline_completed(
+        trace_id: &str,
+        seq: u64,
+        success: bool,
+        duration_ms: u64,
+        stages: u32,
+    ) -> Self {
+        Self::new(
+            trace_id,
+            seq,
+            AuditEventType::PipelineCompleted {
+                success,
+                duration_ms,
+                stages_completed: stages,
+            },
+        )
     }
 
     pub fn stage_started(trace_id: &str, seq: u64, stage: &str, attempt: u32) -> Self {
-        Self::new(trace_id, seq, AuditEventType::StageStarted {
-            stage: stage.to_string(),
-            attempt,
-        })
+        Self::new(
+            trace_id,
+            seq,
+            AuditEventType::StageStarted {
+                stage: stage.to_string(),
+                attempt,
+            },
+        )
     }
 
-    pub fn stage_completed(trace_id: &str, seq: u64, stage: &str, attempt: u32, success: bool, code: &str) -> Self {
+    pub fn stage_completed(
+        trace_id: &str,
+        seq: u64,
+        stage: &str,
+        attempt: u32,
+        success: bool,
+        code: &str,
+    ) -> Self {
         let code_hash = format!("{:x}", md5::compute(code.as_bytes()));
-        Self::new(trace_id, seq, AuditEventType::StageCompleted {
-            stage: stage.to_string(),
-            attempt,
-            success,
-            code_hash,
-            code_length: code.len(),
-        })
+        Self::new(
+            trace_id,
+            seq,
+            AuditEventType::StageCompleted {
+                stage: stage.to_string(),
+                attempt,
+                success,
+                code_hash,
+                code_length: code.len(),
+            },
+        )
     }
 
-    pub fn model_selected(trace_id: &str, seq: u64, tier: ModelTier, reason: &str, categories: Vec<String>) -> Self {
-        Self::new(trace_id, seq, AuditEventType::ModelSelected {
-            tier: tier.as_str().to_string(),
-            reason: reason.to_string(),
-            error_categories: categories,
-        })
+    pub fn model_selected(
+        trace_id: &str,
+        seq: u64,
+        tier: ModelTier,
+        reason: &str,
+        categories: Vec<String>,
+    ) -> Self {
+        Self::new(
+            trace_id,
+            seq,
+            AuditEventType::ModelSelected {
+                tier: tier.as_str().to_string(),
+                reason: reason.to_string(),
+                error_categories: categories,
+            },
+        )
     }
 
     pub fn llm_requested(trace_id: &str, seq: u64, model: &str, prompt_tokens: usize) -> Self {
-        Self::new(trace_id, seq, AuditEventType::LlmRequested {
-            model: model.to_string(),
-            prompt_tokens,
-        })
+        Self::new(
+            trace_id,
+            seq,
+            AuditEventType::LlmRequested {
+                model: model.to_string(),
+                prompt_tokens,
+            },
+        )
     }
 
-    pub fn llm_completed(trace_id: &str, seq: u64, model: &str, completion_tokens: usize, duration_ms: u64) -> Self {
-        Self::new(trace_id, seq, AuditEventType::LlmCompleted {
-            model: model.to_string(),
-            completion_tokens,
-            duration_ms,
-        })
+    pub fn llm_completed(
+        trace_id: &str,
+        seq: u64,
+        model: &str,
+        completion_tokens: usize,
+        duration_ms: u64,
+    ) -> Self {
+        Self::new(
+            trace_id,
+            seq,
+            AuditEventType::LlmCompleted {
+                model: model.to_string(),
+                completion_tokens,
+                duration_ms,
+            },
+        )
     }
 
     pub fn validation_started(trace_id: &str, seq: u64, validator: &str) -> Self {
-        Self::new(trace_id, seq, AuditEventType::ValidationStarted {
-            validator: validator.to_string(),
-        })
+        Self::new(
+            trace_id,
+            seq,
+            AuditEventType::ValidationStarted {
+                validator: validator.to_string(),
+            },
+        )
     }
 
-    pub fn validation_completed(trace_id: &str, seq: u64, validator: &str, passed: bool, errors: &[String]) -> Self {
-        let errors_preview: Vec<String> = errors.iter()
+    pub fn validation_completed(
+        trace_id: &str,
+        seq: u64,
+        validator: &str,
+        passed: bool,
+        errors: &[String],
+    ) -> Self {
+        let errors_preview: Vec<String> = errors
+            .iter()
             .take(3)
-            .map(|e| if e.len() > 100 { format!("{}...", &e[..100]) } else { e.clone() })
+            .map(|e| {
+                if e.len() > 100 {
+                    format!("{}...", &e[..100])
+                } else {
+                    e.clone()
+                }
+            })
             .collect();
 
-        Self::new(trace_id, seq, AuditEventType::ValidationCompleted {
-            validator: validator.to_string(),
-            passed,
-            error_count: errors.len(),
-            errors_preview,
-        })
+        Self::new(
+            trace_id,
+            seq,
+            AuditEventType::ValidationCompleted {
+                validator: validator.to_string(),
+                passed,
+                error_count: errors.len(),
+                errors_preview,
+            },
+        )
     }
 
-    pub fn rollback_decision(trace_id: &str, seq: u64, decision: &str, current: i32, best: Option<i32>, reason: &str) -> Self {
-        Self::new(trace_id, seq, AuditEventType::RollbackDecision {
-            decision: decision.to_string(),
-            current_score: current,
-            best_score: best,
-            reason: reason.to_string(),
-        })
+    pub fn rollback_decision(
+        trace_id: &str,
+        seq: u64,
+        decision: &str,
+        current: i32,
+        best: Option<i32>,
+        reason: &str,
+    ) -> Self {
+        Self::new(
+            trace_id,
+            seq,
+            AuditEventType::RollbackDecision {
+                decision: decision.to_string(),
+                current_score: current,
+                best_score: best,
+                reason: reason.to_string(),
+            },
+        )
     }
 
     pub fn code_snapshot(trace_id: &str, seq: u64, stage: &str, attempt: u32, code: &str) -> Self {
@@ -285,20 +362,34 @@ impl AuditEvent {
             code.to_string()
         };
 
-        Self::new(trace_id, seq, AuditEventType::CodeSnapshot {
-            stage: stage.to_string(),
-            attempt,
-            code_hash,
-            code_preview,
-        })
+        Self::new(
+            trace_id,
+            seq,
+            AuditEventType::CodeSnapshot {
+                stage: stage.to_string(),
+                attempt,
+                code_hash,
+                code_preview,
+            },
+        )
     }
 
-    pub fn error(trace_id: &str, seq: u64, component: &str, message: &str, recoverable: bool) -> Self {
-        Self::new(trace_id, seq, AuditEventType::Error {
-            component: component.to_string(),
-            message: message.to_string(),
-            recoverable,
-        })
+    pub fn error(
+        trace_id: &str,
+        seq: u64,
+        component: &str,
+        message: &str,
+        recoverable: bool,
+    ) -> Self {
+        Self::new(
+            trace_id,
+            seq,
+            AuditEventType::Error {
+                component: component.to_string(),
+                message: message.to_string(),
+                recoverable,
+            },
+        )
     }
 }
 
@@ -316,8 +407,8 @@ impl AuditCollector {
     /// Create a new AuditCollector and ensure the stream exists.
     pub async fn new(nats: Arc<NatsClient>) -> Result<Self, BusError> {
         // Ensure the audit stream exists
-        let stream_config = StreamConfig::new(AUDIT_STREAM)
-            .subjects(vec![format!("{}.>", AUDIT_SUBJECT)]);
+        let stream_config =
+            StreamConfig::new(AUDIT_STREAM).subjects(vec![format!("{}.>", AUDIT_SUBJECT)]);
 
         nats.ensure_stream(stream_config).await?;
 
@@ -364,7 +455,8 @@ impl AuditCollector {
     /// Get all events for a trace from cache.
     pub async fn for_trace(&self, trace_id: &str) -> Vec<AuditEvent> {
         let cache = self.cache.read().await;
-        cache.iter()
+        cache
+            .iter()
             .filter(|e| e.trace_id == trace_id)
             .cloned()
             .collect()
@@ -373,24 +465,28 @@ impl AuditCollector {
     /// Get all events for a trace from JetStream (full history).
     /// Returns error if NATS is not connected.
     pub async fn for_trace_persistent(&self, trace_id: &str) -> Result<Vec<AuditEvent>, BusError> {
-        let nats = self.nats.as_ref()
-            .ok_or_else(|| BusError::ConnectionFailed("NATS not connected (in-memory mode)".to_string()))?;
+        let nats = self.nats.as_ref().ok_or_else(|| {
+            BusError::ConnectionFailed("NATS not connected (in-memory mode)".to_string())
+        })?;
 
-        let consumer = nats.create_consumer(
-            AUDIT_STREAM,
-            &format!("audit-query-{}", trace_id),
-            Some(&format!("{}.{}", AUDIT_SUBJECT, trace_id)),
-        ).await?;
+        let consumer = nats
+            .create_consumer(
+                AUDIT_STREAM,
+                &format!("audit-query-{}", trace_id),
+                Some(&format!("{}.{}", AUDIT_SUBJECT, trace_id)),
+            )
+            .await?;
 
         let mut events = Vec::new();
-        let mut messages = consumer.messages().await
+        let mut messages = consumer
+            .messages()
+            .await
             .map_err(|e| BusError::SubscribeFailed(e.to_string()))?;
 
         use futures::StreamExt;
-        while let Ok(Some(msg)) = tokio::time::timeout(
-            Duration::from_millis(100),
-            messages.next()
-        ).await {
+        while let Ok(Some(msg)) =
+            tokio::time::timeout(Duration::from_millis(100), messages.next()).await
+        {
             if let Ok(msg) = msg {
                 if let Ok(event) = serde_json::from_slice::<AuditEvent>(&msg.payload) {
                     events.push(event);
@@ -426,19 +522,39 @@ impl AuditCollector {
 
         for event in events {
             match &event.event {
-                AuditEventType::StageCompleted { stage, attempt, success, .. } => {
-                    report.stages.push(format!("{} attempt {} → {}", stage, attempt, if *success { "OK" } else { "FAIL" }));
+                AuditEventType::StageCompleted {
+                    stage,
+                    attempt,
+                    success,
+                    ..
+                } => {
+                    report.stages.push(format!(
+                        "{} attempt {} → {}",
+                        stage,
+                        attempt,
+                        if *success { "OK" } else { "FAIL" }
+                    ));
                 }
                 AuditEventType::ModelSelected { tier, reason, .. } => {
-                    report.model_selections.push(format!("{}: {}", tier, reason));
+                    report
+                        .model_selections
+                        .push(format!("{}: {}", tier, reason));
                 }
-                AuditEventType::RollbackDecision { decision, reason, .. } => {
+                AuditEventType::RollbackDecision {
+                    decision, reason, ..
+                } => {
                     report.rollbacks.push(format!("{}: {}", decision, reason));
                 }
-                AuditEventType::Error { component, message, .. } => {
+                AuditEventType::Error {
+                    component, message, ..
+                } => {
                     report.errors.push(format!("[{}] {}", component, message));
                 }
-                AuditEventType::PipelineCompleted { success, duration_ms, .. } => {
+                AuditEventType::PipelineCompleted {
+                    success,
+                    duration_ms,
+                    ..
+                } => {
                     report.success = Some(*success);
                     report.duration_ms = Some(*duration_ms);
                 }
@@ -534,7 +650,8 @@ impl TraceSequencer {
 
     /// Get the next sequence number.
     pub fn next(&self) -> u64 {
-        self.sequence.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        self.sequence
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
     }
 }
 
@@ -568,10 +685,24 @@ mod tests {
     async fn test_audit_report() {
         let collector = AuditCollector::in_memory();
 
-        collector.emit(AuditEvent::pipeline_started("t1", 0, "task")).await.unwrap();
-        collector.emit(AuditEvent::stage_started("t1", 1, "Types", 1)).await.unwrap();
-        collector.emit(AuditEvent::stage_completed("t1", 2, "Types", 1, true, "code")).await.unwrap();
-        collector.emit(AuditEvent::pipeline_completed("t1", 3, true, 1000, 1)).await.unwrap();
+        collector
+            .emit(AuditEvent::pipeline_started("t1", 0, "task"))
+            .await
+            .unwrap();
+        collector
+            .emit(AuditEvent::stage_started("t1", 1, "Types", 1))
+            .await
+            .unwrap();
+        collector
+            .emit(AuditEvent::stage_completed(
+                "t1", 2, "Types", 1, true, "code",
+            ))
+            .await
+            .unwrap();
+        collector
+            .emit(AuditEvent::pipeline_completed("t1", 3, true, 1000, 1))
+            .await
+            .unwrap();
 
         let report = collector.report("t1").await;
         assert_eq!(report.total_events, 4);

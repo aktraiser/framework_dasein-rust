@@ -60,7 +60,11 @@ pub struct Task {
 
 impl Task {
     /// Create a new task.
-    pub fn new(id: impl Into<String>, supervisor: impl Into<String>, payload: serde_json::Value) -> Self {
+    pub fn new(
+        id: impl Into<String>,
+        supervisor: impl Into<String>,
+        payload: serde_json::Value,
+    ) -> Self {
         Self {
             id: id.into(),
             priority: TaskPriority::Normal,

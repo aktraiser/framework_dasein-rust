@@ -68,6 +68,8 @@ pub use process::ProcessSandbox;
 pub use docker::DockerSandbox;
 
 #[cfg(feature = "remote")]
-pub use remote::{RemoteSandbox, RemoteSandboxConfig, RemoteSandboxBuilder, ExecuteRequest, ExecuteResponse};
+pub use remote::{
+    ExecuteRequest, ExecuteResponse, RemoteSandbox, RemoteSandboxBuilder, RemoteSandboxConfig,
+};
 
-pub use firecracker::{FirecrackerSandbox, FirecrackerConfig, FirecrackerSandboxBuilder};
+pub use firecracker::{FirecrackerConfig, FirecrackerSandbox, FirecrackerSandboxBuilder};

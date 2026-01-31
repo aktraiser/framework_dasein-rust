@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use super::config::{LLMConfig, SandboxConfig};
-use super::executor::{Executor, generate_executor_id};
+use super::executor::{generate_executor_id, Executor};
 
 /// Pool configuration.
 #[derive(Debug, Clone)]
@@ -157,10 +157,13 @@ impl ExecutorPool {
             Executor::new(&id, &self.supervisor_id)
                 .llm(self.llm_config.clone())
                 .sandbox(self.sandbox_config.clone())
-                .build()
+                .build(),
         );
 
-        self.executors.write().await.insert(id, Arc::clone(&executor));
+        self.executors
+            .write()
+            .await
+            .insert(id, Arc::clone(&executor));
         executor
     }
 
@@ -291,7 +294,9 @@ impl ExecutorPoolBuilder {
 
     /// Build the pool.
     pub fn build(self) -> ExecutorPool {
-        let llm_config = self.llm.unwrap_or_else(|| LLMConfig::gemini("gemini-2.0-flash"));
+        let llm_config = self
+            .llm
+            .unwrap_or_else(|| LLMConfig::gemini("gemini-2.0-flash"));
         let sandbox_config = self.sandbox.unwrap_or_else(SandboxConfig::process);
 
         let pool = ExecutorPool {
@@ -339,9 +344,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_pool_get_idle() {
-        let pool = ExecutorPool::new("sup-001", 2)
-            .build_and_init()
-            .await;
+        let pool = ExecutorPool::new("sup-001", 2).build_and_init().await;
 
         let exe = pool.get_idle().await;
         assert!(exe.is_some());

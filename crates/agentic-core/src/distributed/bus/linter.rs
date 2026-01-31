@@ -332,7 +332,10 @@ impl BusLinter {
             }
 
             // Check for `fn` without opening paren
-            if trimmed.starts_with("fn ") || trimmed.contains(" fn ") || trimmed.starts_with("pub fn ") {
+            if trimmed.starts_with("fn ")
+                || trimmed.contains(" fn ")
+                || trimmed.starts_with("pub fn ")
+            {
                 if !trimmed.contains('(') {
                     errors.push(LintError::error(
                         line_idx + 1,
@@ -358,8 +361,11 @@ impl BusLinter {
             }
 
             // Check for `struct` or `enum` without name
-            if (trimmed == "struct" || trimmed == "pub struct" ||
-                trimmed == "enum" || trimmed == "pub enum") {
+            if (trimmed == "struct"
+                || trimmed == "pub struct"
+                || trimmed == "enum"
+                || trimmed == "pub enum")
+            {
                 errors.push(LintError::error(
                     line_idx + 1,
                     1,
@@ -369,8 +375,12 @@ impl BusLinter {
             }
 
             // Check for arrow without async/fn
-            if trimmed.contains("->") && !trimmed.contains("fn") && !trimmed.contains("|")
-               && !trimmed.contains("match") && !trimmed.contains("=>") {
+            if trimmed.contains("->")
+                && !trimmed.contains("fn")
+                && !trimmed.contains("|")
+                && !trimmed.contains("match")
+                && !trimmed.contains("=>")
+            {
                 // This could be a return type annotation in an impl block, which is fine
                 // Only warn if it looks suspicious
                 if !trimmed.starts_with("type ") && !trimmed.contains("impl") {
@@ -456,16 +466,69 @@ impl BusLinter {
 
         // Standard library types we don't need to check
         let stdlib_types: HashSet<&str> = [
-            "String", "Vec", "Option", "Result", "Box", "Arc", "Rc", "Mutex", "RwLock",
-            "HashMap", "HashSet", "BTreeMap", "BTreeSet", "Duration", "Instant",
-            "Path", "PathBuf", "File", "Error", "Cow", "Cell", "RefCell",
-            "Pin", "Future", "Stream", "Send", "Sync", "Clone", "Copy", "Debug",
-            "Default", "Display", "From", "Into", "Iterator", "IntoIterator",
-            "Self", "Ok", "Err", "Some", "None", "true", "false",
-            "u8", "u16", "u32", "u64", "u128", "usize",
-            "i8", "i16", "i32", "i64", "i128", "isize",
-            "f32", "f64", "bool", "char", "str",
-        ].into_iter().collect();
+            "String",
+            "Vec",
+            "Option",
+            "Result",
+            "Box",
+            "Arc",
+            "Rc",
+            "Mutex",
+            "RwLock",
+            "HashMap",
+            "HashSet",
+            "BTreeMap",
+            "BTreeSet",
+            "Duration",
+            "Instant",
+            "Path",
+            "PathBuf",
+            "File",
+            "Error",
+            "Cow",
+            "Cell",
+            "RefCell",
+            "Pin",
+            "Future",
+            "Stream",
+            "Send",
+            "Sync",
+            "Clone",
+            "Copy",
+            "Debug",
+            "Default",
+            "Display",
+            "From",
+            "Into",
+            "Iterator",
+            "IntoIterator",
+            "Self",
+            "Ok",
+            "Err",
+            "Some",
+            "None",
+            "true",
+            "false",
+            "u8",
+            "u16",
+            "u32",
+            "u64",
+            "u128",
+            "usize",
+            "i8",
+            "i16",
+            "i32",
+            "i64",
+            "i128",
+            "isize",
+            "f32",
+            "f64",
+            "bool",
+            "char",
+            "str",
+        ]
+        .into_iter()
+        .collect();
 
         for (line_idx, line) in code.lines().enumerate() {
             let trimmed = line.trim();
@@ -504,7 +567,10 @@ impl BusLinter {
                         line_idx + 1,
                         col + 1,
                         "W010",
-                        format!("Reference to unknown type '{}' - ensure it's defined", type_name),
+                        format!(
+                            "Reference to unknown type '{}' - ensure it's defined",
+                            type_name
+                        ),
                     ));
                 }
             }
@@ -576,7 +642,11 @@ mod tests {
         let linter = BusLinter::new();
 
         // Comments should be ignored
-        assert!(linter.lint("// this is a comment with { unbalanced braces").passed);
+        assert!(
+            linter
+                .lint("// this is a comment with { unbalanced braces")
+                .passed
+        );
         assert!(linter.lint("/* block comment { */\nfn foo() {}").passed);
     }
 }

@@ -38,8 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut key = String::new();
             io::stdin().lock().read_line(&mut key)?;
             Box::new(
-                agentic_llm::OpenAIAdapter::new(key.trim(), "gpt-4o-mini")
-                    .with_temperature(0.7),
+                agentic_llm::OpenAIAdapter::new(key.trim(), "gpt-4o-mini").with_temperature(0.7),
             )
         }
         "3" => {
@@ -54,10 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         "4" => {
             println!("Using Ollama at localhost:11434");
-            Box::new(
-                agentic_llm::OllamaAdapter::new("llama3.2")
-                    .with_temperature(0.7),
-            )
+            Box::new(agentic_llm::OllamaAdapter::new("llama3.2").with_temperature(0.7))
         }
         _ => {
             println!("Invalid choice, using Gemini by default");

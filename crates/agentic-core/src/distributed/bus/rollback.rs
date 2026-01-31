@@ -26,10 +26,12 @@ pub struct AttemptScore {
 
 impl AttemptScore {
     pub fn from_errors(errors: &[String]) -> Self {
-        let compile_errors = errors.iter().filter(|e| {
-            let lower = e.to_lowercase();
-            // Rust errors
-            e.contains("error[E") ||
+        let compile_errors = errors
+            .iter()
+            .filter(|e| {
+                let lower = e.to_lowercase();
+                // Rust errors
+                e.contains("error[E") ||
             e.contains("could not compile") ||
             e.contains("aborting due to") ||
             // TypeScript errors (error TS1005, error TS2304, etc.)
@@ -47,20 +49,25 @@ impl AttemptScore {
             lower.contains("syntax error") ||
             lower.contains("cannot use") ||
             lower.contains("imported and not used")
-        }).count();
+            })
+            .count();
 
-        let tests_failed = errors.iter().filter(|e| {
-            let lower = e.to_lowercase();
-            e.contains("FAILED") ||
-            e.contains("panicked at") ||
-            lower.contains("fail") ||
-            lower.contains("assertion")
-        }).count();
+        let tests_failed = errors
+            .iter()
+            .filter(|e| {
+                let lower = e.to_lowercase();
+                e.contains("FAILED")
+                    || e.contains("panicked at")
+                    || lower.contains("fail")
+                    || lower.contains("assertion")
+            })
+            .count();
 
         let compiles = compile_errors == 0;
         let tests_passed = if compiles {
             // Estimate: if we see "test result: FAILED. X passed", extract X
-            errors.iter()
+            errors
+                .iter()
                 .find_map(|e| {
                     if e.contains("passed") {
                         let re = regex::Regex::new(r"(\d+) passed").ok()?;
@@ -145,7 +152,12 @@ impl RollbackManager {
     }
 
     /// Record a new attempt.
-    pub fn record(&mut self, attempt_num: u32, code: String, errors: Vec<String>) -> RollbackDecision {
+    pub fn record(
+        &mut self,
+        attempt_num: u32,
+        code: String,
+        errors: Vec<String>,
+    ) -> RollbackDecision {
         let score = AttemptScore::from_errors(&errors);
 
         let attempt = Attempt {
@@ -247,7 +259,7 @@ impl RollbackManager {
                 e.contains("FAILED") ||
                 lower.contains("fail") ||
                 lower.contains("✕") ||  // Jest failure marker
-                lower.contains("error")  // General errors
+                lower.contains("error") // General errors
             })
             .map(|e| {
                 // Extract Rust test name
@@ -259,7 +271,7 @@ impl RollbackManager {
                 }
                 // Extract Jest test name (✕ test name)
                 if let Some(start) = e.find("✕ ") {
-                    let rest = &e[start + 4..];  // Skip "✕ "
+                    let rest = &e[start + 4..]; // Skip "✕ "
                     if let Some(end) = rest.find(" (") {
                         return rest[..end].to_string();
                     }
@@ -397,16 +409,22 @@ mod tests {
         let mut manager = RollbackManager::new();
 
         // First attempt: compiles, 1 test fails
-        let decision = manager.record(1, "good code".into(), vec![
-            "test tests::test_a ... FAILED".into(),
-        ]);
+        let decision = manager.record(
+            1,
+            "good code".into(),
+            vec!["test tests::test_a ... FAILED".into()],
+        );
         assert!(matches!(decision, RollbackDecision::Continue { .. }));
 
         // Second attempt: doesn't compile
-        let decision = manager.record(2, "broken code".into(), vec![
-            "error[E0308]: mismatched types".into(),
-            "could not compile".into(),
-        ]);
+        let decision = manager.record(
+            2,
+            "broken code".into(),
+            vec![
+                "error[E0308]: mismatched types".into(),
+                "could not compile".into(),
+            ],
+        );
 
         // Should trigger rollback
         assert!(matches!(decision, RollbackDecision::Rollback { .. }));
@@ -420,23 +438,36 @@ mod tests {
         let mut manager = RollbackManager::new();
 
         // Best attempt
-        manager.record(1, "good".into(), vec![
-            "test tests::test_a ... FAILED".into(),
-        ]);
+        manager.record(
+            1,
+            "good".into(),
+            vec!["test tests::test_a ... FAILED".into()],
+        );
 
         // Two worse attempts
-        manager.record(2, "worse".into(), vec![
-            "test tests::test_a ... FAILED".into(),
-            "test tests::test_b ... FAILED".into(),
-        ]);
+        manager.record(
+            2,
+            "worse".into(),
+            vec![
+                "test tests::test_a ... FAILED".into(),
+                "test tests::test_b ... FAILED".into(),
+            ],
+        );
 
-        let decision = manager.record(3, "even worse".into(), vec![
-            "test tests::test_a ... FAILED".into(),
-            "test tests::test_b ... FAILED".into(),
-            "test tests::test_c ... FAILED".into(),
-        ]);
+        let decision = manager.record(
+            3,
+            "even worse".into(),
+            vec![
+                "test tests::test_a ... FAILED".into(),
+                "test tests::test_b ... FAILED".into(),
+                "test tests::test_c ... FAILED".into(),
+            ],
+        );
 
         // Should rollback after 2 degradations
-        assert!(matches!(decision, RollbackDecision::Rollback { to_attempt: 1, .. }));
+        assert!(matches!(
+            decision,
+            RollbackDecision::Rollback { to_attempt: 1, .. }
+        ));
     }
 }

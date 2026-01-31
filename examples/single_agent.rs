@@ -11,9 +11,7 @@ use agentic_sandbox::ProcessSandbox;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_env_filter("info")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("info").init();
 
     println!("=== Agentic-RS Single Agent Example ===\n");
 
@@ -89,7 +87,10 @@ Use clear variable names and add comments for complex logic.
     println!("Total tasks: {}", metrics.total_tasks);
     println!("Successful: {}", metrics.successful_tasks);
     println!("Failed: {}", metrics.failed_tasks);
-    println!("Avg execution time: {:.2}ms", metrics.average_execution_time_ms);
+    println!(
+        "Avg execution time: {:.2}ms",
+        metrics.average_execution_time_ms
+    );
 
     // Stop agent
     agent.stop().await?;

@@ -62,8 +62,8 @@
 //! })).await?;
 //! ```
 
-mod pool;
 mod config;
+mod pool;
 
-pub use pool::{MCPClientPool, ToolDefinition, ToolResult, ContentItem};
 pub use config::{MCPConfig, MCPServerConfig, TransportType};
+pub use pool::{ContentItem, MCPClientPool, ToolDefinition, ToolResult};

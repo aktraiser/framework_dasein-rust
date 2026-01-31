@@ -57,7 +57,7 @@ impl Sandbox for DockerSandbox {
         // TODO: Implement Docker execution
         // For now, return an error indicating Docker is not yet implemented
         Err(SandboxError::ExecutionFailed(
-            "Docker sandbox not yet implemented. Use ProcessSandbox or RemoteSandbox.".to_string()
+            "Docker sandbox not yet implemented. Use ProcessSandbox or RemoteSandbox.".to_string(),
         ))
     }
 

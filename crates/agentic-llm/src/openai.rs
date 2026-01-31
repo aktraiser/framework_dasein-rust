@@ -64,26 +64,26 @@ impl OpenAIAdapter {
         messages
             .iter()
             .map(|msg| match msg.role {
-                Role::System => ChatCompletionRequestMessage::System(
-                    ChatCompletionRequestSystemMessage {
+                Role::System => {
+                    ChatCompletionRequestMessage::System(ChatCompletionRequestSystemMessage {
                         content: msg.content.clone().into(),
                         ..Default::default()
-                    },
-                ),
+                    })
+                }
                 Role::User => {
                     ChatCompletionRequestMessage::User(ChatCompletionRequestUserMessage {
                         content: msg.content.clone().into(),
                         ..Default::default()
                     })
                 }
-                Role::Assistant => ChatCompletionRequestMessage::Assistant(
-                    ChatCompletionRequestAssistantMessage {
+                Role::Assistant => {
+                    ChatCompletionRequestMessage::Assistant(ChatCompletionRequestAssistantMessage {
                         content: Some(ChatCompletionRequestAssistantMessageContent::Text(
                             msg.content.clone(),
                         )),
                         ..Default::default()
-                    },
-                ),
+                    })
+                }
             })
             .collect()
     }

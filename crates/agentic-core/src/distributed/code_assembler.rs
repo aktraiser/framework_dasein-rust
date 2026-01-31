@@ -27,9 +27,10 @@ impl CodeAssembler {
             "types" => 1,
             "impl" => 2,
             "tests" => 3,
-            id if id.starts_with("part_") => {
-                id.strip_prefix("part_").and_then(|n| n.parse().ok()).unwrap_or(99)
-            }
+            id if id.starts_with("part_") => id
+                .strip_prefix("part_")
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(99),
             _ => 99,
         });
 
@@ -56,13 +57,20 @@ impl CodeAssembler {
 
         // Remove markdown code blocks - check language-specific markers first
         let markers = [
-            "```rust", "```rs",           // Rust
-            "```python", "```py",         // Python
-            "```javascript", "```js",     // JavaScript
-            "```typescript", "```ts",     // TypeScript
-            "```go", "```golang",         // Go
-            "```shell", "```bash", "```sh", // Shell
-            "```",                         // Generic (must be last)
+            "```rust",
+            "```rs", // Rust
+            "```python",
+            "```py", // Python
+            "```javascript",
+            "```js", // JavaScript
+            "```typescript",
+            "```ts", // TypeScript
+            "```go",
+            "```golang", // Go
+            "```shell",
+            "```bash",
+            "```sh", // Shell
+            "```",   // Generic (must be last)
         ];
 
         for marker in markers {
@@ -81,7 +89,19 @@ impl CodeAssembler {
 
         // If the first line is just a language identifier (leftover from partial markdown),
         // remove it
-        let language_identifiers = ["rust", "python", "py", "javascript", "js", "typescript", "ts", "go", "bash", "sh", "shell"];
+        let language_identifiers = [
+            "rust",
+            "python",
+            "py",
+            "javascript",
+            "js",
+            "typescript",
+            "ts",
+            "go",
+            "bash",
+            "sh",
+            "shell",
+        ];
         let lines: Vec<&str> = clean.lines().collect();
         if !lines.is_empty() {
             let first_line = lines[0].trim().to_lowercase();
@@ -96,7 +116,7 @@ impl CodeAssembler {
         // Remove smart quotes (LLM sometimes generates these)
         // Using Unicode escapes to avoid source file encoding issues
         clean = clean.replace('\u{201C}', "\"").replace('\u{201D}', "\""); // " and "
-        clean = clean.replace('\u{2018}', "'").replace('\u{2019}', "'");   // ' and '
+        clean = clean.replace('\u{2018}', "'").replace('\u{2019}', "'"); // ' and '
 
         clean.trim().to_string()
     }
@@ -132,8 +152,16 @@ impl CodeAssembler {
         for (pattern, import) in checks {
             if code.contains(pattern) && !code.contains(import) {
                 // Check if any variant of this import exists
-                let base = import.split("::").last().unwrap_or("").trim_end_matches(';');
-                if !code.contains(&format!("use ") ) || !code.lines().any(|l| l.contains(base) && l.trim().starts_with("use ")) {
+                let base = import
+                    .split("::")
+                    .last()
+                    .unwrap_or("")
+                    .trim_end_matches(';');
+                if !code.contains(&format!("use "))
+                    || !code
+                        .lines()
+                        .any(|l| l.contains(base) && l.trim().starts_with("use "))
+                {
                     if !missing_imports.contains(&import.to_string()) {
                         missing_imports.push(import.to_string());
                     }
@@ -195,10 +223,15 @@ impl CodeAssembler {
     }
 
     /// Assemble with explicit ordering.
-    pub fn assemble_ordered(&self, mut results: Vec<SubTaskResult>, tasks: &[SubTask]) -> Result<String, AssemblyError> {
+    pub fn assemble_ordered(
+        &self,
+        mut results: Vec<SubTaskResult>,
+        tasks: &[SubTask],
+    ) -> Result<String, AssemblyError> {
         // Sort results by task order
         results.sort_by_key(|r| {
-            tasks.iter()
+            tasks
+                .iter()
                 .find(|t| t.id == r.id)
                 .map(|t| t.order)
                 .unwrap_or(999)
@@ -298,15 +331,13 @@ mod tests {
     fn test_clean_markdown() {
         let assembler = CodeAssembler::new();
 
-        let results = vec![
-            SubTaskResult {
-                id: "imports".to_string(),
-                name: "Imports".to_string(),
-                code: "```rust\nuse std::io;\n```".to_string(),
-                success: true,
-                error: None,
-            },
-        ];
+        let results = vec![SubTaskResult {
+            id: "imports".to_string(),
+            name: "Imports".to_string(),
+            code: "```rust\nuse std::io;\n```".to_string(),
+            success: true,
+            error: None,
+        }];
 
         let assembled = assembler.assemble(&results).unwrap();
         assert!(!assembled.contains("```"));
@@ -317,15 +348,13 @@ mod tests {
     fn test_failure_handling() {
         let assembler = CodeAssembler::new();
 
-        let results = vec![
-            SubTaskResult {
-                id: "imports".to_string(),
-                name: "Imports".to_string(),
-                code: "".to_string(),
-                success: false,
-                error: Some("Failed".to_string()),
-            },
-        ];
+        let results = vec![SubTaskResult {
+            id: "imports".to_string(),
+            name: "Imports".to_string(),
+            code: "".to_string(),
+            success: false,
+            error: Some("Failed".to_string()),
+        }];
 
         let result = assembler.assemble(&results);
         assert!(result.is_err());
