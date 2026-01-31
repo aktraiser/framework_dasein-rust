@@ -28,12 +28,12 @@
 //!
 //! ## Remote Sandbox (for macOS/Windows)
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use agentic_sandbox::{Sandbox, RemoteSandbox};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let sandbox = RemoteSandbox::new("http://your-server:8080")
+//!     let sandbox = RemoteSandbox::builder("http://your-server:8080")
 //!         .api_key("your-secret-key")
 //!         .build();
 //!

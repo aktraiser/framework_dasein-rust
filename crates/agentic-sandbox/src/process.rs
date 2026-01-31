@@ -38,7 +38,7 @@ impl ProcessSandbox {
 
     /// Set execution timeout.
     #[must_use]
-    pub fn with_timeout(mut self, timeout_ms: u64) -> Self {
+    pub const fn with_timeout(mut self, timeout_ms: u64) -> Self {
         self.timeout_ms = timeout_ms;
         self
     }
@@ -81,6 +81,7 @@ impl Sandbox for ProcessSandbox {
         .map_err(|_| SandboxError::Timeout)?
         .map_err(SandboxError::IoError)?;
 
+        #[allow(clippy::cast_possible_truncation)]
         let execution_time_ms = start.elapsed().as_millis() as u64;
 
         Ok(ExecutionResult {
