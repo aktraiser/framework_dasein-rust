@@ -44,6 +44,7 @@ use tokio::sync::mpsc;
 use super::builder::WorkflowDefinition;
 use super::context::{SharedStateBackend, WorkflowContext, WorkflowContextBuilder};
 use super::executor::Executor;
+use super::persistence::{PersistentCheckpoint, PersistentCheckpointBackend};
 use super::superstep::{Checkpoint, CheckpointBackend, InMemoryCheckpointBackend, SuperstepState};
 use super::types::{
     ExecutorError, ExecutorId, GraphError, GraphResult, TaskId, WorkflowId,
@@ -66,6 +67,11 @@ pub struct WorkflowConfig {
     pub checkpoint_interval: u32,
     /// Timeout per executor in milliseconds.
     pub executor_timeout_ms: u64,
+    /// Base delay for exponential backoff on retry (milliseconds).
+    /// Delay = base * 2^retry_count, capped at max.
+    pub retry_backoff_base_ms: u64,
+    /// Maximum backoff delay (milliseconds).
+    pub retry_backoff_max_ms: u64,
 }
 
 impl Default for WorkflowConfig {
@@ -75,7 +81,9 @@ impl Default for WorkflowConfig {
             max_retries_per_executor: 3,
             enable_checkpointing: false,
             checkpoint_interval: 5,
-            executor_timeout_ms: 60_000, // 60 seconds
+            executor_timeout_ms: 60_000,    // 60 seconds
+            retry_backoff_base_ms: 1_000,   // 1 second base
+            retry_backoff_max_ms: 30_000,   // 30 seconds max
         }
     }
 }
@@ -108,6 +116,30 @@ impl WorkflowConfig {
     pub fn with_executor_timeout_ms(mut self, timeout_ms: u64) -> Self {
         self.executor_timeout_ms = timeout_ms;
         self
+    }
+
+    /// Set exponential backoff parameters for retries.
+    ///
+    /// Delay formula: min(base_ms * 2^retry_count, max_ms)
+    ///
+    /// # Example
+    /// ```ignore
+    /// let config = WorkflowConfig::new()
+    ///     .with_retry_backoff(1000, 30_000); // 1s base, 30s max
+    /// ```
+    pub fn with_retry_backoff(mut self, base_ms: u64, max_ms: u64) -> Self {
+        self.retry_backoff_base_ms = base_ms;
+        self.retry_backoff_max_ms = max_ms;
+        self
+    }
+
+    /// Calculate backoff delay for a given retry count.
+    pub fn calculate_backoff(&self, retry_count: u32) -> std::time::Duration {
+        let delay_ms = std::cmp::min(
+            self.retry_backoff_base_ms.saturating_mul(1u64 << retry_count.min(10)),
+            self.retry_backoff_max_ms,
+        );
+        std::time::Duration::from_millis(delay_ms)
     }
 }
 
@@ -383,6 +415,8 @@ where
     state_backend: Arc<dyn SharedStateBackend>,
     /// Checkpoint backend (if checkpointing enabled).
     checkpoint_backend: Option<Arc<dyn CheckpointBackend>>,
+    /// Persistent checkpoint backend for durable storage.
+    persistent_backend: Option<Arc<dyn PersistentCheckpointBackend>>,
 }
 
 impl<TMessage, TOutput> Workflow<TMessage, TOutput>
@@ -401,6 +435,7 @@ where
             config: WorkflowConfig::default(),
             state_backend: Arc::new(super::context::InMemoryStateBackend::new()),
             checkpoint_backend: None,
+            persistent_backend: None,
         }
     }
 
@@ -423,6 +458,7 @@ where
             config,
             state_backend: Arc::new(super::context::InMemoryStateBackend::new()),
             checkpoint_backend,
+            persistent_backend: None,
         }
     }
 
@@ -435,6 +471,23 @@ where
     /// Set the checkpoint backend.
     pub fn with_checkpoint_backend(mut self, backend: Arc<dyn CheckpointBackend>) -> Self {
         self.checkpoint_backend = Some(backend);
+        self
+    }
+
+    /// Set the persistent checkpoint backend for durable storage.
+    ///
+    /// This enables resuming workflows from checkpoints even after crashes.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// #[cfg(feature = "redis-persistence")]
+    /// let backend = RedisCheckpointBackend::connect("redis://localhost").await?;
+    /// let workflow = Workflow::new(definition, registry)
+    ///     .with_persistent_backend(Arc::new(backend));
+    /// ```
+    pub fn with_persistent_backend(mut self, backend: Arc<dyn PersistentCheckpointBackend>) -> Self {
+        self.persistent_backend = Some(backend);
         self
     }
 
@@ -538,6 +591,197 @@ where
         ))
     }
 
+    // ========================================================================
+    // RUN WITH RESUME (Checkpoint Recovery)
+    // ========================================================================
+
+    /// Resume a workflow from a checkpoint or start fresh.
+    ///
+    /// This method enables fault-tolerant workflow execution:
+    /// - If `checkpoint_id` is provided, resumes from that specific checkpoint
+    /// - If `checkpoint_id` is None, tries to load the latest checkpoint for the task
+    /// - If no checkpoint is found, starts a fresh execution with the given input
+    ///
+    /// # Use Case: Long-Running Migrations
+    ///
+    /// ```rust,ignore
+    /// // Start a migration that might take days
+    /// let result = workflow.run_with_resume(
+    ///     task_id.clone(),
+    ///     None, // Try to resume if checkpoint exists
+    ///     some_input,
+    /// ).await?;
+    ///
+    /// // If crashed, just call again - it will resume from last checkpoint
+    /// let result = workflow.run_with_resume(
+    ///     task_id.clone(),
+    ///     None,
+    ///     some_input,
+    /// ).await?;
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `task_id` - The task ID (used to find existing checkpoints)
+    /// * `checkpoint_id` - Optional specific checkpoint to resume from
+    /// * `fallback_input` - Input to use if no checkpoint is found
+    pub async fn run_with_resume<TInput>(
+        &self,
+        task_id: TaskId,
+        checkpoint_id: Option<&str>,
+        fallback_input: TInput,
+    ) -> GraphResult<WorkflowResult<TOutput>>
+    where
+        TInput: Serialize + Send,
+    {
+        let start_time = std::time::Instant::now();
+
+        // Try to load checkpoint
+        let checkpoint = if let Some(backend) = &self.persistent_backend {
+            if let Some(id) = checkpoint_id {
+                // Load specific checkpoint
+                backend
+                    .load_persistent_by_id(id)
+                    .await
+                    .map_err(|e| GraphError::ExecutorFailed(format!("Failed to load checkpoint: {}", e)))?
+            } else {
+                // Load latest checkpoint for this task
+                backend
+                    .load_persistent(&self.definition.id, &task_id)
+                    .await
+                    .map_err(|e| GraphError::ExecutorFailed(format!("Failed to load checkpoint: {}", e)))?
+            }
+        } else {
+            None
+        };
+
+        // Resume from checkpoint or start fresh
+        let (mut state, start_superstep) = if let Some(pc) = checkpoint {
+            tracing::info!(
+                checkpoint_id = %pc.id(),
+                superstep = pc.superstep(),
+                pending_messages = pc.checkpoint.state.pending_message_count(),
+                "Resuming workflow from checkpoint"
+            );
+
+            // Restore shared state
+            for (key, value) in &pc.shared_state {
+                self.state_backend
+                    .set(key, value.clone())
+                    .await
+                    .map_err(|e| GraphError::ExecutorFailed(format!("Failed to restore shared state: {}", e)))?;
+            }
+
+            (pc.checkpoint.state.clone(), pc.checkpoint.superstep + 1)
+        } else {
+            tracing::info!("Starting fresh workflow (no checkpoint found)");
+
+            // Serialize input
+            let input_json = serde_json::to_value(&fallback_input).map_err(|e| {
+                GraphError::SerializationError(format!("Failed to serialize input: {e}"))
+            })?;
+
+            // Initialize superstep state
+            let mut state = SuperstepState::new();
+            state.enqueue_message(self.definition.start.clone(), input_json);
+
+            (state, 0)
+        };
+
+        let mut all_outputs: Vec<TOutput> = Vec::new();
+        let mut retry_counts: HashMap<ExecutorId, u32> = HashMap::new();
+
+        // Execute supersteps
+        for superstep in start_superstep..self.config.max_supersteps {
+            // Check if we have any messages to process
+            if state.pending_messages.is_empty() {
+                // Workflow completed - no more work to do
+                let duration_ms = start_time.elapsed().as_millis() as u64;
+
+                // Clean up checkpoints on success (optional)
+                if let Some(backend) = &self.persistent_backend {
+                    if let Err(e) = backend.cleanup_keep_last(&self.definition.id, &task_id, 1).await {
+                        tracing::warn!(error = %e, "Failed to clean up old checkpoints");
+                    }
+                }
+
+                return Ok(WorkflowResult::success(
+                    self.definition.id.clone(),
+                    task_id,
+                    all_outputs,
+                    superstep,
+                    duration_ms,
+                ));
+            }
+
+            // Execute the superstep
+            let result = self
+                .execute_superstep(superstep, &mut state, &task_id, &mut retry_counts)
+                .await;
+
+            match result {
+                Ok(outputs) => {
+                    all_outputs.extend(outputs);
+                }
+                Err(e) => {
+                    let duration_ms = start_time.elapsed().as_millis() as u64;
+                    return Ok(WorkflowResult::failure(
+                        self.definition.id.clone(),
+                        task_id,
+                        e.to_string(),
+                        superstep,
+                        duration_ms,
+                    ));
+                }
+            }
+
+            // Save checkpoint if using persistent backend
+            if let Some(backend) = &self.persistent_backend {
+                if superstep > 0 && superstep % self.config.checkpoint_interval == 0 {
+                    let checkpoint = Checkpoint::new(
+                        self.definition.id.clone(),
+                        task_id.clone(),
+                        superstep,
+                        state.clone(),
+                    );
+
+                    // Capture shared state
+                    let shared_state = self.capture_shared_state().await;
+
+                    let persistent = PersistentCheckpoint::from_checkpoint(checkpoint)
+                        .with_shared_state(shared_state);
+
+                    if let Err(e) = backend.save_persistent(&persistent).await {
+                        tracing::warn!(error = %e, superstep, "Failed to save checkpoint");
+                    } else {
+                        tracing::debug!(checkpoint_id = %persistent.id(), superstep, "Checkpoint saved");
+                    }
+                }
+            }
+        }
+
+        // Max supersteps reached
+        let duration_ms = start_time.elapsed().as_millis() as u64;
+        Ok(WorkflowResult::failure(
+            self.definition.id.clone(),
+            task_id,
+            format!("Max supersteps ({}) exceeded", self.config.max_supersteps),
+            self.config.max_supersteps,
+            duration_ms,
+        ))
+    }
+
+    /// Capture current shared state for checkpoint.
+    async fn capture_shared_state(&self) -> HashMap<String, serde_json::Value> {
+        // Note: The SharedStateBackend trait doesn't have a list_all method,
+        // so we can't automatically capture all state.
+        // For production use, you'd need to:
+        // 1. Track keys used by executors
+        // 2. Or extend SharedStateBackend with a keys() method
+        // For now, return empty - users can extend this
+        HashMap::new()
+    }
+
     /// Execute a single superstep.
     async fn execute_superstep(
         &self,
@@ -600,8 +844,10 @@ where
                             return Err(GraphError::MaxRetriesExceeded(executor_id.clone()));
                         }
 
-                        // Re-queue the message for retry
-                        // Note: we lost the original input here, this is a simplification
+                        // TODO: Implement proper retry with backoff
+                        // The backoff config (retry_backoff_base_ms, retry_backoff_max_ms) is available
+                        // but requires re-queueing the original message which we don't have here.
+                        // For now, fail immediately. Graph-level retry (via edges) handles most cases.
                         return Err(GraphError::ExecutorFailed(format!(
                             "Executor {} failed: {}",
                             executor_id, e
@@ -911,5 +1157,54 @@ mod tests {
             "Error message should mention 'not found' or 'missing': {}",
             error_msg
         );
+    }
+
+    #[tokio::test]
+    async fn test_run_with_resume_no_checkpoint() {
+        // Build workflow
+        let definition = WorkflowBuilder::<String>::new("resume-wf")
+            .set_start("uppercase")
+            .add_executor_id("count")
+            .add_direct_edge("uppercase", "count")
+            .build()
+            .unwrap();
+
+        let mut registry = ExecutorRegistry::new();
+        registry.register(UppercaseExecutor::new("uppercase"));
+        registry.register(CountExecutor::new("count"));
+
+        // Create workflow with in-memory persistent backend
+        let backend = Arc::new(super::super::persistence::InMemoryPersistentBackend::new());
+        let workflow = Workflow::new(definition, registry)
+            .with_persistent_backend(backend);
+
+        // Run with resume (no checkpoint exists, so starts fresh)
+        let task_id = TaskId::new("my-task");
+        let result = workflow
+            .run_with_resume(task_id, None, "hello".to_string())
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert_eq!(result.outputs.len(), 2);
+        assert_eq!(result.outputs[0], "HELLO");
+        assert_eq!(result.outputs[1], "Length: 5");
+    }
+
+    #[tokio::test]
+    async fn test_persistent_backend_builder() {
+        let definition = WorkflowBuilder::<String>::new("builder-wf")
+            .set_start("uppercase")
+            .build()
+            .unwrap();
+
+        let mut registry = ExecutorRegistry::new();
+        registry.register(UppercaseExecutor::new("uppercase"));
+
+        let backend = Arc::new(super::super::persistence::InMemoryPersistentBackend::new());
+        let workflow = Workflow::new(definition, registry)
+            .with_persistent_backend(backend.clone());
+
+        assert!(workflow.persistent_backend.is_some());
     }
 }

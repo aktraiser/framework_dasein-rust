@@ -534,6 +534,14 @@ anyhow = "1"
 async-trait = "0.1"
 futures = "0.3"
 reqwest = {{ version = "0.12", features = ["json"] }}
+
+[lints.clippy]
+# Allow common false positives - focus on real errors, not style
+new_without_default = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
 CARGO_EOF
 echo '{encoded}' | base64 -d > {dir}/src/lib.rs
 "#,
@@ -554,17 +562,37 @@ echo '{encoded}' | base64 -d > {dir}/src/lib.rs
 
         // Check if code already contains tests
         let has_tests = code.contains("def test_") || code.contains("import pytest");
+        // Check if code uses async tests (pytest.mark.asyncio or async def test_)
+        let has_async_tests =
+            code.contains("@pytest.mark.asyncio") || code.contains("async def test_");
 
         let setup_script = if has_tests {
-            // Code already has tests - put everything in test_main.py so pytest can find it
-            format!(
-                r"
+            if has_async_tests {
+                // Async tests need pytest-asyncio + conftest.py
+                format!(
+                    r#"
+pip3 install pytest-asyncio -q 2>/dev/null || true && \
+mkdir -p {dir} && \
+echo '{encoded}' | base64 -d > {dir}/test_main.py && \
+cat > {dir}/conftest.py << 'CONFTEST_EOF'
+import pytest
+pytest_plugins = ('pytest_asyncio',)
+CONFTEST_EOF
+"#,
+                    dir = project_dir.display(),
+                    encoded = encoded
+                )
+            } else {
+                // Sync tests - just the test file
+                format!(
+                    r"
 mkdir -p {dir} && \
 echo '{encoded}' | base64 -d > {dir}/test_main.py
 ",
-                dir = project_dir.display(),
-                encoded = encoded
-            )
+                    dir = project_dir.display(),
+                    encoded = encoded
+                )
+            }
         } else {
             // No tests - create main.py and a stub test file
             format!(

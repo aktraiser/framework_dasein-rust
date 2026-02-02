@@ -9,6 +9,11 @@ repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+default = []
+# Enable Redis-backed checkpoint persistence
+redis-persistence = ["redis"]
+
 [dependencies]
 # Async
 tokio = { workspace = true }
@@ -41,6 +46,9 @@ async-nats = { workspace = true }
 
 # HTTP (for MCP doc validator)
 reqwest = { workspace = true }
+
+# Redis (optional - for persistent checkpoints)
+redis = { workspace = true, optional = true }
 
 # Internal
 agentic-llm = { workspace = true, features = ["gemini", "openai", "anthropic"] }
