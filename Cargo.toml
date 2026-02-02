@@ -234,6 +234,7 @@ futures = { workspace = true }
 serde_json = { workspace = true }
 serde = { workspace = true }
 async-trait = { workspace = true }
+uuid = { workspace = true }
 
 [[example]]
 name = "test_gemini"
@@ -278,3 +279,15 @@ path = "examples/nats_bus_demo.rs"
 [[example]]
 name = "graph_workflow"
 path = "examples/graph_workflow.rs"
+
+[[example]]
+name = "graph_refactor"
+path = "examples/graph_refactor.rs"
+
+[[example]]
+name = "graph_refactor_python"
+path = "examples/graph_refactor_python.rs"
+
+[[example]]
+name = "graph_persistence_test"
+path = "examples/graph_persistence_test.rs"

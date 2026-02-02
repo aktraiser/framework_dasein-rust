@@ -43,6 +43,7 @@ mod edge;
 mod executor;
 #[cfg(test)]
 mod integration_test;
+mod persistence;
 mod superstep;
 mod types;
 mod workflow;
@@ -79,3 +80,10 @@ pub use superstep::{
 pub use workflow::{
     DynExecutor, ExecutorRegistry, Workflow, WorkflowConfig, WorkflowResult, WorkflowStreamEvent,
 };
+
+// PR #6: Graph Persistence
+pub use persistence::{
+    CheckpointMetadata, InMemoryPersistentBackend, PersistentCheckpoint, PersistentCheckpointBackend,
+};
+#[cfg(feature = "redis-persistence")]
+pub use persistence::RedisCheckpointBackend;

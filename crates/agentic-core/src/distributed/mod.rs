@@ -124,6 +124,6 @@ pub use validator::{
     ValidationAction, ValidationResult, ValidationRule, Validator, ValidatorBuilder,
 };
 pub use validator_pipeline::{
-    DocSnippet, PipelineResult, PipelineValidator, ValidatorInput, ValidatorOutput,
-    ValidatorPipeline,
+    DocSnippet, PipelineResult, PipelineValidator, SharedValidatorPipeline, ValidatorInput,
+    ValidatorOutput, ValidatorPipeline,
 };
