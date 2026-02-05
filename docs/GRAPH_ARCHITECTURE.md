@@ -2,6 +2,83 @@
 
 > **Vision**: Passer d'une architecture linéaire (Executor → Validator → Retry) à une architecture **graph dynamique** avec **Executors** (noeuds) et **Edges** (connexions).
 
+---
+
+## 📊 STATUS TRACKER (2025-02-04)
+
+### Implémenté ✅
+
+| PR | Feature | Fichier(s) | Status |
+|----|---------|------------|--------|
+| **PR #1** | Executor Trait | `graph/executor.rs` | ✅ Complet |
+| **PR #2** | WorkflowContext | `graph/context.rs` | ✅ Complet |
+| **PR #3** | 5 Edge Types | `graph/edge.rs` | ✅ Complet |
+| **PR #4** | WorkflowBuilder | `graph/builder.rs` | ✅ Complet |
+| **PR #5** | Superstep Execution | `graph/superstep.rs`, `graph/workflow.rs` | ✅ Complet |
+| **PR #6** | Graph Persistence | `graph/persistence.rs` | ✅ Complet |
+
+### En cours 🚧
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `Workflow.run_with_resume()` | 🚧 PR #6 | Resume depuis checkpoint |
+| `SharedValidatorPipeline` | 🚧 PR #6 | Arc wrapper pour stateless sharing |
+
+### Implémenté récemment ✅
+
+| Feature | PR/Phase | Notes |
+|---------|----------|-------|
+| **Agent Trait** (`run`, `run_stream`, `tools`) | Phase 6 | `distributed/graph/agent/trait_def.rs` |
+| **AgentThread** (in-memory) | Phase 6 | NATS KV déféré Phase 8 |
+| **ChatAgent** | Phase 6 | `distributed/graph/agent/chat_agent.rs` |
+| **WorkflowAgent** | Phase 6 | `distributed/graph/agent/workflow_agent.rs` |
+| **`workflow.as_agent()`** | Phase 6 | `WorkflowAsAgent` trait |
+| **SequentialBuilder** | Phase 7 | `patterns/sequential.rs` |
+| **ConcurrentBuilder** | Phase 7 | `patterns/concurrent.rs` |
+| **GroupChatBuilder** | Phase 7 | `patterns/group_chat.rs` + selectors |
+| **HandoffBuilder** | Phase 7 | `patterns/handoff.rs` + `HandoffCapable` |
+| **MemoryProvider** | Phase 8 | `agent/memory.rs` - trait + InMemoryProvider |
+| **ChatReducer** | Phase 8 | `agent/reducer.rs` - 4 implémentations |
+| **Memory types** | Phase 8 | `Memory`, `MemoryCategory`, `MemoryContext` |
+
+### Non implémenté ❌
+
+| Feature | Priorité | Effort | Section doc |
+|---------|----------|--------|-------------|
+| **AgentThread NATS KV** (persisté) | P1 | 0.5 sem | [Thread](#thread-conversation-persistée-sur-nats) |
+| **NatsMemoryProvider** | P1 | 0.5 sem | [Agent Memory](#agent-memory-court-terme-et-long-terme) |
+| **ContinuationToken** | P2 | 1 sem | [Background Responses](#background-responses-tâches-longues-avec-continuation) |
+| **MagenticPlanner** | P3 | 2 sem | [Magentic](#pattern-magentic-planner-based) |
+| **llm_selector** | P2 | 0.5 sem | LLM-based speaker selection |
+
+### Architecture actuelle vs cible
+
+```
+ACTUEL (v0.3.0):                          CIBLE (v1.0):
+┌─────────────────────────────┐           ┌─────────────────────────────┐
+│         AGENT LAYER         │           │         AGENT LAYER         │
+│  ✅ trait Agent             │           │  ✅ trait Agent + ChatAgent │
+│  ✅ ChatAgent, WorkflowAgent│  ──────▶  │  + WorkflowAgent + Thread   │
+│  ✅ Memory (in-memory)      │           │  + Memory + Background      │
+│  ✅ ChatReducer (4 types)   │           │  + NatsMemoryProvider       │
+└─────────────────────────────┘           └─────────────────────────────┘
+              │                                         │
+              ▼                                         ▼
+┌─────────────────────────────┐           ┌─────────────────────────────┐
+│       WORKFLOW LAYER        │           │       WORKFLOW LAYER        │
+│  ✅ Executor trait          │           │  ✅ Executor trait          │
+│  ✅ 5 Edge types            │           │  ✅ 5 Edge types            │
+│  ✅ Superstep execution     │           │  ✅ Superstep execution     │
+│  ✅ WorkflowBuilder         │           │  ✅ WorkflowBuilder         │
+│  ✅ Persistence (Redis)     │           │  ✅ Persistence (Redis)     │
+│  ✅ Orchestration Patterns  │           │  ✅ Sequential, Concurrent  │
+│    Sequential, Concurrent   │           │  ✅ GroupChat, Handoff      │
+│    GroupChat, Handoff       │           │  ⏳ MagenticPlanner         │
+└─────────────────────────────┘           └─────────────────────────────┘
+```
+
+---
+
 ## TL;DR
 
 | Concept | Description | Inspiré de |
@@ -68,6 +145,10 @@
 ---
 
 ## Agent Layer: L'Interface Utilisateur
+
+> ✅ **STATUT: IMPLÉMENTÉ (Phase 6)** - `distributed/graph/agent/` module.
+> Le `trait Agent` avec `run()` et `run_stream()` est implémenté.
+> `ChatAgent`, `WorkflowAgent`, `AgentThread` (in-memory), et `Tool` sont disponibles.
 
 Inspiré de [Microsoft Agent Framework - Agent Types](https://learn.microsoft.com/fr-fr/agent-framework/user-guide/agents/agent-types/).
 
@@ -626,6 +707,8 @@ async for event in workflow.run_stream("Write a blog post about AI").await {
 
 ### Thread: Conversation Persistée sur NATS
 
+> ✅ **STATUT: PARTIELLEMENT IMPLÉMENTÉ** - `AgentThread` in-memory implémenté en Phase 6. Persistance NATS KV planifiée pour Phase 8.
+
 > Inspiré de [MAF Multi-turn Conversation](https://learn.microsoft.com/fr-fr/agent-framework/user-guide/agents/multi-turn-conversation)
 
 #### Principe Clé: Agents Stateless, Threads Stateful
@@ -777,6 +860,8 @@ Critères de compatibilité:
 
 ### Background Responses: Tâches Longues avec Continuation
 
+> ⚠️ **STATUT: NON IMPLÉMENTÉ** - Planifié pour Phase 9.
+
 > Inspiré de [MAF Background Responses](https://learn.microsoft.com/fr-fr/agent-framework/user-guide/agents/agent-background-responses)
 
 Pour les tâches de longue durée (raisonnement complexe, génération massive), on utilise un système de **continuation token** permettant de reprendre le traitement.
@@ -921,6 +1006,17 @@ async fn resumable_stream(agent: &ChatAgent, thread: &mut AgentThread) {
 ---
 
 ### Agent Memory: Court Terme et Long Terme
+
+> ✅ **STATUT: PARTIELLEMENT IMPLÉMENTÉ** - Phase 8 complète pour in-memory.
+>
+> Implémenté:
+> - `MemoryProvider` trait avec `before_invoke`/`after_invoke`
+> - `InMemoryProvider` et `NoOpMemoryProvider`
+> - `Memory`, `MemoryCategory`, `UserMemories`, `MemoryContext`
+> - `ChatReducer` trait avec 4 implémentations
+> - Example: `examples/memory_demo.rs`
+>
+> À faire: `NatsMemoryProvider` (Phase 9)
 
 > Inspiré de [MAF Agent Memory](https://learn.microsoft.com/fr-fr/agent-framework/user-guide/agents/agent-memory)
 
@@ -1238,11 +1334,13 @@ pub trait Executor: Send + Sync {
     fn kind(&self) -> ExecutorKind;
 
     /// Traite un message et utilise le contexte pour communiquer
-    async fn handle(
+    async fn handle<Ctx>(
         &self,
         input: Self::Input,
-        ctx: &mut WorkflowContext<Self::Message, Self::Output>,
-    ) -> Result<(), ExecutorError>;
+        ctx: &mut Ctx,
+    ) -> Result<(), ExecutorError>
+    where
+        Ctx: ExecutorContext<Self::Message, Self::Output> + Send;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1254,6 +1352,66 @@ pub enum ExecutorKind {
     /// Coordonne un sub-graph (récursif)
     Orchestrator,
 }
+```
+
+### MAF Dynamic Dispatch Pattern
+
+> **Important**: Inspiré de [MAF Python Executors](https://learn.microsoft.com/en-us/agent-framework/user-guide/workflows/core-concepts/executors),
+> nos executors utilisent `serde_json::Value` pour le **dynamic dispatch**.
+
+**Problème**: L'`ExecutorRegistry` impose une contrainte de types:
+```rust
+pub struct ExecutorRegistry<TMessage, TOutput> {
+    executors: HashMap<ExecutorId, Arc<dyn Executor<Message = TMessage, Output = TOutput>>>,
+}
+```
+
+Tous les executors d'un workflow DOIVENT avoir les mêmes types `Message` et `Output`.
+
+**Solution MAF**: Type erasure avec `serde_json::Value`:
+
+```rust
+// TOUS les executors built-in utilisent le même pattern:
+impl Executor for LLMGeneratorExecutor {
+    type Input = Value;     // Dynamic dispatch
+    type Message = Value;   // Dynamic dispatch
+    type Output = String;   // Status messages
+
+    async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
+    where
+        Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
+    {
+        // Deserialize dynamically
+        let typed_input: GeneratorInput = serde_json::from_value(input)?;
+
+        // ... process ...
+
+        // Serialize output to Value
+        ctx.send_message(generated.to_value()).await?;
+        Ok(())
+    }
+}
+```
+
+**Avantages**:
+- ✅ Tous les executors compatibles dans un même workflow
+- ✅ Type-safe construction avec helpers (`GeneratorInput`, `CompileInput`, etc.)
+- ✅ Runtime flexibility pour routing dynamique
+- ✅ Matches MAF Python pattern avec `WorkflowContext[T]`
+
+**Trade-off**: Validation des types au runtime plutôt qu'à la compilation.
+
+### Input/Output Schemas
+
+Chaque executor documente son schema JSON:
+
+| Executor | Input Schema | Output Schema |
+|----------|--------------|---------------|
+| `LLMGeneratorExecutor` | `GeneratorInput` → `{prompt, language, context?, previous_errors?}` | `GeneratedCode` → `{code, language, prompt, tokens_used}` |
+| `CompileValidatorExecutor` | `CompileInput` → `{code, language, task?}` | `CompileOutput` → `{code, language, passed, errors, feedback?}` |
+| `TestValidatorExecutor` | `TestInput` → `{code, language, test_filter?, task?}` | `TestOutput` → `{code, language, passed, test_count, tests_passed, tests_failed, errors}` |
+| `CodeAssemblerExecutor` | `AssemblyInput` → `{parts: [{name, code, language, section?}], language}` | `AssembledCode` → `{code, language, part_count, size_bytes}` |
+| `SubWorkflowExecutor` | `SubWorkflowInput` → `{input: any, task_id?}` | `SubWorkflowOutput` → `{outputs, superstep_count, duration_ms, success, error?}` |
 ```
 
 ### Executors Déclaratifs (Function-based)
@@ -1776,146 +1934,210 @@ impl Executor for IntermediateProcessor {
 }
 ```
 
-### Exemples d'Executors Concrets
+### Exemples d'Executors Concrets (MAF Pattern)
+
+> **Note**: Tous les executors utilisent `serde_json::Value` pour Input/Message
+> (MAF dynamic dispatch). Les types helpers (`GeneratorInput`, etc.) sont pour
+> la construction type-safe côté appelant.
 
 ```rust
-// === WORKER: Génère du code ===
-pub struct CodeGenerator {
+use serde_json::Value;
+
+// === WORKER: Génère du code avec LLM ===
+pub struct LLMGeneratorExecutor {
     id: ExecutorId,
-    llm: Arc<dyn LLMAdapter>,
+    llm: Arc<Mutex<LLMExecutor>>,
     system_prompt: String,
 }
 
 #[async_trait]
-impl Executor for CodeGenerator {
-    type Input = GenerationRequest;
-    type Message = GeneratedCode;       // → vers autres executors
-    type Output = Never;                 // pas de sortie externe
+impl Executor for LLMGeneratorExecutor {
+    type Input = Value;      // MAF: dynamic dispatch
+    type Message = Value;    // MAF: dynamic dispatch
+    type Output = String;    // Status messages
 
     fn id(&self) -> &ExecutorId { &self.id }
     fn kind(&self) -> ExecutorKind { ExecutorKind::Worker }
 
-    async fn handle(
-        &self,
-        input: GenerationRequest,
-        ctx: &mut WorkflowContext<GeneratedCode>,
-    ) -> Result<(), ExecutorError> {
-        // Consulter l'historique pour éviter les mêmes erreurs
-        let previous_errors = ctx.previous_errors();
-        let prompt = self.build_prompt_with_context(&input, previous_errors);
+    async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
+    where
+        Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
+    {
+        // Deserialize dynamically
+        let typed_input: GeneratorInput = serde_json::from_value(input)?;
 
         // Appeler le LLM
-        let response = self.llm.generate(&self.system_prompt, &prompt).await?;
+        let response = self.llm.lock().await.execute(&self.system_prompt, &typed_input.prompt).await?;
 
-        // Envoyer le résultat aux edges sortants (send_message = interne)
-        ctx.send_message(GeneratedCode {
-            code: response.content,
-            language: input.language,
-        }).await?;
+        // Build output
+        let generated = GeneratedCode::new(&response.content, &typed_input.language);
+
+        // Serialize output to Value for next executors
+        ctx.send_message(generated.to_value()).await?;
+
+        // Yield status output
+        ctx.yield_output(format!("Generated {} bytes", response.content.len())).await?;
 
         Ok(())
     }
 }
 
 // === VALIDATOR: Vérifie la compilation ===
-pub struct CompileValidator {
+pub struct CompileValidatorExecutor<S: Sandbox> {
     id: ExecutorId,
-    sandbox: Arc<dyn Sandbox>,
+    validator: SandboxValidator<S>,
 }
 
 #[async_trait]
-impl Executor for CompileValidator {
-    type Input = CodeToValidate;
-    type Message = ValidationResult;    // → vers autres executors
-    type Output = Never;
+impl<S: Sandbox + Send + Sync + 'static> Executor for CompileValidatorExecutor<S> {
+    type Input = Value;      // MAF: dynamic dispatch
+    type Message = Value;    // MAF: dynamic dispatch
+    type Output = String;    // Status messages
 
     fn id(&self) -> &ExecutorId { &self.id }
     fn kind(&self) -> ExecutorKind { ExecutorKind::Validator }
 
-    async fn handle(
-        &self,
-        input: CodeToValidate,
-        ctx: &mut WorkflowContext<ValidationResult>,
-    ) -> Result<(), ExecutorError> {
-        // Compiler dans le sandbox
-        let result = self.sandbox.compile(&input.code, &input.language).await?;
+    async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
+    where
+        Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
+    {
+        // Deserialize dynamically
+        let typed_input: CompileInput = serde_json::from_value(input)?;
 
-        // Envoyer le résultat (les edges conditionnels routeront selon passed)
-        ctx.send_message(ValidationResult {
-            passed: result.success,
-            errors: result.errors,
-            feedback: self.build_feedback(&result),
-        }).await?;
+        // Compiler dans le sandbox
+        let result = self.validator.validate_code(&typed_input.code, language).await?;
+
+        // Build output
+        let output = CompileOutput {
+            code: typed_input.code.clone(),
+            language: typed_input.language.clone(),
+            passed: result.compiles,
+            errors: result.compiler_errors,
+            feedback: result.feedback,
+            execution_time_ms: result.execution_time_ms,
+        };
+
+        // Serialize to Value (edges conditionnels routeront selon "passed")
+        ctx.send_message(output.to_value()).await?;
+
+        // Yield status
+        let status = if output.passed { "Compilation: PASSED" } else { "Compilation: FAILED" };
+        ctx.yield_output(status.into()).await?;
 
         Ok(())
     }
 }
 
-// === FINAL ASSEMBLER: Produit la sortie du workflow ===
-pub struct FinalAssembler {
+// === WORKER: Assemble code fragments ===
+pub struct CodeAssemblerExecutor {
     id: ExecutorId,
+    assembler: CodeAssembler,
 }
 
 #[async_trait]
-impl Executor for FinalAssembler {
-    type Input = AssemblyParts;
-    type Message = Never;                // pas de message interne
-    type Output = FinalCode;             // → sortie visible par l'Agent
+impl Executor for CodeAssemblerExecutor {
+    type Input = Value;      // MAF: dynamic dispatch
+    type Message = Value;    // MAF: dynamic dispatch
+    type Output = String;    // Final assembled code
 
     fn id(&self) -> &ExecutorId { &self.id }
     fn kind(&self) -> ExecutorKind { ExecutorKind::Worker }
 
-    async fn handle(
-        &self,
-        input: AssemblyParts,
-        ctx: &mut WorkflowContext<Never, FinalCode>,
-    ) -> Result<(), ExecutorError> {
-        // Assembler toutes les parties
-        let final_code = FinalCode {
-            types: input.types,
-            implementation: input.implementation,
-            tests: input.tests,
-        };
+    async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
+    where
+        Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
+    {
+        // Deserialize dynamically
+        let typed_input: AssemblyInput = serde_json::from_value(input)?;
 
-        // yield_output = sortie finale visible par l'Agent
-        ctx.yield_output(final_code).await?;
+        // Assemble code
+        let code = self.assemble_parts(&typed_input);
+        let assembled = AssembledCode::new(&code, &typed_input.language, typed_input.parts.len());
+
+        // Send as Value to next executors
+        ctx.send_message(assembled.to_value()).await?;
+
+        // Yield the final code as workflow output
+        ctx.yield_output(code).await?;
 
         Ok(())
     }
 }
 
 // === ORCHESTRATOR: Coordonne un sub-workflow ===
-pub struct SubWorkflowOrchestrator {
+pub struct SubWorkflowExecutor {
     id: ExecutorId,
-    sub_workflow: Workflow,
+    workflow: Arc<Workflow<Value, String>>,  // Child workflow
+    fail_on_child_failure: bool,
 }
 
 #[async_trait]
-impl Executor for SubWorkflowOrchestrator {
-    type Input = SubTaskRequest;
-    type Message = SubTaskResult;        // → vers autres executors
-    type Output = Never;
+impl Executor for SubWorkflowExecutor {
+    type Input = Value;      // MAF: dynamic dispatch
+    type Message = Value;    // MAF: dynamic dispatch
+    type Output = String;    // Status messages
 
     fn id(&self) -> &ExecutorId { &self.id }
     fn kind(&self) -> ExecutorKind { ExecutorKind::Orchestrator }
 
-    async fn handle(
-        &self,
-        input: SubTaskRequest,
-        ctx: &mut WorkflowContext<SubTaskResult>,
-    ) -> Result<(), ExecutorError> {
-        // Exécuter le sub-workflow (récursif!)
-        let result = self.sub_workflow.run(input).await?;
+    async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
+    where
+        Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
+    {
+        // Run the child workflow
+        let result = self.workflow.run(input).await?;
 
-        // Envoyer le résultat agrégé aux edges sortants
-        ctx.send_message(SubTaskResult {
-            outputs: result.outputs,
-            passed: result.all_passed(),
-        }).await?;
+        // Convert to output
+        let output = SubWorkflowOutput::from_result(result);
+
+        // Check for failure
+        if self.fail_on_child_failure && !output.success {
+            return Err(ExecutorError::new(self.id.clone(), output.error.unwrap_or_default()));
+        }
+
+        // Yield status
+        ctx.yield_output(format!(
+            "Sub-workflow: {} ({} outputs, {} supersteps)",
+            if output.success { "COMPLETED" } else { "FAILED" },
+            output.outputs.len(),
+            output.superstep_count
+        )).await?;
+
+        // Send output as Value to next executors
+        ctx.send_message(output.to_value()).await?;
 
         Ok(())
     }
 }
+```
+
+### Type-Safe Construction Helpers
+
+```rust
+// Input helpers with builder pattern
+let input = GeneratorInput::new("Write fibonacci function", "rust")
+    .with_context("Must be iterative, not recursive")
+    .with_errors(vec!["error[E0308]: type mismatch".into()])
+    .to_value();  // → serde_json::Value
+
+let compile_input = CompileInput::new(code, "rust")
+    .with_task("Implement state machine")
+    .to_value();
+
+let assembly_input = AssemblyInput::new("rust")
+    .add_part(CodePart::new("types", types_code, "rust").with_section("Type Definitions"))
+    .add_part(CodePart::new("impl", impl_code, "rust").with_section("Implementation"))
+    .to_value();
+
+// Workflow usage
+let workflow = WorkflowBuilder::<Value>::new("code-gen")
+    .set_start("generator")
+    .add_executor(LLMGeneratorExecutor::new("generator", llm))
+    .add_executor(CompileValidatorExecutor::new("validator", sandbox))
+    .add_direct_edge("generator", "validator")
+    .build()?;
+
+workflow.run(input).await?;
 ```
 
 ---
@@ -2443,6 +2665,80 @@ while let Some(event) = stream.next().await {
 
 ---
 
+## Graph Persistence: Checkpoints Durables (PR #6)
+
+> ✅ **STATUT: IMPLÉMENTÉ** - `crates/agentic-core/src/distributed/graph/persistence.rs`
+
+Permet aux workflows de survivre aux crashes et de reprendre depuis le dernier checkpoint.
+
+### Cas d'usage: Migration à grande échelle
+
+```text
+Vendredi 18:00: Démarrage migration de 500 services
+    → Checkpoint sauvegardé au superstep 50
+Samedi 02:00: Crash serveur (panne de courant)
+Lundi 09:00: Redémarrage du workflow
+    → Charge le checkpoint du superstep 50
+    → Reprend exactement où il s'était arrêté
+    → Pas de tokens LLM gaspillés, pas de progression perdue
+```
+
+### API Implémentée
+
+```rust
+// Backends disponibles
+use agentic_core::distributed::graph::{
+    InMemoryPersistentBackend,  // Pour tests
+    RedisCheckpointBackend,      // Pour production (feature "redis-persistence")
+    PersistentCheckpoint,
+    PersistentCheckpointBackend,
+};
+
+// Connexion Redis
+let backend = RedisCheckpointBackend::connect("redis://localhost:6379").await?
+    .with_ttl_days(7);  // Expire après 7 jours
+
+// Workflow avec persistence
+let workflow = Workflow::with_config(definition, registry, config)
+    .with_checkpoint_backend(Arc::new(backend));
+
+// Exécution normale (checkpoints automatiques)
+let result = workflow.run(input).await?;
+
+// OU: Reprise depuis un checkpoint existant
+let result = workflow.run_with_resume(Some("checkpoint-id")).await?;
+
+// OU: Reprise automatique du dernier checkpoint
+let result = workflow.run_with_resume(None).await?;
+```
+
+### PersistentCheckpoint
+
+```rust
+/// Checkpoint étendu avec état partagé pour récupération complète.
+pub struct PersistentCheckpoint {
+    pub checkpoint: Checkpoint,           // Données de base
+    pub shared_state: HashMap<String, Value>,  // État partagé capturé
+    pub schema_version: u32,              // Pour migrations
+    pub workflow_hash: Option<String>,    // Détection changements incompatibles
+}
+```
+
+### Cleanup automatique
+
+```rust
+// Garder seulement les 3 derniers checkpoints
+backend.cleanup_keep_last(&workflow_id, &task_id, 3).await?;
+
+// Supprimer tous les checkpoints d'une tâche
+backend.delete_all(&workflow_id, &task_id).await?;
+
+// Lister les checkpoints (metadata légère)
+let checkpoints = backend.list_metadata(&workflow_id, None).await?;
+```
+
+---
+
 ## NATS: Le Système Nerveux Central
 
 **Insight clé**: NATS n'est pas juste pour la persistence. C'est le **bus de communication** entre TOUS les composants.
@@ -2862,6 +3158,9 @@ AGENTIC_METRICS         # Métriques de performance
 ---
 
 ## Orchestration Patterns (Prédéfinis)
+
+> ⚠️ **STATUT: NON IMPLÉMENTÉ** - Ces patterns sont planifiés pour Phase 7.
+> Actuellement, vous devez construire les patterns manuellement avec `WorkflowBuilder`.
 
 Inspiré de [MAF Orchestrations](https://learn.microsoft.com/fr-fr/agent-framework/user-guide/workflows/orchestrations/overview), nous proposons des **patterns de workflow prêts à l'emploi**:
 
@@ -3546,51 +3845,88 @@ impl Executor for MagenticPlanner {
 
 ## Prochaines Étapes
 
-### Phase 1: Core Abstractions
-- [ ] `Executor` trait avec `WorkflowContext`
-- [ ] `Edge` enum (Direct, Conditional, Switch, FanOut, FanIn)
-- [ ] `Workflow` struct avec exécution Superstep
+### ✅ Phase 1: Core Abstractions (COMPLÉTÉ - PR #1-3)
+- [x] `Executor` trait avec `WorkflowContext`
+- [x] `Edge` enum (Direct, Conditional, Switch, FanOut, FanIn)
+- [x] `Workflow` struct avec exécution Superstep
 
-### Phase 2: WorkflowBuilder
-- [ ] API fluent pour construction du graph
-- [ ] Validation du graph (types, connectivité)
-- [ ] Intégration NATS pour persistence
+### ✅ Phase 2: WorkflowBuilder (COMPLÉTÉ - PR #4)
+- [x] API fluent pour construction du graph
+- [x] Validation du graph (types, connectivité)
+- [x] Intégration NATS pour persistence
 
-### Phase 3: Executors de base
-- [ ] `CodeGenerator` (Worker) - génération LLM
-- [ ] `CodeAssembler` (Worker) - merge du code
-- [ ] `CompileValidator` (Validator) - compilation
-- [ ] `TestValidator` (Validator) - tests
-- [ ] `SubWorkflowOrchestrator` (Orchestrator) - sub-graphs
+### ✅ Phase 3: Superstep Execution (COMPLÉTÉ - PR #5)
+- [x] Exécution BSP (Bulk Synchronous Parallel)
+- [x] Checkpointing aux frontières de superstep
+- [x] `WorkflowConfig` (max_supersteps, max_retries)
+- [x] `WorkflowResult` avec métriques
 
-### Phase 4: NATS Integration
-- [ ] Persistence des edges/outputs dans KV
-- [ ] Events pub/sub pour monitoring
-- [ ] Historique et replay
-- [ ] Checkpointing aux frontières de superstep
+### ✅ Phase 4: Graph Persistence (COMPLÉTÉ - PR #6)
+- [x] `PersistentCheckpoint` avec shared state
+- [x] `InMemoryPersistentBackend` pour tests
+- [x] `RedisCheckpointBackend` pour production
+- [x] `Workflow.run_with_resume()` pour reprise
+- [x] Cleanup automatique des vieux checkpoints
 
-### Phase 5: Agent Layer
-- [ ] `Agent` trait avec `run()` et `run_stream()`
-- [ ] `AgentThread` persisté sur NATS
-- [ ] `ChatAgent` - agent simple (wrapper LLM)
-- [ ] `WorkflowAgent` - agent qui invoque des workflows
-- [ ] Outils: function calling, streaming
+### ✅ Phase 5: Executors de base (COMPLÉTÉ)
+- [x] Executor trait générique
+- [x] **MAF Dynamic Dispatch Pattern** - tous les executors utilisent `serde_json::Value` pour Input/Message
+- [x] `LLMGeneratorExecutor` (Worker) - génération LLM via `executors/llm_generator.rs`
+- [x] `CodeAssemblerExecutor` (Worker) - merge du code via `executors/code_assembler.rs`
+- [x] `CompileValidatorExecutor` (Validator) - compilation via `executors/compile_validator.rs`
+- [x] `TestValidatorExecutor` (Validator) - tests via `executors/test_validator.rs`
+- [x] `SubWorkflowExecutor` (Orchestrator) - nested workflows via `executors/sub_workflow.rs`
 
-### Phase 6: Orchestration Patterns
-- [ ] `sequential()` - pipeline linéaire
-- [ ] `concurrent()` - fan-out/fan-in parallèle
-- [ ] `group_chat()` - topologie étoile avec manager
-- [ ] `handoff()` - mesh dynamique entre agents
-- [ ] `magentic()` - planificateur qui décompose les tâches
+### ✅ Phase 6: Agent Layer (IMPLÉMENTÉ)
+- [x] `Agent` trait avec `run()` et `run_stream()` - `agent/trait_def.rs`
+- [x] `AgentThread` in-memory (NATS KV déféré à Phase 8) - `agent/thread.rs`
+- [x] `ChatAgent` - agent simple (wrapper LLM) - `agent/chat_agent.rs`
+- [x] `WorkflowAgent` - agent qui invoque des workflows - `agent/workflow_agent.rs`
+- [x] `workflow.as_agent()` - conversion workflow → agent - `WorkflowAsAgent` trait
+- [x] `Tool`, `ToolParam`, `ToolParameters` - définitions pour function calling - `agent/tools.rs`
+- [x] `AgentChunk` streaming response - `agent/response.rs`
+- [x] `AgentError`, `AgentResult` - gestion d'erreurs - `agent/error.rs`
+- [x] `AgentExt` - extensions: `invoke()`, `run_once()`, `new_thread()` - `agent/trait_def.rs`
 
-### Phase 7: Feedback & Learning
-- [ ] Context enrichment depuis NATS (erreurs passées)
-- [ ] Pattern learning (ce qui marche/échoue)
-- [ ] Retry intelligent avec historique
+### ✅ Phase 7: Orchestration Patterns (IMPLÉMENTÉ)
+- [x] `SequentialBuilder` - pipeline linéaire - `patterns/sequential.rs`
+- [x] `ConcurrentBuilder` - fan-out/fan-in parallèle - `patterns/concurrent.rs`
+- [x] `GroupChatBuilder` - topologie étoile avec orchestrateur - `patterns/group_chat.rs`
+- [x] `handoff()` - mesh dynamique entre agents - `patterns/handoff.rs`
+- [x] Selectors: `round_robin_selector`, `smart_selector`, `no_repeat_selector`
+- [x] Termination: `max_messages`, `max_rounds`, `keyword`, `any_termination`
+- [ ] `MagenticPlanner` - planificateur (déféré Phase 8)
 
-### Phase 8: Tests E2E
-- [ ] Exemple TypeScript state machine
-- [ ] Exemple Rust async cache
+### ✅ Phase 8: Agent Memory (FAIT - P1)
+- [x] `MemoryProvider` trait - `agent/memory.rs`
+- [x] `InMemoryProvider` - implémentation in-memory
+- [x] `NoOpMemoryProvider` - implémentation no-op
+- [x] `Memory`, `MemoryCategory`, `MemoryContext` types
+- [x] `UserMemories` avec retrieval par importance
+- [x] Short-term memory (Thread) - in-memory
+- [ ] `AgentThread` persisté sur NATS KV (déféré Phase 9)
+- [ ] `NatsMemoryProvider` - NATS KV persistence (déféré Phase 9)
+- [x] `ChatReducer` trait - `agent/reducer.rs`
+- [x] `MessageCountingReducer` - garde N derniers messages
+- [x] `TokenCountingReducer` - budget tokens
+- [x] `SlidingWindowReducer` - récent + important
+- [x] `NoOpReducer` - pas de réduction
+- [x] Example: `examples/memory_demo.rs`
+- [x] 17 tests (8 memory + 9 reducer)
+
+### ❌ Phase 9: Production Features (À FAIRE - P2)
+- [ ] `NatsMemoryProvider` - NATS KV persistence
+- [ ] `AgentThread` persisté sur NATS KV
+- [ ] `ContinuationToken` pour tâches longues
+- [ ] Streaming avec reprise
+- [ ] Polling pattern
+- [ ] `ProxyAgent` (agents distants via A2A)
+
+### ❌ Phase 10: Tests E2E (À FAIRE)
+- [x] `graph_workflow` - exemple basique de workflow
+- [x] `graph_persistence_test` - test de crash/resume
+- [x] `graph_refactor` - LLM refactoring avec persistence
+- [ ] Exemple TypeScript state machine complet
 - [ ] Benchmarks vs architecture linéaire actuelle
 
 ---

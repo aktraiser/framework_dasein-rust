@@ -19,6 +19,7 @@ redis-persistence = ["redis"]
 tokio = { workspace = true }
 tokio-stream = "0.1"
 async-trait = { workspace = true }
+async-stream = "0.3"
 futures = { workspace = true }
 
 # Serialization

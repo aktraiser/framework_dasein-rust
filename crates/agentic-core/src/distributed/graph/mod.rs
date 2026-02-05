@@ -4,6 +4,7 @@
 //! - **Executors** are nodes that do work (generate code, validate, assemble)
 //! - **Edges** are connections that transport data between executors
 //! - **Workflows** orchestrate execution via Supersteps (Pregel/BSP model)
+//! - **Agents** are high-level interfaces for conversation (Phase 6)
 //!
 //! # Executor Types
 //!
@@ -12,6 +13,13 @@
 //! | Worker | Does work | Code generation, merging |
 //! | Validator | Verifies | Compile, test, lint |
 //! | Orchestrator | Coordinates sub-graph | Complex sub-tasks |
+//!
+//! # Agent Types (Phase 6)
+//!
+//! | Type | Role | Example |
+//! |------|------|---------|
+//! | ChatAgent | LLM wrapper | Simple conversational agent |
+//! | WorkflowAgent | Workflow delegate | Agent backed by workflow |
 //!
 //! # Example
 //!
@@ -37,10 +45,12 @@
 //! }
 //! ```
 
+pub mod agent;
 mod builder;
 mod context;
 mod edge;
 mod executor;
+pub mod executors;
 #[cfg(test)]
 mod integration_test;
 mod persistence;
