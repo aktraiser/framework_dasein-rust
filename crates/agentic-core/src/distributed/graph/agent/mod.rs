@@ -75,9 +75,11 @@
 //! let response = agent.invoke("Write fibonacci", &mut thread).await?;
 //! ```
 
+mod background;
 mod chat_agent;
 mod error;
 mod memory;
+mod persistence;
 mod reducer;
 mod response;
 mod thread;
@@ -119,3 +121,18 @@ pub use reducer::{
     BoxedChatReducer, ChatReducer, MessageCountingReducer, NoOpReducer, SharedChatReducer,
     SlidingWindowReducer, TokenCountingReducer,
 };
+
+// === Persistence ===
+pub use persistence::{
+    BoxedThreadStore, InMemoryThreadStore, NatsThreadStore, SharedThreadStore, ThreadStore,
+    ThreadStoreError, ThreadStoreResult,
+};
+
+// === Background ===
+pub use background::{
+    BackgroundResponse, BackgroundTask, BackgroundTaskId, ContinuationError, ContinuationToken,
+    InMemoryTaskStore, SharedTaskStore, TaskStatus,
+};
+
+// === NATS Memory Provider ===
+pub use memory::NatsMemoryProvider;
