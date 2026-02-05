@@ -564,6 +564,235 @@ impl MemoryProvider for InMemoryProvider {
 }
 
 // ============================================================================
+// NATS MEMORY PROVIDER
+// ============================================================================
+
+/// NATS KV-based memory provider for persistent long-term memory.
+///
+/// Uses NATS JetStream KV store to persist memories across restarts.
+/// Memories are stored with key format: `{agent_id}.{user_id}`
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use agentic_core::distributed::graph::agent::NatsMemoryProvider;
+///
+/// let provider = NatsMemoryProvider::new(nats_client, "memories").await?;
+/// provider.store_memory(&agent_id, "user-123", memory).await?;
+/// ```
+pub struct NatsMemoryProvider {
+    nats: Arc<crate::distributed::bus::NatsClient>,
+    bucket_name: String,
+    max_memories: usize,
+}
+
+impl NatsMemoryProvider {
+    /// KV bucket name for memories.
+    pub const DEFAULT_BUCKET: &'static str = "AGENTIC_MEMORIES";
+
+    /// Create a new NATS memory provider.
+    pub async fn new(
+        nats: Arc<crate::distributed::bus::NatsClient>,
+        bucket_name: impl Into<String>,
+    ) -> Result<Self, MemoryError> {
+        let bucket_name = bucket_name.into();
+        let provider = Self {
+            nats,
+            bucket_name,
+            max_memories: 100,
+        };
+        provider.ensure_bucket().await?;
+        Ok(provider)
+    }
+
+    /// Create with default bucket name.
+    pub async fn with_defaults(
+        nats: Arc<crate::distributed::bus::NatsClient>,
+    ) -> Result<Self, MemoryError> {
+        Self::new(nats, Self::DEFAULT_BUCKET).await
+    }
+
+    /// Set maximum memories per user/agent pair.
+    pub fn with_max_memories(mut self, max: usize) -> Self {
+        self.max_memories = max;
+        self
+    }
+
+    /// Ensure KV bucket exists.
+    async fn ensure_bucket(&self) -> Result<(), MemoryError> {
+        let js = self
+            .nats
+            .jetstream()
+            .ok_or_else(|| MemoryError::storage("JetStream not enabled"))?;
+
+        match js.get_key_value(&self.bucket_name).await {
+            Ok(_) => Ok(()),
+            Err(_) => {
+                use async_nats::jetstream::kv;
+                js.create_key_value(kv::Config {
+                    bucket: self.bucket_name.clone(),
+                    history: 5,
+                    ..Default::default()
+                })
+                .await
+                .map_err(|e| MemoryError::storage(e.to_string()))?;
+                Ok(())
+            }
+        }
+    }
+
+    /// Get the KV store.
+    async fn get_store(&self) -> Result<async_nats::jetstream::kv::Store, MemoryError> {
+        let js = self
+            .nats
+            .jetstream()
+            .ok_or_else(|| MemoryError::storage("JetStream not enabled"))?;
+
+        js.get_key_value(&self.bucket_name)
+            .await
+            .map_err(|e| MemoryError::storage(e.to_string()))
+    }
+
+    /// Build storage key from agent_id and user_id.
+    fn storage_key(agent_id: &AgentId, user_id: &str) -> String {
+        format!("{}.{}", agent_id.as_str(), user_id)
+    }
+
+    /// Get user_id from thread metadata.
+    fn get_user_id(thread: &AgentThread) -> Option<String> {
+        thread
+            .get_metadata("user_id")
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+    }
+}
+
+#[async_trait]
+impl MemoryProvider for NatsMemoryProvider {
+    async fn before_invoke(
+        &self,
+        agent_id: &AgentId,
+        thread: &AgentThread,
+        ctx: &mut MemoryContext,
+    ) -> MemoryResult<()> {
+        let Some(user_id) = Self::get_user_id(thread) else {
+            return Ok(());
+        };
+
+        let memories = self.get_memories(agent_id, &user_id).await?;
+        if memories.is_empty() {
+            return Ok(());
+        }
+
+        // Sort by importance and take top 10
+        let mut sorted = memories;
+        sorted.sort_by(|a, b| b.importance.partial_cmp(&a.importance).unwrap());
+        let top_memories: Vec<_> = sorted.into_iter().take(10).collect();
+
+        for memory in &top_memories {
+            ctx.add_memory(memory.clone());
+        }
+
+        if !ctx.retrieved_memories.is_empty() {
+            let memories_str = ctx
+                .retrieved_memories
+                .iter()
+                .map(|m| format!("- [{}] {}", m.category_str(), m.content))
+                .collect::<Vec<_>>()
+                .join("\n");
+            ctx.extra_instructions = Some(format!("User memories:\n{}", memories_str));
+        }
+
+        Ok(())
+    }
+
+    async fn after_invoke(
+        &self,
+        _agent_id: &AgentId,
+        _thread: &AgentThread,
+        _response: &AgentResponse,
+    ) -> MemoryResult<()> {
+        // Memory extraction from responses would require LLM analysis.
+        // For now, use store_memory() explicitly.
+        Ok(())
+    }
+
+    async fn get_memories(
+        &self,
+        agent_id: &AgentId,
+        user_id: &str,
+    ) -> MemoryResult<Vec<Memory>> {
+        let store = self.get_store().await?;
+        let key = Self::storage_key(agent_id, user_id);
+
+        match store.get(&key).await {
+            Ok(Some(entry)) => {
+                let user_memories: UserMemories =
+                    serde_json::from_slice(&entry).map_err(MemoryError::from)?;
+                Ok(user_memories.memories)
+            }
+            Ok(None) => Ok(vec![]),
+            Err(e) => Err(MemoryError::storage(e.to_string())),
+        }
+    }
+
+    async fn store_memory(
+        &self,
+        agent_id: &AgentId,
+        user_id: &str,
+        memory: Memory,
+    ) -> MemoryResult<()> {
+        let store = self.get_store().await?;
+        let key = Self::storage_key(agent_id, user_id);
+
+        // Get existing memories
+        let mut user_memories = match store.get(&key).await {
+            Ok(Some(entry)) => {
+                serde_json::from_slice::<UserMemories>(&entry).unwrap_or_else(|_| {
+                    UserMemories::new(agent_id.clone(), user_id)
+                })
+            }
+            _ => UserMemories::new(agent_id.clone(), user_id),
+        };
+
+        // Add new memory
+        user_memories.add(memory);
+
+        // Trim if over max
+        if user_memories.memories.len() > self.max_memories {
+            user_memories.memories.sort_by(|a, b| {
+                b.importance.partial_cmp(&a.importance).unwrap()
+            });
+            user_memories.memories.truncate(self.max_memories);
+        }
+
+        // Save
+        let value = serde_json::to_vec(&user_memories)?;
+        store
+            .put(&key, value.into())
+            .await
+            .map_err(|e| MemoryError::storage(e.to_string()))?;
+
+        Ok(())
+    }
+
+    async fn clear_memories(
+        &self,
+        agent_id: &AgentId,
+        user_id: &str,
+    ) -> MemoryResult<()> {
+        let store = self.get_store().await?;
+        let key = Self::storage_key(agent_id, user_id);
+
+        store
+            .delete(&key)
+            .await
+            .map_err(|e| MemoryError::storage(e.to_string()))?;
+
+        Ok(())
+    }
+}
+
+// ============================================================================
 // NO-OP PROVIDER
 // ============================================================================
 
