@@ -52,6 +52,7 @@
 pub mod agent;
 pub mod distributed;
 pub mod error;
+pub mod patterns;
 pub mod prelude;
 pub mod protocol;
 pub mod types;
