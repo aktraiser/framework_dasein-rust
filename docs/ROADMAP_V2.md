@@ -378,12 +378,12 @@ let workflow = handoff::<serde_json::Value>(
 - `keyword_termination("done")` - Termine sur keyword
 - `any_termination(vec![...])` - Combine conditions (OR)
 
-### Phase 8: Agent Memory (✅ PARTIELLEMENT IMPLÉMENTÉ)
+### Phase 8: Agent Memory (✅ IMPLÉMENTÉ)
 
 > **Objectif**: Implémenter la mémoire long-terme et la gestion de fenêtre de contexte
 
 **Fichiers créés (dans `distributed/graph/agent/`):**
-- `memory.rs` - `MemoryProvider` trait, `InMemoryProvider`, `NoOpMemoryProvider`
+- `memory.rs` - `MemoryProvider` trait, `InMemoryProvider`, `NoOpMemoryProvider`, `NatsMemoryProvider`
 - `reducer.rs` - `ChatReducer` trait et implémentations
 
 #### Memory Provider (✅ FAIT)

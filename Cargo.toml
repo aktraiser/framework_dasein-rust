@@ -291,3 +291,18 @@ path = "examples/graph_refactor_python.rs"
 [[example]]
 name = "graph_persistence_test"
 path = "examples/graph_persistence_test.rs"
+
+[[example]]
+name = "ts_state_machine_graph"
+path = "examples/ts_state_machine_graph.rs"
+
+# ============================================================================
+# BENCHMARKS
+# ============================================================================
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["async_tokio"] }
+
+[[bench]]
+name = "graph_vs_linear"
+harness = false
