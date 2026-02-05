@@ -4,15 +4,17 @@
 //! - OpenAI-compatible LLM API with multi-provider routing
 //! - Firecracker-based code execution sandboxes
 //! - Rate limiting and load balancing
+//! - Admin dashboard for management
 
 use anyhow::Result;
 use gateway_core::config::GatewayConfig;
+use gateway_core::storage::Storage;
 use gateway_server::{create_router, AppState};
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
-use tracing::{info, Level};
+use tracing::{info, warn, Level};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 #[tokio::main]
@@ -29,8 +31,35 @@ async fn main() -> Result<()> {
     let config = load_config()?;
     let addr = format!("{}:{}", config.server.host, config.server.port);
 
+    // Initialize database
+    let database_url =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:gateway.db?mode=rwc".to_string());
+    info!("Initializing database at {}", database_url);
+
+    let storage = match Storage::new(&database_url).await {
+        Ok(s) => {
+            info!("Database initialized successfully");
+            Some(s)
+        }
+        Err(e) => {
+            warn!("Failed to initialize database: {}. Dashboard will be limited.", e);
+            None
+        }
+    };
+
     // Create application state
-    let state = AppState::new(config);
+    let state = if let Some(storage) = storage {
+        AppState::new(config).with_storage(storage)
+    } else {
+        AppState::new(config)
+    };
+
+    // Check admin password configuration
+    if std::env::var("GATEWAY_ADMIN_PASSWORD").is_err() {
+        warn!("GATEWAY_ADMIN_PASSWORD not set. Dashboard login will be disabled.");
+    } else {
+        info!("Admin dashboard available at /admin");
+    }
 
     // Build router with middleware
     let app = create_router(state)

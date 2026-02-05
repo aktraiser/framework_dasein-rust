@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block body %}
+<div class="flex min-h-screen">
+    <!-- Sidebar -->
+    <aside class="w-64 bg-dark-800 border-r border-dark-600 flex flex-col">
+        <div class="p-6 border-b border-dark-600">
+            <h1 class="text-xl font-bold text-primary">Gateway Admin</h1>
+            <p class="text-sm text-gray-500">v0.1.0</p>
+        </div>
+
+        <nav class="flex-1 p-4 space-y-2">
+            <a href="/admin"
+               class="flex items-center px-4 py-3 rounded-lg transition duration-200
+                      {% if layout.active_page == "dashboard" %}bg-primary/10 text-primary{% else %}text-gray-300 hover:bg-dark-700{% endif %}">
+                <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+                </svg>
+                Dashboard
+            </a>
+
+            <a href="/admin/providers"
+               class="flex items-center px-4 py-3 rounded-lg transition duration-200
+                      {% if layout.active_page == "providers" %}bg-primary/10 text-primary{% else %}text-gray-300 hover:bg-dark-700{% endif %}">
+                <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/>
+                </svg>
+                Providers
+            </a>
+
+            <a href="/admin/keys"
+               class="flex items-center px-4 py-3 rounded-lg transition duration-200
+                      {% if layout.active_page == "keys" %}bg-primary/10 text-primary{% else %}text-gray-300 hover:bg-dark-700{% endif %}">
+                <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/>
+                </svg>
+                API Keys
+            </a>
+
+            <a href="/admin/sandboxes"
+               class="flex items-center px-4 py-3 rounded-lg transition duration-200
+                      {% if layout.active_page == "sandboxes" %}bg-primary/10 text-primary{% else %}text-gray-300 hover:bg-dark-700{% endif %}">
+                <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+                </svg>
+                Sandboxes
+            </a>
+
+            <a href="/admin/usage"
+               class="flex items-center px-4 py-3 rounded-lg transition duration-200
+                      {% if layout.active_page == "usage" %}bg-primary/10 text-primary{% else %}text-gray-300 hover:bg-dark-700{% endif %}">
+                <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                </svg>
+                Usage
+            </a>
+        </nav>
+
+        <div class="p-4 border-t border-dark-600">
+            <form method="POST" action="/admin/logout">
+                <button type="submit"
+                        class="flex items-center w-full px-4 py-3 text-gray-400 hover:text-red-400 hover:bg-dark-700 rounded-lg transition duration-200">
+                    <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                    </svg>
+                    Sign Out
+                </button>
+            </form>
+        </div>
+    </aside>
+
+    <!-- Main content -->
+    <main class="flex-1 overflow-auto">
+        <header class="bg-dark-800 border-b border-dark-600 px-8 py-4">
+            <h2 class="text-2xl font-semibold">{% block header %}{{ layout.title }}{% endblock %}</h2>
+        </header>
+
+        <div class="p-8">
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+</div>
+{% endblock %}

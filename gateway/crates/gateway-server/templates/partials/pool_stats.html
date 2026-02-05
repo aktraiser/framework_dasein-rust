@@ -1,0 +1,31 @@
+<h3 class="text-lg font-semibold mb-4">Sandbox Pool</h3>
+<div class="space-y-4">
+    <div>
+        <div class="flex justify-between text-sm mb-1">
+            <span class="text-gray-400">Available</span>
+            <span class="text-secondary font-mono">{{ pool_stats.available }}</span>
+        </div>
+        <div class="w-full bg-dark-700 rounded-full h-2">
+            <div class="bg-secondary rounded-full h-2"
+                 style="width: {% if pool_stats.max_total > 0 %}{{ pool_stats.available * 100 / pool_stats.max_total }}{% else %}0{% endif %}%"></div>
+        </div>
+    </div>
+
+    <div>
+        <div class="flex justify-between text-sm mb-1">
+            <span class="text-gray-400">In Use</span>
+            <span class="text-primary font-mono">{{ pool_stats.in_use }}</span>
+        </div>
+        <div class="w-full bg-dark-700 rounded-full h-2">
+            <div class="bg-primary rounded-full h-2"
+                 style="width: {% if pool_stats.max_total > 0 %}{{ pool_stats.in_use * 100 / pool_stats.max_total }}{% else %}0{% endif %}%"></div>
+        </div>
+    </div>
+
+    <div class="pt-4 border-t border-dark-600">
+        <div class="flex justify-between text-sm">
+            <span class="text-gray-400">Max Total</span>
+            <span class="text-gray-300 font-mono">{{ pool_stats.max_total }}</span>
+        </div>
+    </div>
+</div>

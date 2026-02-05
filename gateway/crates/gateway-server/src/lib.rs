@@ -5,10 +5,13 @@
 //! - Sandbox execution API
 //! - Health and metrics endpoints
 //! - Authentication middleware
+//! - Admin dashboard
 
 pub mod api;
+pub mod dashboard;
 pub mod middleware;
 pub mod state;
 
 pub use api::create_router;
+pub use dashboard::create_dashboard_router;
 pub use state::AppState;

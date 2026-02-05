@@ -68,11 +68,21 @@ pub enum SandboxStatus {
 /// Request to execute code
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecuteRequest {
+    /// Runtime to use for execution
+    #[serde(default = "default_runtime")]
+    pub runtime: Runtime,
+    /// Code to execute
     pub code: String,
+    /// Timeout in seconds
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout_seconds: Option<u32>,
+    /// Standard input
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stdin: Option<String>,
+}
+
+fn default_runtime() -> Runtime {
+    Runtime::Python
 }
 
 /// Response from code execution
