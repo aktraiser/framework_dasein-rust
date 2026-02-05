@@ -3914,20 +3914,22 @@ impl Executor for MagenticPlanner {
 - [x] Example: `examples/memory_demo.rs`
 - [x] 17 tests (8 memory + 9 reducer)
 
-### ❌ Phase 9: Production Features (À FAIRE - P2)
-- [ ] `NatsMemoryProvider` - NATS KV persistence
-- [ ] `AgentThread` persisté sur NATS KV
-- [ ] `ContinuationToken` pour tâches longues
-- [ ] Streaming avec reprise
-- [ ] Polling pattern
-- [ ] `ProxyAgent` (agents distants via A2A)
+### ✅ Phase 9: Production Features (FAIT - P2)
+- [x] `NatsMemoryProvider` - NATS KV persistence for long-term memory
+- [x] `ThreadStore` trait + `NatsThreadStore` - NATS KV persistence for AgentThread
+- [x] `InMemoryThreadStore` - In-memory implementation for testing
+- [x] `ContinuationToken` - Serializable token for background tasks
+- [x] `BackgroundTask` + `BackgroundResponse` - Task lifecycle management
+- [x] `TaskStatus` - Pending/InProgress/Complete/Failed/Cancelled
+- [x] `InMemoryTaskStore` - In-memory task store
+- [ ] `ProxyAgent` (agents distants via A2A) - déféré Phase 10
 
-### ❌ Phase 10: Tests E2E (À FAIRE)
+### ✅ Phase 10: Tests E2E (FAIT)
 - [x] `graph_workflow` - exemple basique de workflow
 - [x] `graph_persistence_test` - test de crash/resume
 - [x] `graph_refactor` - LLM refactoring avec persistence
-- [ ] Exemple TypeScript state machine complet
-- [ ] Benchmarks vs architecture linéaire actuelle
+- [x] `ts_state_machine_graph` - Exemple TypeScript state machine complet (fan-out/fan-in)
+- [x] `benches/graph_vs_linear` - Benchmarks vs architecture linéaire (Criterion)
 
 ---
 
