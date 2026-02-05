@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{{ layout.title }} - Gateway Admin{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/admin/static/htmx.min.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#00d9ff',
+                        secondary: '#00ff88',
+                        dark: {
+                            900: '#0f0f1a',
+                            800: '#1a1a2e',
+                            700: '#16213e',
+                            600: '#1f2937',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        [x-cloak] { display: none !important; }
+        .htmx-indicator { opacity: 0; transition: opacity 200ms ease-in; }
+        .htmx-request .htmx-indicator { opacity: 1; }
+        .htmx-request.htmx-indicator { opacity: 1; }
+    </style>
+</head>
+<body class="bg-dark-900 text-gray-100 min-h-screen">
+    {% block body %}{% endblock %}
+</body>
+</html>

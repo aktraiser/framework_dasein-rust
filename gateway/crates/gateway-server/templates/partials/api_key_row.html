@@ -1,0 +1,45 @@
+<tr id="key-{{ key.id }}">
+    <td class="px-6 py-4 whitespace-nowrap">
+        <span class="text-gray-100 font-medium">{{ key.name }}</span>
+    </td>
+    <td class="px-6 py-4 whitespace-nowrap">
+        <code class="text-gray-400 font-mono text-sm">{{ key.key_prefix }}********</code>
+    </td>
+    <td class="px-6 py-4 whitespace-nowrap text-sm">
+        <span class="text-gray-400">
+            {% match key.rate_limit_rpm %}
+            {% when Some with (rpm) %}{{ rpm }} RPM{% when None %}-{% endmatch %}
+            /
+            {% match key.rate_limit_tpm %}
+            {% when Some with (tpm) %}{{ tpm }} TPM{% when None %}-{% endmatch %}
+        </span>
+    </td>
+    <td class="px-6 py-4 whitespace-nowrap">
+        <span class="px-2 py-1 text-xs rounded-full {% if key.enabled %}bg-green-900/50 text-green-400{% else %}bg-red-900/50 text-red-400{% endif %}">
+            {% if key.enabled %}Active{% else %}Revoked{% endif %}
+        </span>
+    </td>
+    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
+        {% match key.last_used_at %}
+        {% when Some with (last_used) %}
+        {{ last_used.format("%Y-%m-%d %H:%M") }}
+        {% when None %}
+        <span class="text-gray-500">Never</span>
+        {% endmatch %}
+    </td>
+    <td class="px-6 py-4 whitespace-nowrap text-right text-sm">
+        <button hx-post="/admin/keys/{{ key.id }}/toggle"
+                hx-target="#key-{{ key.id }}"
+                hx-swap="outerHTML"
+                class="text-primary hover:text-primary/80 mr-3">
+            Toggle
+        </button>
+        <button hx-post="/admin/keys/{{ key.id }}/revoke"
+                hx-target="#key-{{ key.id }}"
+                hx-swap="outerHTML"
+                hx-confirm="Are you sure you want to revoke this API key? This action cannot be undone."
+                class="text-red-400 hover:text-red-300">
+            Revoke
+        </button>
+    </td>
+</tr>

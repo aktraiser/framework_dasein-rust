@@ -5,7 +5,7 @@ use axum::{
     Json,
 };
 use gateway_core::sandbox::{
-    CreateSandboxRequest, CreateSandboxResponse, ExecuteRequest, ExecuteResponse, SandboxId,
+    CreateSandboxRequest, CreateSandboxResponse, ExecuteRequest, ExecuteResponse, Runtime, SandboxId,
     SandboxStatus,
 };
 use serde::{Deserialize, Serialize};
@@ -36,9 +36,13 @@ pub async fn get_sandbox(
 ) -> Result<Json<SandboxInfo>, ApiError> {
     let stats = state.sandbox_pool.stats().await;
 
+    // Check if remote backend is ready
+    let backend_ready = state.code_executor.is_ready().await;
+
     Ok(Json(SandboxInfo {
         id,
         status: SandboxStatus::Ready,
+        backend_ready,
         pool_stats: PoolStatsResponse {
             available: stats.available,
             in_use: stats.in_use,
@@ -49,20 +53,42 @@ pub async fn get_sandbox(
 
 /// POST /v1/sandboxes/:id/execute
 pub async fn execute_code(
-    State(_state): State<AppState>,
-    Path(id): Path<String>,
+    State(state): State<AppState>,
+    Path(_id): Path<String>,
     Json(request): Json<ExecuteRequest>,
 ) -> Result<Json<ExecuteResponse>, ApiError> {
-    // TODO: Execute via sandbox pool
-    let _ = id;
+    // Execute code using the code executor (remote or local)
+    let response = state
+        .code_executor
+        .execute(
+            request.runtime.clone(),
+            request.code,
+            vec![],
+            request.timeout_seconds,
+        )
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
 
-    Ok(Json(ExecuteResponse {
-        stdout: format!("Executed {} bytes", request.code.len()),
-        stderr: String::new(),
-        exit_code: 0,
-        duration_ms: 0,
-        error: None,
-    }))
+    Ok(Json(response))
+}
+
+/// POST /v1/execute - Direct code execution without sandbox management
+pub async fn execute_direct(
+    State(state): State<AppState>,
+    Json(request): Json<DirectExecuteRequest>,
+) -> Result<Json<ExecuteResponse>, ApiError> {
+    let response = state
+        .code_executor
+        .execute(
+            request.runtime,
+            request.code,
+            request.packages.unwrap_or_default(),
+            request.timeout_seconds,
+        )
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
+
+    Ok(Json(response))
 }
 
 /// DELETE /v1/sandboxes/:id
@@ -86,6 +112,7 @@ pub async fn delete_sandbox(
 pub struct SandboxInfo {
     pub id: String,
     pub status: SandboxStatus,
+    pub backend_ready: bool,
     pub pool_stats: PoolStatsResponse,
 }
 
@@ -99,4 +126,13 @@ pub struct PoolStatsResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DeleteResponse {
     pub deleted: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DirectExecuteRequest {
+    pub runtime: Runtime,
+    pub code: String,
+    #[serde(default)]
+    pub packages: Option<Vec<String>>,
+    pub timeout_seconds: Option<u32>,
 }

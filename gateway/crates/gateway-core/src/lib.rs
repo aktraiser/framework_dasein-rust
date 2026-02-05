@@ -5,10 +5,13 @@
 //! - Sandbox execution types
 //! - Error types
 //! - Configuration types
+//! - Storage (SQLite persistence)
 
+pub mod config;
 pub mod error;
 pub mod llm;
 pub mod sandbox;
-pub mod config;
+pub mod storage;
 
 pub use error::{GatewayError, GatewayResult};
+pub use storage::{Storage, StorageError, StorageResult};
