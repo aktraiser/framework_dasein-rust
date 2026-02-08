@@ -88,8 +88,7 @@ Return ONLY Rust code, no markdown, no explanations."#;
     let executors: Vec<_> = supervisor.get_executors(5).await;
     println!("  Got {} executors", executors.len());
 
-    let tasks = vec![
-        (
+    let tasks = [(
             "Task 1: Core Types & Traits",
             r#"Create the core types and traits for a task queue system:
 1. A `Task` struct with: id (uuid), payload (generic), priority (u8), created_at, retry_count
@@ -144,8 +143,7 @@ Include a builder pattern for RetryPolicy."#,
 5. Include timestamps for first_task_at, last_task_at
 
 Use std::sync::atomic for thread-safety."#,
-        ),
-    ];
+        )];
 
     let start = Instant::now();
 

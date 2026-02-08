@@ -455,7 +455,7 @@ pub fn validate_workflow<T: Send + Sync + 'static>(
             "Potential cycle detected: {} (may be intentional for retry logic)",
             cycle
                 .iter()
-                .map(|id| id.as_str())
+                .map(super::types::ExecutorId::as_str)
                 .collect::<Vec<_>>()
                 .join(" → ")
         ));

@@ -302,8 +302,8 @@ impl ExecutorPoolBuilder {
         let pool = ExecutorPool {
             supervisor_id: self.supervisor_id.clone(),
             executors: Arc::new(RwLock::new(HashMap::new())),
-            llm_config: llm_config.clone(),
-            sandbox_config: sandbox_config.clone(),
+            llm_config,
+            sandbox_config,
             config: self.config,
             next_index: Arc::new(RwLock::new(0)),
         };

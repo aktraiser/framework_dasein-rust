@@ -162,9 +162,9 @@ impl RollbackManager {
 
         let attempt = Attempt {
             number: attempt_num,
-            code: code.clone(),
+            code,
             score: score.clone(),
-            errors: errors.clone(),
+            errors,
         };
 
         // Check if this is better than our best

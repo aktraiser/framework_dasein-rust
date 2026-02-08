@@ -99,7 +99,7 @@ impl<T: Send + Sync + 'static> SequentialBuilder<T> {
 
     /// Set all participants at once (replaces existing).
     pub fn participants(mut self, executor_ids: impl IntoIterator<Item = impl Into<ExecutorId>>) -> Self {
-        self.participants = executor_ids.into_iter().map(|id| id.into()).collect();
+        self.participants = executor_ids.into_iter().map(std::convert::Into::into).collect();
         self
     }
 

@@ -121,7 +121,7 @@ impl AgentThread {
     /// Add a message to the thread.
     pub fn add_message(&mut self, message: ChatMessage) {
         // Track turns (user message followed by assistant)
-        if message.is_user() && self.messages.last().map(|m| m.is_assistant()).unwrap_or(true) {
+        if message.is_user() && self.messages.last().map(super::types::ChatMessage::is_assistant).unwrap_or(true) {
             self.turn_count += 1;
         }
 

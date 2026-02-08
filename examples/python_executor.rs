@@ -158,7 +158,7 @@ The code must be production-quality with proper error handling.
     println!("✓ Error Enricher enabled");
 
     // === Generate with full pipeline ===
-    let total_start = Instant::now();
+    let _total_start = Instant::now();
     let system = "You are an expert Python developer. Return ONLY valid Python code. No markdown, no explanations. Include pytest tests at the bottom of the file.";
 
     let mut previous_errors: Vec<String> = vec![];

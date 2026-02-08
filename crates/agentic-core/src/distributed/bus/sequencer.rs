@@ -77,13 +77,12 @@ impl Sequencer {
         // Check if dependencies are satisfied
         if !task.depends_on.is_empty() {
             let completed = self.completed_tasks.read().await;
-            let unsatisfied: Vec<_> = task
+            let has_unsatisfied = task
                 .depends_on
                 .iter()
-                .filter(|dep| !completed.contains(*dep))
-                .collect();
+                .any(|dep| !completed.contains(dep));
 
-            if !unsatisfied.is_empty() {
+            if has_unsatisfied {
                 // Task is blocked, store it separately
                 let mut blocked = self.blocked_tasks.write().await;
                 blocked.insert(task.id.clone(), task);

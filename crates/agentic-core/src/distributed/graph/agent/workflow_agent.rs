@@ -192,7 +192,7 @@ where
             result
                 .outputs
                 .iter()
-                .map(|o| o.to_string())
+                .map(std::string::ToString::to_string)
                 .collect::<Vec<_>>()
                 .join("\n")
         };
@@ -269,12 +269,13 @@ where
 // ============================================================================
 
 /// Extension trait to convert workflows to agents.
+#[allow(clippy::wrong_self_convention)]
 pub trait WorkflowAsAgent<TMessage, TOutput>
 where
     TMessage: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     TOutput: Serialize + DeserializeOwned + Clone + Send + Sync + ToString + 'static,
 {
-    /// Convert this workflow into an agent.
+    /// Convert this workflow into an agent (consumes self).
     ///
     /// # Example
     ///

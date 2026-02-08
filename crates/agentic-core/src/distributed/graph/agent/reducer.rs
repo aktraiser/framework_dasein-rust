@@ -111,7 +111,7 @@ impl MessageCountingReducer {
         messages
             .iter()
             .find(|m| !m.is_system())
-            .map(|m| m.is_user())
+            .map(super::types::ChatMessage::is_user)
             .unwrap_or(false)
     }
 }
@@ -301,7 +301,7 @@ impl SlidingWindowReducer {
         msg.metadata
             .as_ref()
             .and_then(|m| m.get("important"))
-            .and_then(|v| v.as_bool())
+            .and_then(serde_json::Value::as_bool)
             .unwrap_or(false)
     }
 }

@@ -176,7 +176,7 @@ Example:
     println!("✓ Error Enricher enabled");
 
     // === Generate with full pipeline ===
-    let total_start = Instant::now();
+    let _total_start = Instant::now();
     let system = "You are an expert Go developer. Return ONLY valid Go code. No markdown, no explanations. Include the package declaration (package main), imports, and tests in the same file. Tests must use the testing package with func TestXxx(t *testing.T) format.";
 
     let mut previous_errors: Vec<String> = vec![];

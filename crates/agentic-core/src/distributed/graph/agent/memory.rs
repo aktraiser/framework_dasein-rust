@@ -454,7 +454,7 @@ impl InMemoryProvider {
     fn get_user_id(thread: &AgentThread) -> Option<String> {
         thread
             .get_metadata("user_id")
-            .and_then(|v| v.as_str().map(|s| s.to_string()))
+            .and_then(|v| v.as_str().map(std::string::ToString::to_string))
     }
 }
 
@@ -662,7 +662,7 @@ impl NatsMemoryProvider {
     fn get_user_id(thread: &AgentThread) -> Option<String> {
         thread
             .get_metadata("user_id")
-            .and_then(|v| v.as_str().map(|s| s.to_string()))
+            .and_then(|v| v.as_str().map(std::string::ToString::to_string))
     }
 }
 

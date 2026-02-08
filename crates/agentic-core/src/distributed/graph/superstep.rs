@@ -91,7 +91,7 @@ impl SuperstepState {
 
     /// Get the count of pending messages.
     pub fn pending_message_count(&self) -> usize {
-        self.pending_messages.values().map(|v| v.len()).sum()
+        self.pending_messages.values().map(std::vec::Vec::len).sum()
     }
 
     /// Get all executor IDs with pending messages.
