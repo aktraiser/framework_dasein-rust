@@ -87,9 +87,32 @@
 //! See `examples/grounded_loop.rs` for a complete implementation.
 
 use agentic_sandbox::{ExecutionResult as SandboxExecutionResult, Sandbox, SandboxError};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use tracing::{debug, info, instrument};
+
+// Pre-compiled regex patterns for parsing test output (avoids regex compilation in loops)
+fn passed_failed_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(\d+) passed; (\d+) failed").unwrap())
+}
+
+fn passed_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(\d+) passed").unwrap())
+}
+
+fn failed_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(\d+) failed").unwrap())
+}
+
+fn total_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(\d+) total").unwrap())
+}
 
 /// Result of sandbox validation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -745,30 +768,24 @@ echo '{encoded}' | base64 -d > {dir}/{filename}
         let mut errors = Vec::new();
 
         for line in combined.lines() {
-            // Rust error pattern
-            if line.contains("error[E") || line.starts_with("error:") {
-                errors.push(line.to_string());
-            }
-            // TypeScript error pattern: file.ts(line,col): error TSxxxx: message
-            else if line.contains("): error TS") || line.contains(": error TS") {
-                errors.push(line.to_string());
-            }
-            // Go error pattern: file.go:line:col: message
-            else if line.contains(".go:")
+            // Check if line matches any error pattern
+            let is_rust_error = line.contains("error[E") || line.starts_with("error:");
+            let is_ts_error = line.contains("): error TS") || line.contains(": error TS");
+            let is_go_error = line.contains(".go:")
                 && (line.contains("undefined")
                     || line.contains("cannot")
                     || line.contains("expected")
-                    || line.contains("invalid"))
-            {
+                    || line.contains("invalid"));
+
+            if is_rust_error || is_ts_error || is_go_error {
                 errors.push(line.to_string());
             }
+
             // Also capture the context lines (up to 5 after error)
             if line.contains(" --> ") || line.contains(" | ") {
-                if !errors.is_empty() {
-                    if let Some(last) = errors.last_mut() {
-                        last.push('\n');
-                        last.push_str(line);
-                    }
+                if let Some(last) = errors.last_mut() {
+                    last.push('\n');
+                    last.push_str(line);
                 }
             }
         }
@@ -815,17 +832,12 @@ echo '{encoded}' | base64 -d > {dir}/{filename}
                 current_error = line.to_string();
             }
             // Context lines (location, help suggestions)
+            // Context lines and help suggestions
             else if line.contains(" --> ")
                 || line.contains(" | ")
                 || line.trim().starts_with("= help:")
+                || line.trim().starts_with("help:")
             {
-                if !current_error.is_empty() {
-                    current_error.push('\n');
-                    current_error.push_str(line);
-                }
-            }
-            // "help: consider ..." suggestions
-            else if line.trim().starts_with("help:") {
                 if !current_error.is_empty() {
                     current_error.push('\n');
                     current_error.push_str(line);
@@ -870,14 +882,11 @@ echo '{encoded}' | base64 -d > {dir}/{filename}
         let mut errors = Vec::new();
         let lines: Vec<&str> = output.lines().collect();
 
-        for (i, line) in lines.iter().enumerate() {
+        for (i, &line) in lines.iter().enumerate() {
             // Parse summary line: "test result: ok. 5 passed; 0 failed; 0 ignored"
             // or "test result: FAILED. X passed; Y failed"
             if line.starts_with("test result:") {
-                if let Some(caps) = regex::Regex::new(r"(\d+) passed; (\d+) failed")
-                    .ok()
-                    .and_then(|re| re.captures(line))
-                {
+                if let Some(caps) = passed_failed_regex().captures(line) {
                     passed = caps
                         .get(1)
                         .and_then(|m| m.as_str().parse().ok())
@@ -975,19 +984,13 @@ echo '{encoded}' | base64 -d > {dir}/{filename}
         for line in output.lines() {
             // Parse summary: "5 passed, 2 failed"
             if line.contains("passed") || line.contains("failed") {
-                if let Some(caps) = regex::Regex::new(r"(\d+) passed")
-                    .ok()
-                    .and_then(|re| re.captures(line))
-                {
+                if let Some(caps) = passed_regex().captures(line) {
                     passed = caps
                         .get(1)
                         .and_then(|m| m.as_str().parse().ok())
                         .unwrap_or(0);
                 }
-                if let Some(caps) = regex::Regex::new(r"(\d+) failed")
-                    .ok()
-                    .and_then(|re| re.captures(line))
-                {
+                if let Some(caps) = failed_regex().captures(line) {
                     failed = caps
                         .get(1)
                         .and_then(|m| m.as_str().parse().ok())
@@ -1015,28 +1018,19 @@ echo '{encoded}' | base64 -d > {dir}/{filename}
         for line in output.lines() {
             // Parse summary: "Tests:       1 passed, 1 total" or "Tests:       1 failed, 2 passed, 3 total"
             if line.contains("Tests:") && line.contains("total") {
-                if let Some(caps) = regex::Regex::new(r"(\d+) passed")
-                    .ok()
-                    .and_then(|re| re.captures(line))
-                {
+                if let Some(caps) = passed_regex().captures(line) {
                     passed = caps
                         .get(1)
                         .and_then(|m| m.as_str().parse().ok())
                         .unwrap_or(0);
                 }
-                if let Some(caps) = regex::Regex::new(r"(\d+) failed")
-                    .ok()
-                    .and_then(|re| re.captures(line))
-                {
+                if let Some(caps) = failed_regex().captures(line) {
                     failed = caps
                         .get(1)
                         .and_then(|m| m.as_str().parse().ok())
                         .unwrap_or(0);
                 }
-                if let Some(caps) = regex::Regex::new(r"(\d+) total")
-                    .ok()
-                    .and_then(|re| re.captures(line))
-                {
+                if let Some(caps) = total_regex().captures(line) {
                     total = caps
                         .get(1)
                         .and_then(|m| m.as_str().parse().ok())

@@ -158,14 +158,6 @@ Return ONLY compilable Rust code, no explanations."#;
                 "  ⚠️  Same code as previous iteration (stuck: {})",
                 stuck_count
             );
-            if stuck_count >= 2 {
-                println!("  🔄 Adding hint to break the loop...");
-                current_prompt = format!(
-                    "{}\n\nIMPORTANT: Your previous code had syntax errors (unbalanced braces). \
-                    Start fresh with a SIMPLER implementation. Focus on getting the basic structure right first.",
-                    current_prompt
-                );
-            }
         } else {
             stuck_count = 0;
         }

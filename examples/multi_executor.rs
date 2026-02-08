@@ -286,6 +286,7 @@ Include tests."#;
 /// On failure, errors are fed back into the prompt for the next attempt.
 /// Uses RollbackManager to prevent regressions (rolling back if code stops compiling).
 /// Uses ErrorFingerprinter to escalate to smart model for complex errors.
+#[allow(clippy::too_many_arguments)]
 async fn generate_and_lock_stage(
     stage: Stage,
     fast_executor: &Executor,
@@ -359,7 +360,7 @@ async fn generate_and_lock_stage(
                 ModelTier::Smart | ModelTier::Expert => smart_executor,
             }
         } else {
-            current_tier = ModelTier::Fast;
+            // First iteration or no errors - use fast model
             consecutive_fast_failures = 0;
             fast_executor
         };
@@ -425,7 +426,7 @@ async fn generate_and_lock_stage(
                     trace.next(),
                     "BusLinter",
                     false,
-                    &[err.clone()],
+                    std::slice::from_ref(&err),
                 ))
                 .await?;
 

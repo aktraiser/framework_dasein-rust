@@ -30,7 +30,6 @@
 //! let stubs = extractor.extract_stubs(code);
 //! ```
 
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::{debug, info, warn};
@@ -173,63 +172,7 @@ impl RustExtractor {
     }
 
     fn extract_types_impl(code: &str) -> String {
-        let mut result = String::new();
-        let mut in_impl_block = false;
-        let mut brace_depth = 0;
-
-        for line in code.lines() {
-            let trimmed = line.trim();
-
-            // Track impl block depth
-            if trimmed.starts_with("impl ") {
-                in_impl_block = true;
-            }
-
-            brace_depth += line.matches('{').count() as i32;
-            brace_depth -= line.matches('}').count() as i32;
-
-            if in_impl_block && brace_depth == 0 {
-                in_impl_block = false;
-                continue;
-            }
-
-            // Skip impl block contents
-            if in_impl_block {
-                continue;
-            }
-
-            // Include imports
-            if trimmed.starts_with("use ") || trimmed.starts_with("pub use ") {
-                result.push_str(line);
-                result.push('\n');
-                continue;
-            }
-
-            // Include module attributes
-            if trimmed.starts_with("//!") || trimmed.starts_with("#![") {
-                result.push_str(line);
-                result.push('\n');
-                continue;
-            }
-
-            // Include type definitions (struct, enum, type, const)
-            if trimmed.starts_with("pub struct ")
-                || trimmed.starts_with("struct ")
-                || trimmed.starts_with("pub enum ")
-                || trimmed.starts_with("enum ")
-                || trimmed.starts_with("pub type ")
-                || trimmed.starts_with("type ")
-                || trimmed.starts_with("pub const ")
-                || trimmed.starts_with("const ")
-                || trimmed.starts_with("#[derive")
-            {
-                // Collect the full type definition
-                result.push_str(line);
-                result.push('\n');
-            }
-        }
-
-        // Re-parse to get complete type definitions with their bodies
+        // Extract complete type definitions with their bodies
         Self::extract_complete_types(code)
     }
 
@@ -330,11 +273,7 @@ impl RustExtractor {
         let types = Self::extract_types_impl(code);
         let mut result = types;
 
-        // Extract impl blocks with stubbed functions
-        let _impl_re = Regex::new(r"impl(?:<[^>]+>)?\s+(?:\w+\s+for\s+)?(\w+)").unwrap();
-
         let mut in_impl = false;
-        let mut _impl_header = String::new();
         let mut brace_depth = 0;
         let mut current_impl = String::new();
 
@@ -343,7 +282,6 @@ impl RustExtractor {
 
             if trimmed.starts_with("impl ") && !in_impl {
                 in_impl = true;
-                _impl_header = line.to_string();
                 current_impl.clear();
                 current_impl.push_str(line);
                 current_impl.push('\n');
@@ -375,7 +313,6 @@ impl RustExtractor {
         let mut result = String::new();
         let mut in_fn_body = false;
         let mut fn_brace_depth = 0;
-        let mut _current_fn_signature = String::new();
 
         for line in impl_block.lines() {
             let trimmed = line.trim();
@@ -387,8 +324,6 @@ impl RustExtractor {
                     || trimmed.starts_with("fn ")
                     || trimmed.starts_with("async fn "))
             {
-                _current_fn_signature = line.to_string();
-
                 if trimmed.contains('{') {
                     // Function body starts on same line
                     in_fn_body = true;
@@ -647,7 +582,7 @@ impl TypeScriptExtractor {
                     || trimmed.starts_with("protected ")
                     || trimmed.starts_with("static ")
                     || trimmed.starts_with("constructor")
-                    || trimmed.chars().next().map_or(false, |c| c.is_alphabetic()));
+                    || trimmed.chars().next().map_or(false, char::is_alphabetic));
 
             if is_method && !trimmed.ends_with(',') && !trimmed.contains(':') {
                 if trimmed.contains('{') {

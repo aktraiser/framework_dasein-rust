@@ -73,7 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ========== VALIDATION TEST ==========
     println!("▶ Testing validation (10 validators)...");
-    let test_outputs = vec![
+    let test_outputs: &[&str] = &[
         "fn main() { println!(\"Hello\"); }",
         "",                                    // Should fail: empty
         "fn test() { /* TODO: implement */ }", // Should fail: has TODO

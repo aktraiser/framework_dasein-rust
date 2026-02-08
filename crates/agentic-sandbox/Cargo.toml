@@ -15,6 +15,7 @@ process = []
 docker = ["bollard"]
 firecracker = ["firepilot"]
 remote = ["reqwest"]
+gateway = ["reqwest"]  # Recommended for Firecracker via Agentic Gateway
 
 [dependencies]
 # Async

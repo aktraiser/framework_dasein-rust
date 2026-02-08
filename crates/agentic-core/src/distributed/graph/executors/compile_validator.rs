@@ -168,7 +168,7 @@ impl<S: Sandbox + Send + Sync + 'static> CompileValidatorExecutor<S> {
             "python" | "py" => Language::Python,
             "typescript" | "ts" => Language::TypeScript,
             "go" | "golang" => Language::Go,
-            _ => self.default_language.clone(),
+            _ => self.default_language,
         }
     }
 
@@ -223,7 +223,7 @@ impl<S: Sandbox + Send + Sync + 'static> Executor for CompileValidatorExecutor<S
         let language = self.parse_language(&typed_input.language);
 
         // Run compilation
-        let sandbox_result = self.validate_code(&typed_input.code, language.clone()).await?;
+        let sandbox_result = self.validate_code(&typed_input.code, language).await?;
 
         // Convert to ValidationResult
         let result = if sandbox_result.compiles {

@@ -147,7 +147,7 @@ impl AggregatedResult {
     /// Create a partial result (with some failures).
     pub fn partial(results: Vec<ParticipantResult>) -> Self {
         let (successes, failures): (Vec<_>, Vec<_>) =
-            results.into_iter().partition(|r| r.is_success());
+            results.into_iter().partition(ParticipantResult::is_success);
         Self::Partial {
             successes,
             failure_count: failures.len(),

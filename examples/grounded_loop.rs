@@ -242,7 +242,7 @@ fn build_feedback_prompt(
         prompt.push_str("```\n");
         for error in &validation.test_errors {
             prompt.push_str(error);
-            prompt.push_str("\n");
+            prompt.push('\n');
         }
         prompt.push_str("```\n\n");
         prompt.push_str("=== INSTRUCTIONS ===\n");

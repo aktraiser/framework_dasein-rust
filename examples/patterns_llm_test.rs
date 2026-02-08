@@ -303,7 +303,7 @@ impl Executor for ResearcherExecutor {
             .map_err(|e| ExecutorError::new(self.id.clone(), e.to_string()))?;
 
         let output = ContentMessage::new(&result.content)
-            .with_stage(&format!("research-{}", self.focus))
+            .with_stage(format!("research-{}", self.focus))
             .add_tokens(result.tokens_used);
 
         println!("[{}] Found insights, {} tokens", self.id, output.tokens_used);
@@ -358,6 +358,7 @@ impl Executor for SplitterExecutor {
 /// Aggregator executor for fan-in.
 struct AggregatorExecutor {
     id: ExecutorId,
+    #[allow(dead_code)] // Reserved for future LLM-based aggregation
     llm: Arc<Mutex<LLMExecutor>>,
 }
 
