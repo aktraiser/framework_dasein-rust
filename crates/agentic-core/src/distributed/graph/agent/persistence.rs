@@ -22,7 +22,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use agentic_core::distributed::graph::agent::{
+//! use dasein_agentic_core::distributed::graph::agent::{
 //!     ThreadStore, NatsThreadStore, AgentThread,
 //! };
 //!

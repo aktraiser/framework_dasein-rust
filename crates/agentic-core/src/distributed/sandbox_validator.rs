@@ -28,8 +28,8 @@
 //! # Example: Basic Validation
 //!
 //! ```rust,no_run
-//! use agentic_core::distributed::SandboxValidator;
-//! use agentic_sandbox::ProcessSandbox;
+//! use dasein_agentic_core::distributed::SandboxValidator;
+//! use dasein_agentic_sandbox::ProcessSandbox;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let sandbox = ProcessSandbox::new();
@@ -58,8 +58,8 @@
 //! # Example: Grounded Feedback Loop
 //!
 //! ```rust,no_run
-//! # use agentic_core::distributed::{Executor, SandboxValidator};
-//! # use agentic_sandbox::ProcessSandbox;
+//! # use dasein_agentic_core::distributed::{Executor, SandboxValidator};
+//! # use dasein_agentic_sandbox::ProcessSandbox;
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let executor = Executor::new("exe-001", "sup-001").build();
 //! let validator = SandboxValidator::new(ProcessSandbox::new());
@@ -86,7 +86,7 @@
 //!
 //! See `examples/grounded_loop.rs` for a complete implementation.
 
-use agentic_sandbox::{ExecutionResult as SandboxExecutionResult, Sandbox, SandboxError};
+use dasein_agentic_sandbox::{ExecutionResult as SandboxExecutionResult, Sandbox, SandboxError};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -1121,7 +1121,7 @@ fn base64_encode(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agentic_sandbox::ProcessSandbox;
+    use dasein_agentic_sandbox::ProcessSandbox;
 
     #[tokio::test]
     async fn test_valid_rust_code() {

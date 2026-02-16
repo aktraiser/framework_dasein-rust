@@ -33,8 +33,8 @@
 //! # Example: Building a Mixed Pipeline
 //!
 //! ```rust,ignore
-//! use agentic_core::distributed::graph::executors::*;
-//! use agentic_core::distributed::graph::{WorkflowBuilder, ExecutorRegistry, Workflow};
+//! use dasein_agentic_core::distributed::graph::executors::*;
+//! use dasein_agentic_core::distributed::graph::{WorkflowBuilder, ExecutorRegistry, Workflow};
 //!
 //! // All executors use Value - they can be mixed freely!
 //! let mut registry: ExecutorRegistry<serde_json::Value, String> = ExecutorRegistry::new();

@@ -13,7 +13,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use agentic_core::patterns::ConcurrentBuilder;
+//! use dasein_agentic_core::patterns::ConcurrentBuilder;
 //!
 //! // Build an analysis pipeline: input → [researcher, marketer, legal] → aggregator
 //! let definition = ConcurrentBuilder::new("analysis")

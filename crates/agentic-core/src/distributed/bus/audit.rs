@@ -21,7 +21,7 @@
 //! # Usage
 //!
 //! ```rust,no_run
-//! use agentic_core::distributed::bus::{AuditCollector, AuditEvent, AuditEventType};
+//! use dasein_agentic_core::distributed::bus::{AuditCollector, AuditEvent, AuditEventType};
 //!
 //! // Create with NATS connection
 //! let audit = AuditCollector::new(nats_client).await?;

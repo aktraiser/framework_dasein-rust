@@ -13,7 +13,7 @@
 //!
 //! Run with: cargo run --example graph_persistence_test
 
-use agentic_core::distributed::graph::{
+use dasein_agentic_core::distributed::graph::{
     Executor as GraphExecutor, ExecutorContext, ExecutorError, ExecutorId, ExecutorKind,
     ExecutorRegistry, InMemoryPersistentBackend, PersistentCheckpoint,
     PersistentCheckpointBackend, TaskId, Workflow, WorkflowBuilder, WorkflowConfig,
@@ -469,11 +469,11 @@ async fn test_resume_after_crash() -> Result<(), Box<dyn std::error::Error>> {
 
     // Manually save checkpoint for testing (in real usage, checkpoints are saved automatically)
     // Here we simulate what would have been saved before the crash
-    let checkpoint_data = agentic_core::distributed::graph::Checkpoint::new(
+    let checkpoint_data = dasein_agentic_core::distributed::graph::Checkpoint::new(
         workflow.id().clone(),
         task_id.clone(),
         1, // After analyzer, before crash
-        agentic_core::distributed::graph::SuperstepState::new(),
+        dasein_agentic_core::distributed::graph::SuperstepState::new(),
     );
     let persistent_checkpoint = PersistentCheckpoint::from_checkpoint(checkpoint_data);
     backend.save_persistent(&persistent_checkpoint).await?;
@@ -597,7 +597,7 @@ async fn test_batch_migration() -> Result<(), Box<dyn std::error::Error>> {
     // Check total checkpoints
     let all_metadata = backend
         .list_metadata(
-            &agentic_core::distributed::graph::WorkflowId::new("batch-migration"),
+            &dasein_agentic_core::distributed::graph::WorkflowId::new("batch-migration"),
             None,
         )
         .await?;

@@ -3,7 +3,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use agentic_core::distributed::graph::{WorkflowBuilder, Edge};
+//! use dasein_agentic_core::distributed::graph::{WorkflowBuilder, Edge};
 //!
 //! let workflow = WorkflowBuilder::<String>::new("my-workflow")
 //!     .set_start("code_gen")

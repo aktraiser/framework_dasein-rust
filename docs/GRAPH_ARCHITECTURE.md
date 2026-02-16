@@ -3252,7 +3252,7 @@ L'exécution de code généré par LLM nécessite une isolation sécurisée. Le 
 ### Usage: GatewaySandbox (Recommandé)
 
 ```rust
-use agentic_sandbox::{GatewaySandbox, Sandbox};
+use dasein_agentic_sandbox::{GatewaySandbox, Sandbox};
 
 // Créer une session sandbox via le Gateway
 let sandbox = GatewaySandbox::builder("http://gateway:8080")
@@ -3281,8 +3281,8 @@ sandbox.cleanup().await?;
 ### Usage avec Validators
 
 ```rust
-use agentic_sandbox::{GatewaySandbox, Sandbox};
-use agentic_core::distributed::SandboxValidator;
+use dasein_agentic_sandbox::{GatewaySandbox, Sandbox};
+use dasein_agentic_core::distributed::SandboxValidator;
 
 // Sandbox pour validation de code
 let sandbox = GatewaySandbox::builder("http://gateway:8080")
@@ -3915,7 +3915,7 @@ Lundi 09:00: Redémarrage du workflow
 
 ```rust
 // Backends disponibles
-use agentic_core::distributed::graph::{
+use dasein_agentic_core::distributed::graph::{
     InMemoryPersistentBackend,  // Pour tests
     RedisCheckpointBackend,      // Pour production (feature "redis-persistence")
     PersistentCheckpoint,

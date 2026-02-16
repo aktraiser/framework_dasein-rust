@@ -21,8 +21,8 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! use agentic_core::distributed::incremental_pipeline::{Stage, IncrementalPipeline};
-//! use agentic_core::distributed::sandbox_validator::Language;
+//! use dasein_agentic_core::distributed::incremental_pipeline::{Stage, IncrementalPipeline};
+//! use dasein_agentic_core::distributed::sandbox_validator::Language;
 //!
 //! // Works for any language!
 //! let extractor = get_extractor(Language::TypeScript);
@@ -35,7 +35,7 @@ use std::collections::HashMap;
 use tracing::{debug, info, warn};
 
 use super::sandbox_validator::{Language, SandboxValidator};
-use agentic_sandbox::{Sandbox, SandboxError};
+use dasein_agentic_sandbox::{Sandbox, SandboxError};
 
 // ============================================================================
 // TRAIT: LanguageExtractor - Interface commune pour tous les langages

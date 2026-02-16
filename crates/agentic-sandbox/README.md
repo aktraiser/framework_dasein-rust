@@ -25,7 +25,7 @@ agentic-sandbox = { version = "0.1", features = ["gateway"] }
 ## Quick Start
 
 ```rust
-use agentic_sandbox::{ProcessSandbox, Sandbox};
+use dasein_agentic_sandbox::{ProcessSandbox, Sandbox};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -11,7 +11,7 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use agentic_llm::{LLMAdapter, OpenAIAdapter, LLMMessage};
+//! use dasein_agentic_llm::{LLMAdapter, OpenAIAdapter, LLMMessage};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {

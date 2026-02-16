@@ -17,7 +17,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use agentic_core::distributed::graph::superstep::{
+//! use dasein_agentic_core::distributed::graph::superstep::{
 //!     Checkpoint, CheckpointBackend, InMemoryCheckpointBackend,
 //! };
 //!

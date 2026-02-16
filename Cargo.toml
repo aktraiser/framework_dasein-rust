@@ -88,13 +88,13 @@ wiremock = "0.6"
 
 # Workspace crates (internal)
 # For local dev: use path. For publish: cargo will use version from crates.io
-agentic-core = { version = "0.1.0", path = "crates/agentic-core" }
-agentic-llm = { version = "0.1.0", path = "crates/agentic-llm" }
-agentic-sandbox = { version = "0.1.0", path = "crates/agentic-sandbox" }
-agentic-mcp = { version = "0.1.0", path = "crates/agentic-mcp" }
-agentic-bus = { version = "0.1.0", path = "crates/agentic-bus" }
-agentic-storage = { version = "0.1.0", path = "crates/agentic-storage" }
-agentic-orchestrator = { version = "0.1.0", path = "crates/agentic-orchestrator" }
+dasein-agentic-core = { version = "0.1.0", path = "crates/agentic-core" }
+dasein-agentic-llm = { version = "0.1.0", path = "crates/agentic-llm" }
+dasein-agentic-sandbox = { version = "0.1.0", path = "crates/agentic-sandbox" }
+dasein-agentic-mcp = { version = "0.1.0", path = "crates/agentic-mcp" }
+dasein-agentic-bus = { version = "0.1.0", path = "crates/agentic-bus" }
+dasein-agentic-storage = { version = "0.1.0", path = "crates/agentic-storage" }
+dasein-agentic-orchestrator = { version = "0.1.0", path = "crates/agentic-orchestrator" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -206,13 +206,13 @@ publish = false
 
 [features]
 default = []
-remote = ["agentic-sandbox/remote"]
+remote = ["dasein-agentic-sandbox/remote"]
 
 [dependencies]
-agentic-llm = { path = "crates/agentic-llm", features = ["all"] }
-agentic-core = { path = "crates/agentic-core" }
-agentic-sandbox = { path = "crates/agentic-sandbox" }
-agentic-mcp = { path = "crates/agentic-mcp" }
+dasein-agentic-llm = { path = "crates/agentic-llm", features = ["all"] }
+dasein-agentic-core = { path = "crates/agentic-core" }
+dasein-agentic-sandbox = { path = "crates/agentic-sandbox" }
+dasein-agentic-mcp = { path = "crates/agentic-mcp" }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

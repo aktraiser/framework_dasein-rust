@@ -23,7 +23,7 @@
 //!
 //! If a stage fails, regenerate ONLY that stage.
 
-use agentic_core::distributed::{
+use dasein_agentic_core::distributed::{
     bus::{
         AuditCollector, AuditEvent, BusCoordinator, BusLinter, ErrorFingerprinter, ModelTier,
         RollbackDecision, RollbackManager, StateStore, TraceSequencer,
@@ -33,8 +33,8 @@ use agentic_core::distributed::{
     ValidatorInput, ValidatorPipeline,
 };
 #[cfg(feature = "remote")]
-use agentic_sandbox::RemoteSandbox;
-use agentic_sandbox::{ProcessSandbox, Sandbox};
+use dasein_agentic_sandbox::RemoteSandbox;
+use dasein_agentic_sandbox::{ProcessSandbox, Sandbox};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;

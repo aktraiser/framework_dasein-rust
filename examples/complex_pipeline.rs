@@ -14,7 +14,7 @@
 //! GEMINI_API_KEY=your-key cargo run --example complex_pipeline
 //! ```
 
-use agentic_core::distributed::{Capability, Supervisor};
+use dasein_agentic_core::distributed::{Capability, Supervisor};
 use futures::future::join_all;
 use std::time::Instant;
 

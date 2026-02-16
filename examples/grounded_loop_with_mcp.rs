@@ -16,9 +16,9 @@
 //!
 //! Run with: CONTEXT7_API_KEY=xxx cargo run --example grounded_loop_with_mcp
 
-use agentic_core::distributed::{Executor, SandboxValidationResult, SandboxValidator};
-use agentic_mcp::{MCPClientPool, MCPConfig, MCPServerConfig};
-use agentic_sandbox::ProcessSandbox;
+use dasein_agentic_core::distributed::{Executor, SandboxValidationResult, SandboxValidator};
+use dasein_agentic_mcp::{MCPClientPool, MCPConfig, MCPServerConfig};
+use dasein_agentic_sandbox::ProcessSandbox;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 

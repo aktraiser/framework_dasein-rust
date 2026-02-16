@@ -1,5 +1,5 @@
 [package]
-name = "agentic-storage"
+name = "dasein-agentic-storage"
 description = "Storage adapters (Redis state store, Qdrant vector store)"
 version.workspace = true
 edition.workspace = true

@@ -10,7 +10,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use agentic_core::distributed::graph::{WorkflowContext, ExecutorContext};
+//! use dasein_agentic_core::distributed::graph::{WorkflowContext, ExecutorContext};
 //!
 //! async fn example(ctx: &mut WorkflowContext<String, String>) {
 //!     // Send to connected executors

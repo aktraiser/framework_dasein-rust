@@ -35,9 +35,9 @@ tokio = { version = "1", features = ["full"] }
 ### Create an Agent
 
 ```rust
-use agentic_core::{Agent, AgentConfig, TaskPayload, ExecutionMode};
-use agentic_llm::OpenAIAdapter;
-use agentic_sandbox::ProcessSandbox;
+use dasein_agentic_core::{Agent, AgentConfig, TaskPayload, ExecutionMode};
+use dasein_agentic_llm::OpenAIAdapter;
+use dasein_agentic_sandbox::ProcessSandbox;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

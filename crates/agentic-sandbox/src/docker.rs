@@ -5,7 +5,7 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! use agentic_sandbox::{Sandbox, DockerSandbox};
+//! use dasein_agentic_sandbox::{Sandbox, DockerSandbox};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {

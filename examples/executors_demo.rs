@@ -12,7 +12,7 @@
 //!
 //! Run with: cargo run --example executors_demo
 
-use agentic_core::distributed::graph::{
+use dasein_agentic_core::distributed::graph::{
     executors::{
         AssembledCode, AssemblyInput, CodeAssemblerExecutor, CodePart, CompileInput,
         CompileOutput, CompileValidatorExecutor, GeneratedCode, GeneratorInput,
@@ -21,8 +21,8 @@ use agentic_core::distributed::graph::{
     },
     ExecutorRegistry, Workflow, WorkflowBuilder, WorkflowConfig,
 };
-use agentic_core::distributed::Executor as LLMExecutor;
-use agentic_sandbox::ProcessSandbox;
+use dasein_agentic_core::distributed::Executor as LLMExecutor;
+use dasein_agentic_sandbox::ProcessSandbox;
 use serde_json::Value;
 use std::time::Instant;
 

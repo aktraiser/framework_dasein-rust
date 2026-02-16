@@ -13,7 +13,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use agentic_core::patterns::{GroupChatBuilder, round_robin_selector};
+//! use dasein_agentic_core::patterns::{GroupChatBuilder, round_robin_selector};
 //!
 //! let definition = GroupChatBuilder::new("code-review")
 //!     .add_participant("coder")

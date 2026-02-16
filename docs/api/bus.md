@@ -12,7 +12,7 @@ agentic-bus = "0.1"
 ## NatsBus
 
 ```rust
-use agentic_bus::NatsBus;
+use dasein_agentic_bus::NatsBus;
 
 // Connect to NATS server
 let bus = NatsBus::connect("nats://localhost:4222").await?;

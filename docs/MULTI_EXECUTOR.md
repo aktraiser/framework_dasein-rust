@@ -217,7 +217,7 @@ DO NOT change other parts of the code that work.
 Classification automatique des erreurs pour router vers le bon modèle:
 
 ```rust
-use agentic_core::distributed::bus::{ErrorFingerprinter, ModelTier, ErrorCategory};
+use dasein_agentic_core::distributed::bus::{ErrorFingerprinter, ModelTier, ErrorCategory};
 
 let fingerprinter = ErrorFingerprinter::new();
 let analysis = fingerprinter.analyze(&errors);
@@ -284,7 +284,7 @@ Analyse statique avec Clippy pour détecter les anti-patterns:
 Enrichissement des erreurs avec de la documentation via Context7:
 
 ```rust
-use agentic_core::distributed::{MCPDocValidator, MCPDocConfig};
+use dasein_agentic_core::distributed::{MCPDocValidator, MCPDocConfig};
 
 // Optionnel: activé si CONTEXT7_API_KEY est défini
 let mcp_config = MCPDocConfig::context7(&api_key);

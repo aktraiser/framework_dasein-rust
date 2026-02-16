@@ -6,8 +6,8 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use agentic_core::distributed::graph::agent::{ChatAgent, AgentThread, AgentExt};
-//! use agentic_llm::GeminiAdapter;
+//! use dasein_agentic_core::distributed::graph::agent::{ChatAgent, AgentThread, AgentExt};
+//! use dasein_agentic_llm::GeminiAdapter;
 //!
 //! let llm = GeminiAdapter::new("api-key", "gemini-2.0-flash");
 //! let agent = ChatAgent::new("assistant", llm)
@@ -23,7 +23,7 @@ use futures::Stream;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use agentic_llm::{LLMAdapter, LLMMessage};
+use dasein_agentic_llm::{LLMAdapter, LLMMessage};
 
 use super::error::AgentError;
 use super::response::{AgentChunk, AgentResponse};
@@ -180,7 +180,7 @@ impl<L: LLMAdapter + 'static> Agent for ChatAgent<L> {
         Ok(AgentResponse::with_messages(response.content, thread.messages.clone())
             .with_tokens(response.tokens_used.total)
             .with_model(response.model)
-            .with_truncated(response.finish_reason == agentic_llm::FinishReason::Length))
+            .with_truncated(response.finish_reason == dasein_agentic_llm::FinishReason::Length))
     }
 
     fn run_stream<'a>(
@@ -252,7 +252,7 @@ impl<L: LLMAdapter + 'static> Agent for ChatAgent<L> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agentic_llm::{FinishReason, LLMError, LLMResponse, StreamChunk, TokenUsage};
+    use dasein_agentic_llm::{FinishReason, LLMError, LLMResponse, StreamChunk, TokenUsage};
 
     // Mock LLM for testing
     struct MockLLM {

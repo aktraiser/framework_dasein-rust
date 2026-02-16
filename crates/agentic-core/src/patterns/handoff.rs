@@ -12,7 +12,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use agentic_core::patterns::{handoff, HandoffCapable};
+//! use dasein_agentic_core::patterns::{handoff, HandoffCapable};
 //!
 //! // Create specialists that can hand off to each other
 //! let definition = handoff("support", vec!["general", "code_expert", "math_expert"])?;

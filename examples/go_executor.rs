@@ -12,7 +12,7 @@
 //! GEMINI_API_KEY=xxx ANTHROPIC_API_KEY=xxx cargo run --example go_executor
 //! ```
 
-use agentic_core::distributed::{
+use dasein_agentic_core::distributed::{
     bus::{
         BusCoordinator, DecisionRecord, EnrichedError, ErrorFingerprinter, ErrorLocation,
         ErrorSeverity, GenerationRecord, ModelInfo, ModelTier, PipelineTracer, RollbackDecision,
@@ -21,7 +21,7 @@ use agentic_core::distributed::{
     CodeAssembler, ErrorEnricherValidator, Executor, SandboxPipelineValidator, ValidatorInput,
     ValidatorPipeline,
 };
-use agentic_sandbox::FirecrackerSandbox;
+use dasein_agentic_sandbox::FirecrackerSandbox;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;

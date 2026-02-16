@@ -16,11 +16,11 @@
 //! cargo run --example patterns_integration_test
 //! ```
 
-use agentic_core::distributed::graph::{
+use dasein_agentic_core::distributed::graph::{
     Executor, ExecutorContext, ExecutorError, ExecutorId, ExecutorKind, ExecutorRegistry, Workflow,
     WorkflowConfig,
 };
-use agentic_core::patterns::{
+use dasein_agentic_core::patterns::{
     ConcurrentBuilder, GroupChatBuilder, HandoffBuilder, SequentialBuilder, round_robin_selector,
 };
 use async_trait::async_trait;

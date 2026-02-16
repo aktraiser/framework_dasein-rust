@@ -14,7 +14,7 @@
 //! # Example
 //!
 //! ```rust
-//! use agentic_core::distributed::graph::agent::{
+//! use dasein_agentic_core::distributed::graph::agent::{
 //!     ChatReducer, MessageCountingReducer, ChatMessage, ChatRole,
 //! };
 //!
@@ -64,7 +64,7 @@ pub trait ChatReducer: Send + Sync {
 /// # Example
 ///
 /// ```rust
-/// use agentic_core::distributed::graph::agent::{
+/// use dasein_agentic_core::distributed::graph::agent::{
 ///     ChatReducer, MessageCountingReducer, ChatMessage,
 /// };
 ///

@@ -48,7 +48,7 @@ use crate::distributed::graph::{
     Executor, ExecutorContext, ExecutorError, ExecutorId, ExecutorKind, ValidationResult,
 };
 use crate::distributed::{Language, SandboxValidationResult, SandboxValidator};
-use agentic_sandbox::Sandbox;
+use dasein_agentic_sandbox::Sandbox;
 
 // ============================================================================
 // INPUT/OUTPUT TYPES

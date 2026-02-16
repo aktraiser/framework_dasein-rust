@@ -105,8 +105,8 @@ impl AgentError {
     }
 }
 
-impl From<agentic_llm::LLMError> for AgentError {
-    fn from(err: agentic_llm::LLMError) -> Self {
+impl From<dasein_agentic_llm::LLMError> for AgentError {
+    fn from(err: dasein_agentic_llm::LLMError) -> Self {
         Self::LLMError(err.to_string())
     }
 }

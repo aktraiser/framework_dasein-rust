@@ -23,7 +23,7 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! use agentic_core::distributed::repair_engine::{
+//! use dasein_agentic_core::distributed::repair_engine::{
 //!     ErrorContextExtractor, RepairSuggestion, FocusedPromptBuilder,
 //! };
 //!

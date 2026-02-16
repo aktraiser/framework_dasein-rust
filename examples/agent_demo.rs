@@ -13,11 +13,11 @@
 //!
 //! Run with: cargo run --example agent_demo
 
-use agentic_core::distributed::graph::agent::{
+use dasein_agentic_core::distributed::graph::agent::{
     Agent, AgentChunk, AgentError, AgentExt, AgentResponse, AgentThread, ChatAgent, ChatMessage,
     ChatRole, ThreadSummary, Tool, ToolParam,
 };
-use agentic_llm::{
+use dasein_agentic_llm::{
     FinishReason, LLMAdapter, LLMError, LLMMessage, LLMResponse, StreamChunk, TokenUsage,
 };
 use async_trait::async_trait;

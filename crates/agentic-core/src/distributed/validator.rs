@@ -12,7 +12,7 @@
 //! # Quick Start
 //!
 //! ```rust
-//! use agentic_core::distributed::{Validator, ValidationRule};
+//! use dasein_agentic_core::distributed::{Validator, ValidationRule};
 //!
 //! let validator = Validator::new("val-001", "sup-001")
 //!     .rule(ValidationRule::OutputNotEmpty)

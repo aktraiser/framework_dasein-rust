@@ -13,15 +13,15 @@
 //!
 //! Run with: cargo run --example graph_workflow
 
-use agentic_core::distributed::graph::{
+use dasein_agentic_core::distributed::graph::{
     Executor as GraphExecutor, ExecutorContext, ExecutorError, ExecutorId, ExecutorKind,
     ExecutorRegistry, Workflow, WorkflowBuilder, WorkflowConfig,
 };
-use agentic_core::distributed::{
+use dasein_agentic_core::distributed::{
     CodeAssembler, Executor as LLMExecutor, MCPDocConfig, MCPDocValidator,
     SandboxPipelineValidator, ValidatorInput, ValidatorPipeline,
 };
-use agentic_sandbox::ProcessSandbox;
+use dasein_agentic_sandbox::ProcessSandbox;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;

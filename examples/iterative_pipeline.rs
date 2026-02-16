@@ -9,7 +9,7 @@
 //! GEMINI_API_KEY=your-key cargo run --example iterative_pipeline
 //! ```
 
-use agentic_core::distributed::{Capability, Supervisor};
+use dasein_agentic_core::distributed::{Capability, Supervisor};
 use std::time::Instant;
 
 const TARGET_SCORE: u8 = 9; // Minimum acceptable score (out of 10)

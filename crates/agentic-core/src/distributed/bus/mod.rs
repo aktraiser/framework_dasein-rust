@@ -9,7 +9,7 @@
 //! # Quick Start
 //!
 //! ```rust,no_run
-//! use agentic_core::distributed::bus::BusCoordinator;
+//! use dasein_agentic_core::distributed::bus::BusCoordinator;
 //!
 //! let coordinator = BusCoordinator::builder()
 //!     .nats_url("nats://localhost:4222")

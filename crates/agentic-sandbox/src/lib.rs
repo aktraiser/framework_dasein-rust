@@ -14,7 +14,7 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use agentic_sandbox::{Sandbox, ProcessSandbox};
+//! use dasein_agentic_sandbox::{Sandbox, ProcessSandbox};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -30,7 +30,7 @@
 //! ## Gateway Sandbox (recommended for Firecracker)
 //!
 //! ```rust,ignore
-//! use agentic_sandbox::{Sandbox, GatewaySandbox};
+//! use dasein_agentic_sandbox::{Sandbox, GatewaySandbox};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {

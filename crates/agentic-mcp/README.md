@@ -19,7 +19,7 @@ agentic-mcp = "0.1"
 ## Quick Start
 
 ```rust
-use agentic_mcp::{MCPClientPool, MCPConfig};
+use dasein_agentic_mcp::{MCPClientPool, MCPConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

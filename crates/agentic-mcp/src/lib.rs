@@ -67,8 +67,8 @@
 //! # Usage
 //!
 //! ```rust,ignore
-//! use agentic_mcp::{MCPConfig, CodeModeRuntime};
-//! use agentic_sandbox::FirecrackerSandbox;
+//! use dasein_agentic_mcp::{MCPConfig, CodeModeRuntime};
+//! use dasein_agentic_sandbox::FirecrackerSandbox;
 //!
 //! // 1. Load MCP server configurations
 //! let config = MCPConfig::from_json(r#"{

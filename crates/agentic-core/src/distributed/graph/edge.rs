@@ -19,7 +19,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use agentic_core::distributed::graph::{Edge, EdgeKind, ExecutorId};
+//! use dasein_agentic_core::distributed::graph::{Edge, EdgeKind, ExecutorId};
 //!
 //! // Direct edge
 //! let edge = Edge::direct("code_gen", "compiler");

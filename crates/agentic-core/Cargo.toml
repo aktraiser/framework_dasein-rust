@@ -1,5 +1,5 @@
 [package]
-name = "agentic-core"
+name = "dasein-agentic-core"
 description = "Core types, Agent runtime, and Protocol for Agentic Framework"
 version.workspace = true
 edition.workspace = true
@@ -8,7 +8,7 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
-documentation = "https://docs.rs/agentic-core"
+documentation = "https://docs.rs/dasein-agentic-core"
 readme = "README.md"
 keywords.workspace = true
 categories.workspace = true
@@ -56,8 +56,8 @@ reqwest = { workspace = true }
 redis = { workspace = true, optional = true }
 
 # Internal
-agentic-llm = { workspace = true, features = ["gemini", "openai", "anthropic"] }
-agentic-sandbox = { workspace = true }
+dasein-agentic-llm = { workspace = true, features = ["gemini", "openai", "anthropic"] }
+dasein-agentic-sandbox = { workspace = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }
