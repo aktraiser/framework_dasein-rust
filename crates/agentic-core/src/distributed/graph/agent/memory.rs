@@ -991,4 +991,210 @@ mod tests {
         assert_eq!(ctx.retrieved_memories.len(), 2);
         assert!(ctx.extra_instructions.is_some());
     }
+
+    // ========================================================================
+    // NATS INTEGRATION TESTS
+    // Run with: docker run -d --name nats -p 4222:4222 nats:latest -js
+    // ========================================================================
+
+    #[tokio::test]
+    #[ignore = "requires NATS server with JetStream"]
+    async fn test_nats_memory_provider_store_and_get() {
+        use crate::distributed::bus::{NatsClient, NatsConfig};
+
+        let nats = Arc::new(
+            NatsClient::connect(NatsConfig::new("nats://localhost:4222"))
+                .await
+                .expect("Failed to connect to NATS"),
+        );
+
+        let provider = NatsMemoryProvider::new(nats, "TEST_MEMORIES")
+            .await
+            .unwrap();
+
+        let agent_id = AgentId::new("nats-memory-test");
+        let user_id = "user-123";
+
+        // Store memories
+        let memory1 = Memory::new("User prefers dark mode")
+            .with_category(MemoryCategory::UserPreference)
+            .with_importance(0.9);
+
+        let memory2 = Memory::new("User's favorite language is Rust")
+            .with_category(MemoryCategory::Fact)
+            .with_importance(0.8);
+
+        provider
+            .store_memory(&agent_id, user_id, memory1)
+            .await
+            .unwrap();
+        provider
+            .store_memory(&agent_id, user_id, memory2)
+            .await
+            .unwrap();
+
+        // Retrieve memories
+        let memories = provider.get_memories(&agent_id, user_id).await.unwrap();
+        assert_eq!(memories.len(), 2);
+
+        // Check content
+        let contents: Vec<&str> = memories.iter().map(|m| m.content.as_str()).collect();
+        assert!(contents.contains(&"User prefers dark mode"));
+        assert!(contents.contains(&"User's favorite language is Rust"));
+
+        // Cleanup
+        provider.clear_memories(&agent_id, user_id).await.unwrap();
+        let memories = provider.get_memories(&agent_id, user_id).await.unwrap();
+        assert!(memories.is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires NATS server with JetStream"]
+    async fn test_nats_memory_provider_max_memories() {
+        use crate::distributed::bus::{NatsClient, NatsConfig};
+
+        let nats = Arc::new(
+            NatsClient::connect(NatsConfig::new("nats://localhost:4222"))
+                .await
+                .expect("Failed to connect to NATS"),
+        );
+
+        let provider = NatsMemoryProvider::new(nats, "TEST_MEMORIES_MAX")
+            .await
+            .unwrap()
+            .with_max_memories(3);
+
+        let agent_id = AgentId::new("nats-max-test");
+        let user_id = "user-max";
+
+        // Store 5 memories with different importance
+        for i in 0..5 {
+            let importance = (i as f32) / 10.0;
+            let memory = Memory::new(format!("Memory {}", i)).with_importance(importance);
+            provider
+                .store_memory(&agent_id, user_id, memory)
+                .await
+                .unwrap();
+        }
+
+        // Should only keep top 3 by importance
+        let memories = provider.get_memories(&agent_id, user_id).await.unwrap();
+        assert_eq!(memories.len(), 3);
+
+        // Highest importance memories should be kept
+        let importances: Vec<f32> = memories.iter().map(|m| m.importance).collect();
+        assert!(importances.iter().all(|&i| i >= 0.2));
+
+        // Cleanup
+        provider.clear_memories(&agent_id, user_id).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires NATS server with JetStream"]
+    async fn test_nats_memory_provider_before_invoke() {
+        use crate::distributed::bus::{NatsClient, NatsConfig};
+
+        let nats = Arc::new(
+            NatsClient::connect(NatsConfig::new("nats://localhost:4222"))
+                .await
+                .expect("Failed to connect to NATS"),
+        );
+
+        let provider = NatsMemoryProvider::new(nats, "TEST_MEMORIES_INVOKE")
+            .await
+            .unwrap();
+
+        let agent_id = AgentId::new("nats-invoke-test");
+        let user_id = "alice";
+
+        // Store memories
+        provider
+            .store_memory(
+                &agent_id,
+                user_id,
+                Memory::new("Alice likes concise responses").with_importance(0.9),
+            )
+            .await
+            .unwrap();
+
+        provider
+            .store_memory(
+                &agent_id,
+                user_id,
+                Memory::new("Alice works on distributed systems").with_importance(0.7),
+            )
+            .await
+            .unwrap();
+
+        // Create thread with user_id metadata
+        let thread = AgentThread::new().with_metadata("user_id", serde_json::json!("alice"));
+
+        // Before invoke should populate context
+        let mut ctx = MemoryContext::new();
+        provider
+            .before_invoke(&agent_id, &thread, &mut ctx)
+            .await
+            .unwrap();
+
+        assert!(!ctx.is_empty());
+        assert_eq!(ctx.retrieved_memories.len(), 2);
+        assert!(ctx.extra_instructions.is_some());
+
+        let instructions = ctx.extra_instructions.unwrap();
+        assert!(instructions.contains("Alice likes concise responses"));
+
+        // Cleanup
+        provider.clear_memories(&agent_id, user_id).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires NATS server with JetStream"]
+    async fn test_nats_memory_provider_persistence_across_reconnect() {
+        use crate::distributed::bus::{NatsClient, NatsConfig};
+
+        let agent_id = AgentId::new("nats-persist-test");
+        let user_id = "persist-user";
+
+        // First connection: store memory
+        {
+            let nats = Arc::new(
+                NatsClient::connect(NatsConfig::new("nats://localhost:4222"))
+                    .await
+                    .expect("Failed to connect to NATS"),
+            );
+
+            let provider = NatsMemoryProvider::new(nats, "TEST_MEMORIES_PERSIST")
+                .await
+                .unwrap();
+
+            provider
+                .store_memory(
+                    &agent_id,
+                    user_id,
+                    Memory::new("This memory should persist"),
+                )
+                .await
+                .unwrap();
+        }
+
+        // Second connection: verify memory still exists
+        {
+            let nats = Arc::new(
+                NatsClient::connect(NatsConfig::new("nats://localhost:4222"))
+                    .await
+                    .expect("Failed to connect to NATS"),
+            );
+
+            let provider = NatsMemoryProvider::new(nats, "TEST_MEMORIES_PERSIST")
+                .await
+                .unwrap();
+
+            let memories = provider.get_memories(&agent_id, user_id).await.unwrap();
+            assert_eq!(memories.len(), 1);
+            assert_eq!(memories[0].content, "This memory should persist");
+
+            // Cleanup
+            provider.clear_memories(&agent_id, user_id).await.unwrap();
+        }
+    }
 }

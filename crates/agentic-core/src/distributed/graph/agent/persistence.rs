@@ -621,4 +621,163 @@ mod tests {
         let summaries = store.list_by_agent(&agent_id).await.unwrap();
         assert!(summaries.is_empty());
     }
+
+    // ========================================================================
+    // NATS INTEGRATION TESTS
+    // Run with: docker run -d --name nats -p 4222:4222 nats:latest -js
+    // ========================================================================
+
+    #[tokio::test]
+    #[ignore = "requires NATS server with JetStream"]
+    async fn test_nats_thread_store_save_load() {
+        use crate::distributed::bus::{NatsClient, NatsConfig};
+
+        let nats = Arc::new(
+            NatsClient::connect(NatsConfig::new("nats://localhost:4222"))
+                .await
+                .expect("Failed to connect to NATS"),
+        );
+
+        let store = NatsThreadStore::new(nats).await.unwrap();
+
+        // Create a thread with messages
+        let mut thread = AgentThread::for_agent("nats-test-agent");
+        thread.add_message(ChatMessage::user("Hello from NATS test"));
+        thread.add_message(ChatMessage::assistant("Hi! This is persisted in NATS KV."));
+
+        // Save to NATS
+        store.save(&thread).await.unwrap();
+
+        // Load from NATS
+        let loaded = store.load(&thread.id).await.unwrap();
+        assert!(loaded.is_some());
+
+        let loaded = loaded.unwrap();
+        assert_eq!(loaded.id, thread.id);
+        assert_eq!(loaded.message_count(), 2);
+        assert_eq!(loaded.created_by, Some(AgentId::new("nats-test-agent")));
+
+        // Verify messages content
+        assert_eq!(loaded.messages[0].content, "Hello from NATS test");
+        assert_eq!(
+            loaded.messages[1].content,
+            "Hi! This is persisted in NATS KV."
+        );
+
+        // Cleanup
+        store.delete(&thread.id).await.unwrap();
+        assert!(!store.exists(&thread.id).await.unwrap());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires NATS server with JetStream"]
+    async fn test_nats_thread_store_list_by_agent() {
+        use crate::distributed::bus::{NatsClient, NatsConfig};
+
+        let nats = Arc::new(
+            NatsClient::connect(NatsConfig::new("nats://localhost:4222"))
+                .await
+                .expect("Failed to connect to NATS"),
+        );
+
+        let store = NatsThreadStore::new(nats).await.unwrap();
+        let agent_id = AgentId::new("nats-list-test-agent");
+
+        // Create 3 threads
+        let mut thread_ids = vec![];
+        for i in 0..3 {
+            let mut thread = AgentThread::for_agent(agent_id.clone());
+            thread.add_message(ChatMessage::user(format!("Message {}", i)));
+            store.save(&thread).await.unwrap();
+            thread_ids.push(thread.id.clone());
+        }
+
+        // List by agent
+        let summaries = store.list_by_agent(&agent_id).await.unwrap();
+        assert_eq!(summaries.len(), 3);
+
+        // Cleanup
+        for tid in thread_ids {
+            store.delete(&tid).await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires NATS server with JetStream"]
+    async fn test_nats_thread_store_persistence_across_reconnect() {
+        use crate::distributed::bus::{NatsClient, NatsConfig};
+
+        // First connection: save a thread
+        let thread_id = {
+            let nats = Arc::new(
+                NatsClient::connect(NatsConfig::new("nats://localhost:4222"))
+                    .await
+                    .expect("Failed to connect to NATS"),
+            );
+
+            let store = NatsThreadStore::new(nats).await.unwrap();
+
+            let mut thread = AgentThread::for_agent("persistence-test");
+            thread.add_message(ChatMessage::user("This should persist"));
+            store.save(&thread).await.unwrap();
+
+            thread.id
+        };
+
+        // Second connection: verify thread still exists
+        {
+            let nats = Arc::new(
+                NatsClient::connect(NatsConfig::new("nats://localhost:4222"))
+                    .await
+                    .expect("Failed to connect to NATS"),
+            );
+
+            let store = NatsThreadStore::new(nats).await.unwrap();
+
+            let loaded = store.load(&thread_id).await.unwrap();
+            assert!(
+                loaded.is_some(),
+                "Thread should persist across reconnections"
+            );
+
+            let loaded = loaded.unwrap();
+            assert_eq!(loaded.messages[0].content, "This should persist");
+
+            // Cleanup
+            store.delete(&thread_id).await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires NATS server with JetStream"]
+    async fn test_nats_thread_store_delete_by_agent() {
+        use crate::distributed::bus::{NatsClient, NatsConfig};
+
+        let nats = Arc::new(
+            NatsClient::connect(NatsConfig::new("nats://localhost:4222"))
+                .await
+                .expect("Failed to connect to NATS"),
+        );
+
+        let store = NatsThreadStore::new(nats).await.unwrap();
+        let agent_id = AgentId::new("nats-delete-test-agent");
+
+        // Create 5 threads
+        for _ in 0..5 {
+            let thread = AgentThread::for_agent(agent_id.clone());
+            store.save(&thread).await.unwrap();
+        }
+
+        // Verify they exist
+        let summaries = store.list_by_agent(&agent_id).await.unwrap();
+        assert_eq!(summaries.len(), 5);
+
+        // Delete all at once
+        let count = store.delete_by_agent(&agent_id).await.unwrap();
+        assert_eq!(count, 5);
+
+        // Verify empty
+        let summaries = store.list_by_agent(&agent_id).await.unwrap();
+        assert!(summaries.is_empty());
+    }
 }
