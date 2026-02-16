@@ -9,7 +9,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use agentic_core::distributed::graph::{
+//! use dasein_agentic_core::distributed::graph::{
 //!     Workflow, WorkflowBuilder, WorkflowConfig,
 //! };
 //!

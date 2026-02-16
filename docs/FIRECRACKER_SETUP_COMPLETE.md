@@ -376,7 +376,7 @@ firecracker --api-sock /tmp/firecracker.socket --config-file /var/lib/firecracke
 ### Code Rust
 
 ```rust
-use agentic_sandbox::{RemoteSandbox, Sandbox};
+use dasein_agentic_sandbox::{RemoteSandbox, Sandbox};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

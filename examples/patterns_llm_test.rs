@@ -14,12 +14,12 @@
 //! GEMINI_API_KEY=xxx cargo run --example patterns_llm_test
 //! ```
 
-use agentic_core::distributed::graph::{
+use dasein_agentic_core::distributed::graph::{
     Executor, ExecutorContext, ExecutorError, ExecutorId, ExecutorKind, ExecutorRegistry, Workflow,
     WorkflowConfig,
 };
-use agentic_core::distributed::Executor as LLMExecutor;
-use agentic_core::patterns::{ConcurrentBuilder, SequentialBuilder};
+use dasein_agentic_core::distributed::Executor as LLMExecutor;
+use dasein_agentic_core::patterns::{ConcurrentBuilder, SequentialBuilder};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

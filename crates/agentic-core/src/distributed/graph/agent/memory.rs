@@ -29,7 +29,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use agentic_core::distributed::graph::agent::{
+//! use dasein_agentic_core::distributed::graph::agent::{
 //!     MemoryProvider, MemoryContext, InMemoryProvider,
 //! };
 //!
@@ -575,7 +575,7 @@ impl MemoryProvider for InMemoryProvider {
 /// # Example
 ///
 /// ```rust,ignore
-/// use agentic_core::distributed::graph::agent::NatsMemoryProvider;
+/// use dasein_agentic_core::distributed::graph::agent::NatsMemoryProvider;
 ///
 /// let provider = NatsMemoryProvider::new(nats_client, "memories").await?;
 /// provider.store_memory(&agent_id, "user-123", memory).await?;

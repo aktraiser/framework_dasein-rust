@@ -12,7 +12,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use agentic_core::patterns::SequentialBuilder;
+//! use dasein_agentic_core::patterns::SequentialBuilder;
 //!
 //! // Build a content pipeline: writer → reviewer → polisher
 //! let definition = SequentialBuilder::new("content-pipeline")

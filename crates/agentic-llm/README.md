@@ -22,7 +22,7 @@ agentic-llm = { version = "0.1", features = ["openai", "anthropic"] }
 ## Quick Start
 
 ```rust
-use agentic_llm::{OpenAIAdapter, LLMAdapter, LLMMessage, Role};
+use dasein_agentic_llm::{OpenAIAdapter, LLMAdapter, LLMMessage, Role};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

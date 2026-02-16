@@ -5,7 +5,7 @@
 //! cargo run --example scale_test
 //! ```
 
-use agentic_core::distributed::{Capability, Supervisor};
+use dasein_agentic_core::distributed::{Capability, Supervisor};
 use std::time::Instant;
 
 #[tokio::main]

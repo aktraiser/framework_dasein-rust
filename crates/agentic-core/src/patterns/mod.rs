@@ -15,7 +15,7 @@
 //! # Quick Start
 //!
 //! ```rust,ignore
-//! use agentic_core::patterns::{SequentialBuilder, ConcurrentBuilder};
+//! use dasein_agentic_core::patterns::{SequentialBuilder, ConcurrentBuilder};
 //!
 //! // Sequential: writer → reviewer → polisher
 //! let workflow = SequentialBuilder::new("content-pipeline")

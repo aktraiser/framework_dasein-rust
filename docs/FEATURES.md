@@ -31,7 +31,7 @@ If no feature is specified, **no LLM provider is available**. You must explicitl
 ### Usage Example
 
 ```rust
-use agentic_llm::{GeminiAdapter, LLMAdapter};  // Requires "gemini" feature
+use dasein_agentic_llm::{GeminiAdapter, LLMAdapter};  // Requires "gemini" feature
 
 let adapter = GeminiAdapter::new(api_key, "gemini-2.0-flash");
 ```
@@ -73,7 +73,7 @@ agentic-sandbox = { path = "crates/agentic-sandbox", features = ["firecracker"] 
 ### Usage Example
 
 ```rust
-use agentic_sandbox::ProcessSandbox;  // Always available
+use dasein_agentic_sandbox::ProcessSandbox;  // Always available
 
 let sandbox = ProcessSandbox::new()
     .with_timeout(60_000);
@@ -81,7 +81,7 @@ let sandbox = ProcessSandbox::new()
 // With Docker feature enabled
 #[cfg(feature = "docker")]
 {
-    use agentic_sandbox::DockerSandbox;
+    use dasein_agentic_sandbox::DockerSandbox;
     let sandbox = DockerSandbox::new("rust:latest")
         .with_memory_limit(512 * 1024 * 1024);
 }
@@ -161,7 +161,7 @@ agentic-sandbox = { path = "crates/agentic-sandbox", features = ["firecracker"] 
 
 ## Troubleshooting
 
-### "unresolved import `agentic_llm::GeminiAdapter`"
+### "unresolved import `dasein_agentic_llm::GeminiAdapter`"
 
 You need to enable the `gemini` feature:
 

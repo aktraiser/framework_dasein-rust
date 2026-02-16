@@ -1,7 +1,7 @@
 //! Patterns Demo - Demonstrates the 4 orchestration patterns.
 //!
 //! This example shows how to use the high-level pattern builders
-//! from `agentic_core::patterns` module.
+//! from `dasein_agentic_core::patterns` module.
 //!
 //! # Patterns Demonstrated
 //!
@@ -16,8 +16,8 @@
 //! cargo run --example patterns_demo
 //! ```
 
-use agentic_core::distributed::graph::ExecutorId;
-use agentic_core::patterns::{
+use dasein_agentic_core::distributed::graph::ExecutorId;
+use dasein_agentic_core::patterns::{
     // Builders
     ConcurrentBuilder, GroupChatBuilder, HandoffBuilder, SequentialBuilder,
     // Convenience functions

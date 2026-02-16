@@ -279,7 +279,7 @@ pub trait Agent: Send + Sync {
 ### Créer un Superviseur
 
 ```rust
-use agentic_core::{Supervisor, SupervisorConfig};
+use dasein_agentic_core::{Supervisor, SupervisorConfig};
 
 // Configuration
 let config = SupervisorConfig {
@@ -320,7 +320,7 @@ supervisor.start().await?;
 ### Créer un Exécuteur Standalone
 
 ```rust
-use agentic_core::{Executor, ExecutorConfig};
+use dasein_agentic_core::{Executor, ExecutorConfig};
 
 let config = ExecutorConfig {
     id: "exe-001".to_string(),
@@ -356,7 +356,7 @@ executor.start().await?;
 Pour texte, JSON, validation rapide:
 
 ```rust
-use agentic_core::distributed::{Validator, ValidationRule};
+use dasein_agentic_core::distributed::{Validator, ValidationRule};
 
 let validator = Validator::new("val-001", "sup-001")
     .rule(ValidationRule::OutputNotEmpty)
@@ -378,8 +378,8 @@ if !result.passed {
 Pour code généré, avec vraie compilation/tests:
 
 ```rust
-use agentic_core::distributed::SandboxValidator;
-use agentic_sandbox::ProcessSandbox;
+use dasein_agentic_core::distributed::SandboxValidator;
+use dasein_agentic_sandbox::ProcessSandbox;
 
 // Sandbox léger pour dev
 let sandbox = ProcessSandbox::new().with_timeout(60_000);
@@ -545,8 +545,8 @@ Boucle de correction avec feedback réel du compilateur/tests.
 ```
 
 ```rust
-use agentic_core::distributed::{Executor, SandboxValidator};
-use agentic_sandbox::ProcessSandbox;
+use dasein_agentic_core::distributed::{Executor, SandboxValidator};
+use dasein_agentic_sandbox::ProcessSandbox;
 
 // Créer l'exécuteur (génère le code)
 let executor = Executor::new("exe-001", "sup-001")
@@ -658,8 +658,8 @@ Total: 2,000 tokens (98.7% de réduction!)
 ### Exemple d'Utilisation
 
 ```rust
-use agentic_mcp::{MCPConfig, MCPClientPool};
-use agentic_sandbox::FirecrackerSandbox;
+use dasein_agentic_mcp::{MCPConfig, MCPClientPool};
+use dasein_agentic_sandbox::FirecrackerSandbox;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -805,7 +805,7 @@ pub enum AuditEventType {
 ### Collecteur d'Audit
 
 ```rust
-use agentic_core::{AuditCollector, AuditStorage};
+use dasein_agentic_core::{AuditCollector, AuditStorage};
 
 // Créer le collecteur
 let collector = AuditCollector::new(bus.clone())
@@ -832,7 +832,7 @@ let events = collector.query(AuditQuery {
 ### Intégration OpenTelemetry
 
 ```rust
-use agentic_core::telemetry::{init_telemetry, TelemetryConfig};
+use dasein_agentic_core::telemetry::{init_telemetry, TelemetryConfig};
 
 // Configurer OpenTelemetry
 init_telemetry(TelemetryConfig {
@@ -1031,7 +1031,7 @@ Pour les tâches complexes (génération de code multi-fichiers), un seul Execut
 Décompose une tâche complexe en sub-tasks ordonnées:
 
 ```rust
-use agentic_core::distributed::TaskDecomposer;
+use dasein_agentic_core::distributed::TaskDecomposer;
 
 let decomposer = TaskDecomposer::new("rust");
 let subtasks = decomposer.decompose("Implement an async task scheduler...");
@@ -1048,7 +1048,7 @@ let subtasks = decomposer.decompose("Implement an async task scheduler...");
 Assure la cohérence entre les outputs des Executors parallèles:
 
 ```rust
-use agentic_core::distributed::{LiaisonArchitect, SubTaskResult};
+use dasein_agentic_core::distributed::{LiaisonArchitect, SubTaskResult};
 
 let liaison = LiaisonArchitect::new("rust");
 
@@ -1073,7 +1073,7 @@ if let Some(err) = liaison.validate_syntax(&fixed.code) {
 Assemble les fragments de code:
 
 ```rust
-use agentic_core::distributed::CodeAssembler;
+use dasein_agentic_core::distributed::CodeAssembler;
 
 let assembler = CodeAssembler::new();
 
@@ -1155,7 +1155,7 @@ Décomposer en 3 stages et **verrouiller chaque stage une fois validé**:
 Validation syntaxique rapide avant compilation (~3ms vs ~25s):
 
 ```rust
-use agentic_core::distributed::bus::BusLinter;
+use dasein_agentic_core::distributed::bus::BusLinter;
 
 let linter = BusLinter::new();
 let result = linter.lint(&code);
@@ -1178,7 +1178,7 @@ if !result.passed {
 Empêche les régressions en trackant la qualité de chaque tentative:
 
 ```rust
-use agentic_core::distributed::bus::{RollbackManager, RollbackDecision};
+use dasein_agentic_core::distributed::bus::{RollbackManager, RollbackDecision};
 
 let mut rollback = RollbackManager::new();
 
@@ -1436,7 +1436,7 @@ Classification automatique des erreurs et routage vers le modèle approprié:
 #### 1. ErrorFingerprinter
 
 ```rust
-use agentic_core::distributed::bus::{ErrorFingerprinter, ModelTier, ErrorCategory};
+use dasein_agentic_core::distributed::bus::{ErrorFingerprinter, ModelTier, ErrorCategory};
 
 let fingerprinter = ErrorFingerprinter::new();
 let analysis = fingerprinter.analyze(&errors);
@@ -1560,7 +1560,7 @@ Le Bus Coordinator gère la communication inter-superviseurs avec 4 responsabili
 Ordonne et priorise les tâches:
 
 ```rust
-use agentic_core::distributed::bus::{Sequencer, TaskPriority};
+use dasein_agentic_core::distributed::bus::{Sequencer, TaskPriority};
 
 let sequencer = Sequencer::new(nats_client.clone())
     .stream("TASKS")
@@ -1587,7 +1587,7 @@ let task = sequencer.next().await?;
 Choisit la meilleure proposition parmi plusieurs Executors:
 
 ```rust
-use agentic_core::distributed::bus::{Arbiter, ArbiterStrategy};
+use dasein_agentic_core::distributed::bus::{Arbiter, ArbiterStrategy};
 
 let arbiter = Arbiter::new(nats_client.clone())
     .stream("PROPOSALS")
@@ -1617,7 +1617,7 @@ println!("Best proposal from {}: score={}", best.executor_id, best.score);
 Évite les traitements en double:
 
 ```rust
-use agentic_core::distributed::bus::{Deduplicator, DedupeStrategy};
+use dasein_agentic_core::distributed::bus::{Deduplicator, DedupeStrategy};
 
 let dedup = Deduplicator::new(nats_client.clone())
     .window(Duration::from_secs(60))  // Fenêtre de déduplication
@@ -1641,7 +1641,7 @@ dedup.mark_processed(task_hash).await?;
 Centralise les logs de tous les agents:
 
 ```rust
-use agentic_core::distributed::bus::{LogCollector, LogLevel};
+use dasein_agentic_core::distributed::bus::{LogCollector, LogLevel};
 
 let collector = LogCollector::new(nats_client.clone())
     .stream("LOGS")
@@ -1715,7 +1715,7 @@ Le framework garantit 4 capacités d'observabilité:
 ### 1. Replay - Rejouer une exécution
 
 ```rust
-use agentic_core::distributed::bus::{AuditCollector, TraceSequencer};
+use dasein_agentic_core::distributed::bus::{AuditCollector, TraceSequencer};
 
 // Récupérer tous les events d'une exécution passée
 let events = audit.for_trace_persistent("trace-abc-123").await?;
@@ -1757,7 +1757,7 @@ println!("{}", report);
 ### 3. Rollback - Bloquer une régression
 
 ```rust
-use agentic_core::distributed::bus::{RollbackManager, RollbackDecision};
+use dasein_agentic_core::distributed::bus::{RollbackManager, RollbackDecision};
 
 let mut rollback = RollbackManager::new();
 
@@ -1778,7 +1778,7 @@ match decision {
 ### 4. Sandbox - Isoler l'exécution
 
 ```rust
-use agentic_sandbox::{ProcessSandbox, DockerSandbox};
+use dasein_agentic_sandbox::{ProcessSandbox, DockerSandbox};
 
 // Isolation niveau process (dev)
 let sandbox = ProcessSandbox::new()
@@ -1798,7 +1798,7 @@ let sandbox = FirecrackerSandbox::builder()
 ### AuditCollector Usage
 
 ```rust
-use agentic_core::distributed::bus::{AuditCollector, AuditEvent, TraceSequencer};
+use dasein_agentic_core::distributed::bus::{AuditCollector, AuditEvent, TraceSequencer};
 
 // Créer un collector avec persistence NATS
 let audit = AuditCollector::new(nats_client).await?;
@@ -1837,7 +1837,7 @@ audit.emit(AuditEvent::pipeline_completed(trace.trace_id(), trace.next(), true, 
 ### Configuration
 
 ```rust
-use agentic_core::distributed::bus::BusCoordinator;
+use dasein_agentic_core::distributed::bus::BusCoordinator;
 
 let coordinator = BusCoordinator::builder()
     .nats_url("nats://localhost:4222")

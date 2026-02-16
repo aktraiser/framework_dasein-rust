@@ -24,7 +24,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use agentic_core::distributed::graph::{Executor, ExecutorKind, ExecutorId};
+//! use dasein_agentic_core::distributed::graph::{Executor, ExecutorKind, ExecutorId};
 //!
 //! struct MyWorker {
 //!     id: ExecutorId,

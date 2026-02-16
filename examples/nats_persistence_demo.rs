@@ -19,8 +19,8 @@
 
 use std::sync::Arc;
 
-use agentic_core::distributed::bus::{NatsClient, NatsConfig};
-use agentic_core::distributed::graph::agent::{
+use dasein_agentic_core::distributed::bus::{NatsClient, NatsConfig};
+use dasein_agentic_core::distributed::graph::agent::{
     AgentId, AgentThread, ChatMessage, Memory, MemoryCategory, MemoryContext, MemoryProvider,
     NatsMemoryProvider, NatsThreadStore, ThreadId, ThreadStore,
 };

@@ -18,7 +18,7 @@
 //!
 //! Run with: cargo run --example nats_bus_demo
 
-use agentic_core::distributed::bus::{BusCoordinator, Proposal, Task, TaskPriority};
+use dasein_agentic_core::distributed::bus::{BusCoordinator, Proposal, Task, TaskPriority};
 use futures::StreamExt;
 use serde_json::json;
 use std::time::Duration;
@@ -160,7 +160,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Query logs
     let logs = coordinator
-        .query_logs(agentic_core::distributed::bus::LogQuery::for_agent(
+        .query_logs(dasein_agentic_core::distributed::bus::LogQuery::for_agent(
             "executor-1",
         ))
         .await;

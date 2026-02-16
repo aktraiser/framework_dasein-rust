@@ -12,8 +12,8 @@
 //!
 //! Run with: cargo run --example grounded_loop
 
-use agentic_core::distributed::{Executor, SandboxValidationResult, SandboxValidator};
-use agentic_sandbox::ProcessSandbox;
+use dasein_agentic_core::distributed::{Executor, SandboxValidationResult, SandboxValidator};
+use dasein_agentic_sandbox::ProcessSandbox;
 use std::path::PathBuf;
 use std::time::Instant;
 

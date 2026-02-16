@@ -17,7 +17,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use agentic_core::distributed::graph::persistence::RedisCheckpointBackend;
+//! use dasein_agentic_core::distributed::graph::persistence::RedisCheckpointBackend;
 //!
 //! // Connect to Redis
 //! let backend = RedisCheckpointBackend::connect("redis://localhost:6379").await?;

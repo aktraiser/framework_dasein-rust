@@ -19,7 +19,7 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! use agentic_sandbox::{GatewaySandbox, Sandbox};
+//! use dasein_agentic_sandbox::{GatewaySandbox, Sandbox};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -216,7 +216,7 @@ impl GatewaySandbox {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use agentic_sandbox::GatewaySandbox;
+    /// # use dasein_agentic_sandbox::GatewaySandbox;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let sandbox = GatewaySandbox::builder("http://localhost:8080")
     ///     .runtime("python")

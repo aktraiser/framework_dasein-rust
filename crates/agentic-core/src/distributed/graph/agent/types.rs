@@ -204,24 +204,24 @@ impl fmt::Display for ChatMessage {
 // CONVERSION FROM LLM TYPES
 // ============================================================================
 
-impl From<agentic_llm::LLMMessage> for ChatMessage {
-    fn from(msg: agentic_llm::LLMMessage) -> Self {
+impl From<dasein_agentic_llm::LLMMessage> for ChatMessage {
+    fn from(msg: dasein_agentic_llm::LLMMessage) -> Self {
         let role = match msg.role {
-            agentic_llm::Role::System => ChatRole::System,
-            agentic_llm::Role::User => ChatRole::User,
-            agentic_llm::Role::Assistant => ChatRole::Assistant,
+            dasein_agentic_llm::Role::System => ChatRole::System,
+            dasein_agentic_llm::Role::User => ChatRole::User,
+            dasein_agentic_llm::Role::Assistant => ChatRole::Assistant,
         };
         Self::new(role, msg.content)
     }
 }
 
-impl From<&ChatMessage> for agentic_llm::LLMMessage {
+impl From<&ChatMessage> for dasein_agentic_llm::LLMMessage {
     fn from(msg: &ChatMessage) -> Self {
         match msg.role {
-            ChatRole::System => agentic_llm::LLMMessage::system(&msg.content),
-            ChatRole::User => agentic_llm::LLMMessage::user(&msg.content),
-            ChatRole::Assistant => agentic_llm::LLMMessage::assistant(&msg.content),
-            ChatRole::Tool => agentic_llm::LLMMessage::user(&msg.content), // Tool → User for LLM
+            ChatRole::System => dasein_agentic_llm::LLMMessage::system(&msg.content),
+            ChatRole::User => dasein_agentic_llm::LLMMessage::user(&msg.content),
+            ChatRole::Assistant => dasein_agentic_llm::LLMMessage::assistant(&msg.content),
+            ChatRole::Tool => dasein_agentic_llm::LLMMessage::user(&msg.content), // Tool → User for LLM
         }
     }
 }
@@ -271,7 +271,7 @@ mod tests {
     #[test]
     fn test_llm_message_conversion() {
         let chat_msg = ChatMessage::user("Hello");
-        let llm_msg: agentic_llm::LLMMessage = (&chat_msg).into();
+        let llm_msg: dasein_agentic_llm::LLMMessage = (&chat_msg).into();
         assert_eq!(llm_msg.content, "Hello");
     }
 

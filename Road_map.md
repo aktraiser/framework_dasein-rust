@@ -641,8 +641,8 @@ use crate::{
     },
     error::AgentError,
 };
-use agentic_llm::{LLMAdapter, LLMMessage};
-use agentic_sandbox::Sandbox;
+use dasein_agentic_llm::{LLMAdapter, LLMMessage};
+use dasein_agentic_sandbox::Sandbox;
 
 /// Actions qui déclenchent l'exécution par défaut
 const EXECUTABLE_ACTIONS: &[&str] = &[
@@ -1040,7 +1040,7 @@ use crate::{
     traits::{MessageBus, Channel, MessageHandler},
     error::BusError,
 };
-use agentic_core::protocol::Message;
+use dasein_agentic_core::protocol::Message;
 
 pub struct NatsBus {
     client: Client,
@@ -1156,12 +1156,12 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, error, instrument};
 
-use agentic_core::{
+use dasein_agentic_core::{
     types::{TaskPayload, ResultPayload, ResultStatus},
     agent::Agent,
 };
-use agentic_llm::LLMAdapter;
-use agentic_sandbox::Sandbox;
+use dasein_agentic_llm::LLMAdapter;
+use dasein_agentic_sandbox::Sandbox;
 
 use crate::{
     workflow::{Workflow, WorkflowStep, WorkflowResult},
@@ -1960,9 +1960,9 @@ impl Sandbox for DockerSandbox {
 use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId};
 use tokio::runtime::Runtime;
 
-use agentic_core::{Agent, AgentConfig, ExecutionMode};
-use agentic_llm::MockLLMAdapter; // Mock pour benchmarks
-use agentic_sandbox::ProcessSandbox;
+use dasein_agentic_core::{Agent, AgentConfig, ExecutionMode};
+use dasein_agentic_llm::MockLLMAdapter; // Mock pour benchmarks
+use dasein_agentic_sandbox::ProcessSandbox;
 
 fn agent_run_benchmark(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
@@ -1989,7 +1989,7 @@ fn agent_run_benchmark(c: &mut Criterion) {
 
                     agent.start().await.unwrap();
 
-                    let task = agentic_core::TaskPayload {
+                    let task = dasein_agentic_core::TaskPayload {
                         action: "generate".to_string(),
                         spec: serde_json::json!({"task": "test"}),
                         inputs: None,

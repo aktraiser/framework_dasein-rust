@@ -6,8 +6,8 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use agentic_core::distributed::graph::{Workflow, WorkflowBuilder};
-//! use agentic_core::distributed::graph::agent::{WorkflowAgent, AgentThread, AgentExt};
+//! use dasein_agentic_core::distributed::graph::{Workflow, WorkflowBuilder};
+//! use dasein_agentic_core::distributed::graph::agent::{WorkflowAgent, AgentThread, AgentExt};
 //!
 //! // Create a workflow
 //! let workflow = WorkflowBuilder::<String>::new("code-gen")

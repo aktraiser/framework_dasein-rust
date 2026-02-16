@@ -16,7 +16,7 @@
 //! GEMINI_API_KEY=xxx cargo run --example ts_executor --features remote
 //! ```
 
-use agentic_core::distributed::{
+use dasein_agentic_core::distributed::{
     bus::{
         BusCoordinator, DecisionRecord, EnrichedError, ErrorFingerprinter, ErrorLocation,
         ErrorSeverity, GenerationRecord, ModelInfo, ModelTier, PipelineTracer, RollbackDecision,
@@ -35,8 +35,8 @@ use agentic_core::distributed::{
     ValidatorPipeline,
 };
 #[cfg(feature = "remote")]
-use agentic_sandbox::RemoteSandbox;
-use agentic_sandbox::{ProcessSandbox, Sandbox};
+use dasein_agentic_sandbox::RemoteSandbox;
+use dasein_agentic_sandbox::{ProcessSandbox, Sandbox};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;

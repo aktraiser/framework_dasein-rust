@@ -49,9 +49,9 @@
 //!
 //! Run with: cargo run --example code_mode_mcp
 
-use agentic_core::distributed::Executor;
-use agentic_mcp::{MCPClientPool, MCPConfig, MCPServerConfig};
-use agentic_sandbox::ProcessSandbox;
+use dasein_agentic_core::distributed::Executor;
+use dasein_agentic_mcp::{MCPClientPool, MCPConfig, MCPServerConfig};
+use dasein_agentic_sandbox::ProcessSandbox;
 use std::path::Path;
 use std::time::Instant;
 

@@ -5,7 +5,7 @@
 //! GEMINI_API_KEY=your-key cargo run --example llm_real_test
 //! ```
 
-use agentic_core::distributed::{Capability, Supervisor};
+use dasein_agentic_core::distributed::{Capability, Supervisor};
 use std::time::Instant;
 
 #[tokio::main]

@@ -10,7 +10,7 @@
 //! cargo run --example memory_demo
 //! ```
 
-use agentic_core::distributed::graph::agent::{
+use dasein_agentic_core::distributed::graph::agent::{
     // Memory types
     InMemoryProvider, Memory, MemoryCategory, MemoryContext, MemoryProvider,
     NoOpMemoryProvider,

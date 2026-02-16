@@ -19,7 +19,7 @@ agentic-core = "0.1"
 ## Quick Start
 
 ```rust
-use agentic_core::prelude::*;
+use dasein_agentic_core::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

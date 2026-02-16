@@ -15,7 +15,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use agentic_core::distributed::graph::agent::{Agent, ChatMessage, AgentThread};
+//! use dasein_agentic_core::distributed::graph::agent::{Agent, ChatMessage, AgentThread};
 //!
 //! async fn chat_with_agent(agent: &impl Agent) {
 //!     let mut thread = AgentThread::new();

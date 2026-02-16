@@ -24,10 +24,10 @@
 //! # Quick Start
 //!
 //! ```rust,ignore
-//! use agentic_core::distributed::graph::agent::{
+//! use dasein_agentic_core::distributed::graph::agent::{
 //!     Agent, AgentExt, ChatAgent, AgentThread, ChatMessage,
 //! };
-//! use agentic_llm::GeminiAdapter;
+//! use dasein_agentic_llm::GeminiAdapter;
 //!
 //! // Create an agent
 //! let llm = GeminiAdapter::new("api-key", "gemini-2.0-flash");
@@ -66,7 +66,7 @@
 //! # Workflow as Agent
 //!
 //! ```rust,ignore
-//! use agentic_core::distributed::graph::agent::WorkflowAsAgent;
+//! use dasein_agentic_core::distributed::graph::agent::WorkflowAsAgent;
 //!
 //! // Convert workflow to agent
 //! let agent = workflow.as_agent("Code Generator");

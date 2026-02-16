@@ -50,15 +50,15 @@
 //! GEMINI_API_KEY=xxx cargo run --example ts_state_machine_graph
 //! ```
 
-use agentic_core::distributed::graph::{
+use dasein_agentic_core::distributed::graph::{
     Executor as GraphExecutor, ExecutorContext, ExecutorError, ExecutorId, ExecutorKind,
     ExecutorRegistry, Workflow, WorkflowBuilder, WorkflowConfig,
 };
-use agentic_core::distributed::{
+use dasein_agentic_core::distributed::{
     CodeAssembler, Executor as LLMExecutor, SandboxPipelineValidator, ValidatorInput,
     ValidatorPipeline,
 };
-use agentic_sandbox::ProcessSandbox;
+use dasein_agentic_sandbox::ProcessSandbox;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -842,14 +842,14 @@ Requirements:
     println!("  Edges: {}", definition.edges.len());
     for edge in definition.edges.all() {
         let source = match &edge.source {
-            agentic_core::distributed::graph::EdgeSource::Single(id) => id.as_str().to_string(),
-            agentic_core::distributed::graph::EdgeSource::Multiple(ids) => {
+            dasein_agentic_core::distributed::graph::EdgeSource::Single(id) => id.as_str().to_string(),
+            dasein_agentic_core::distributed::graph::EdgeSource::Multiple(ids) => {
                 format!("[{}]", ids.iter().map(|id| id.as_str()).collect::<Vec<_>>().join(", "))
             }
         };
         let target = match &edge.target {
-            agentic_core::distributed::graph::EdgeTarget::Single(id) => id.as_str().to_string(),
-            agentic_core::distributed::graph::EdgeTarget::Multiple(ids) => {
+            dasein_agentic_core::distributed::graph::EdgeTarget::Single(id) => id.as_str().to_string(),
+            dasein_agentic_core::distributed::graph::EdgeTarget::Multiple(ids) => {
                 format!("[{}]", ids.iter().map(|id| id.as_str()).collect::<Vec<_>>().join(", "))
             }
         };

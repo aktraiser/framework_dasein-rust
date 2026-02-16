@@ -17,7 +17,7 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! use agentic_sandbox::{RemoteSandbox, Sandbox};
+//! use dasein_agentic_sandbox::{RemoteSandbox, Sandbox};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -138,7 +138,7 @@ impl RemoteSandbox {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use agentic_sandbox::RemoteSandbox;
+    /// # use dasein_agentic_sandbox::RemoteSandbox;
     /// let sandbox = RemoteSandbox::builder("http://65.108.230.227:8080")
     ///     .api_key("secret")
     ///     .build();

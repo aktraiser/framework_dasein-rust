@@ -15,7 +15,7 @@
 //! - Fan-out/Fan-in parallelism gains
 //! - Memory footprint per workflow
 
-use agentic_core::distributed::graph::{
+use dasein_agentic_core::distributed::graph::{
     Executor as GraphExecutor, ExecutorContext, ExecutorError, ExecutorId, ExecutorKind,
     ExecutorRegistry, Workflow, WorkflowBuilder, WorkflowConfig,
 };
