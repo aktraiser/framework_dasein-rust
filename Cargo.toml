@@ -17,9 +17,12 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT"
-repository = "https://github.com/your-org/agentic-rs"
+authors = ["Agentic Team"]
+repository = "https://github.com/aktraiser/framework_dasein-rust"
+homepage = "https://github.com/aktraiser/framework_dasein-rust"
+documentation = "https://docs.rs/agentic-rs"
 keywords = ["ai", "agents", "llm", "multi-agent", "async"]
-categories = ["asynchronous", "api-bindings"]
+categories = ["asynchronous", "api-bindings", "development-tools"]
 
 [workspace.dependencies]
 # Async runtime
@@ -84,13 +87,14 @@ mockall = "0.13"
 wiremock = "0.6"
 
 # Workspace crates (internal)
-agentic-core = { path = "crates/agentic-core" }
-agentic-llm = { path = "crates/agentic-llm" }
-agentic-sandbox = { path = "crates/agentic-sandbox" }
-agentic-mcp = { path = "crates/agentic-mcp" }
-agentic-bus = { path = "crates/agentic-bus" }
-agentic-storage = { path = "crates/agentic-storage" }
-agentic-orchestrator = { path = "crates/agentic-orchestrator" }
+# For local dev: use path. For publish: cargo will use version from crates.io
+agentic-core = { version = "0.1.0", path = "crates/agentic-core" }
+agentic-llm = { version = "0.1.0", path = "crates/agentic-llm" }
+agentic-sandbox = { version = "0.1.0", path = "crates/agentic-sandbox" }
+agentic-mcp = { version = "0.1.0", path = "crates/agentic-mcp" }
+agentic-bus = { version = "0.1.0", path = "crates/agentic-bus" }
+agentic-storage = { version = "0.1.0", path = "crates/agentic-storage" }
+agentic-orchestrator = { version = "0.1.0", path = "crates/agentic-orchestrator" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
