@@ -2,14 +2,8 @@
 # Use all available CPUs
 jobs = -1
 
-[target.x86_64-unknown-linux-gnu]
-rustflags = ["-C", "target-cpu=native"]
-
-[target.x86_64-apple-darwin]
-rustflags = ["-C", "target-cpu=native"]
-
-[target.aarch64-apple-darwin]
-rustflags = ["-C", "target-cpu=native"]
+# Note: Removed target-cpu=native flags as they cause SIGILL errors in CI
+# These flags optimize for the local CPU but fail on CI runners with different CPUs
 
 [alias]
 # Common aliases
