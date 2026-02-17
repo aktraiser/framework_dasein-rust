@@ -1,196 +1,130 @@
-# Agentic Framework (Rust)
-
-> High-performance framework for building autonomous multi-agent AI systems in Rust.
-
-[![CI](https://github.com/your-org/agentic-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/agentic-rs/actions)
-[![Crates.io](https://img.shields.io/crates/v/agentic-core.svg)](https://crates.io/crates/agentic-core)
-[![Documentation](https://docs.rs/agentic-core/badge.svg)](https://docs.rs/agentic-core)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+<p align="center">
+  <h1 align="center">Dasein Agentic SDK</h1>
+  <p align="center">
+    <strong>Build autonomous AI agents in Rust</strong>
+  </p>
+  <p align="center">
+    <a href="https://github.com/aktraiser/framework_dasein-rust/actions/workflows/ci.yml"><img src="https://github.com/aktraiser/framework_dasein-rust/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+    <a href="https://github.com/aktraiser/framework_dasein-rust/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
+    <a href="https://github.com/aktraiser/framework_dasein-rust/stargazers"><img src="https://img.shields.io/github/stars/aktraiser/framework_dasein-rust?style=social" alt="Stars"></a>
+  </p>
+</p>
 
 ---
 
-## Features
+A high-performance framework for building **multi-agent AI systems** in Rust. Connect to any LLM, execute code safely, and orchestrate complex workflows.
 
-- **Multi-LLM Support** - OpenAI, Ollama (Anthropic, Gemini coming soon)
-- **Sandboxed Execution** - Safe code execution with Docker isolation
-- **Message Bus** - NATS-based distributed communication
-- **Persistent Storage** - Redis (state) + Qdrant (vectors)
-- **Type-Safe** - Full Rust type safety with zero runtime overhead
+## Why Dasein?
+
+- **Multi-LLM** - OpenAI, Anthropic, Gemini, Ollama (local models)
+- **Safe Execution** - Sandboxed code execution with process isolation
+- **Distributed** - NATS-based message bus for scaling
+- **Type-Safe** - Full Rust type safety, zero runtime overhead
 - **Async-First** - Built on Tokio for maximum concurrency
-
----
 
 ## Quick Start
 
-Add to your `Cargo.toml`:
-
-```toml
-[dependencies]
-agentic-core = "0.1"
-agentic-llm = { version = "0.1", features = ["openai"] }
-agentic-sandbox = { version = "0.1", features = ["process"] }
-tokio = { version = "1", features = ["full"] }
+```bash
+cargo add dasein-agentic-core dasein-agentic-llm tokio --features "dasein-agentic-llm/anthropic, tokio/full"
 ```
 
-### Create an Agent
-
 ```rust
-use dasein_agentic_core::{Agent, AgentConfig, TaskPayload, ExecutionMode};
-use dasein_agentic_llm::OpenAIAdapter;
-use dasein_agentic_sandbox::ProcessSandbox;
+use dasein_agentic_llm::{AnthropicAdapter, LLMAdapter, LLMMessage};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Configure the agent
-    let config = AgentConfig {
-        name: "coder".to_string(),
-        description: Some("A coding assistant".to_string()),
-        system_prompt: "You are an expert Rust programmer.".to_string(),
-        execution_mode: ExecutionMode::Task,
-        timeout_ms: 30000,
-        max_retries: 3,
-    };
-
-    // Create LLM adapter
-    let llm = OpenAIAdapter::new(
-        std::env::var("OPENAI_API_KEY")?,
-        "gpt-4o"
+    let llm = AnthropicAdapter::new(
+        std::env::var("ANTHROPIC_API_KEY")?,
+        "claude-sonnet-4-20250514"
     );
 
-    // Create sandbox
-    let sandbox = ProcessSandbox::new();
+    let response = llm.generate(&[
+        LLMMessage::system("You are a helpful assistant."),
+        LLMMessage::user("What is Rust?"),
+    ]).await?;
 
-    // Create and start agent
-    let agent = Agent::new(config, llm, Some(sandbox));
-    agent.start().await?;
-
-    // Run a task
-    let task = TaskPayload {
-        action: "generate".to_string(),
-        spec: serde_json::json!({
-            "task": "Write a function that calculates fibonacci numbers"
-        }),
-        inputs: None,
-        constraints: vec![],
-    };
-
-    let result = agent.run(task).await?;
-    println!("Result: {:?}", result);
-
-    agent.stop().await?;
+    println!("{}", response.content);
     Ok(())
 }
 ```
 
----
+## LLM Providers
+
+| Provider | Feature | Models |
+|----------|---------|--------|
+| **Anthropic** | `anthropic` | Claude Sonnet, Haiku, Opus |
+| **OpenAI** | `openai` | GPT-4o, o1, o3 |
+| **Google** | `gemini` | Gemini 2.0 Flash, 1.5 Pro |
+| **Ollama** | `ollama` | Llama, Mistral, Qwen (local) |
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         AGENTIC-RS                                   │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │                      ORCHESTRATOR                             │   │
-│  │  • Agent registry  • Workflow execution  • Task routing       │   │
-│  └──────────────────────────────────┬───────────────────────────┘   │
-│                                     │                                │
-│                    ┌────────────────┴────────────────┐              │
-│                    │         NATS BUS                │              │
-│                    │  • Pub/Sub  • Request/Reply     │              │
-│                    └────────────────┬────────────────┘              │
-│                                     │                                │
-│       ┌─────────────────────────────┼─────────────────────────┐     │
-│       │                             │                         │     │
-│       ▼                             ▼                         ▼     │
-│  ┌─────────┐                   ┌─────────┐               ┌─────────┐│
-│  │  AGENT  │                   │  AGENT  │               │  AGENT  ││
-│  │┌───────┐│                   │┌───────┐│               │┌───────┐││
-│  ││  LLM  ││                   ││  LLM  ││               ││  LLM  │││
-│  │├───────┤│                   │├───────┤│               │├───────┤││
-│  ││SANDBOX││                   ││SANDBOX││               ││SANDBOX│││
-│  │└───────┘│                   │└───────┘│               │└───────┘││
-│  └─────────┘                   └─────────┘               └─────────┘│
-│                                                                      │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │                      STORAGE LAYER                            │   │
-│  │  ┌─────────────────────┐      ┌─────────────────────┐        │   │
-│  │  │   Redis (State)     │      │   Qdrant (Vectors)  │        │   │
-│  │  └─────────────────────┘      └─────────────────────┘        │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                                                                      │
-└─────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                    DASEIN AGENTIC SDK                       │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │                   ORCHESTRATOR                       │   │
+│  │   Agent Registry • Workflow Engine • Task Router     │   │
+│  └───────────────────────────┬─────────────────────────┘   │
+│                              │                              │
+│              ┌───────────────┴───────────────┐             │
+│              │          NATS BUS             │             │
+│              │    Pub/Sub • Request/Reply    │             │
+│              └───────────────┬───────────────┘             │
+│                              │                              │
+│     ┌────────────────────────┼────────────────────────┐    │
+│     ▼                        ▼                        ▼    │
+│ ┌────────┐              ┌────────┐              ┌────────┐ │
+│ │ AGENT  │              │ AGENT  │              │ AGENT  │ │
+│ │┌──────┐│              │┌──────┐│              │┌──────┐│ │
+│ ││ LLM  ││              ││ LLM  ││              ││ LLM  ││ │
+│ │├──────┤│              │├──────┤│              │├──────┤│ │
+│ ││SANDBOX│              ││SANDBOX│              ││SANDBOX│ │
+│ │└──────┘│              │└──────┘│              │└──────┘│ │
+│ └────────┘              └────────┘              └────────┘ │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
 ```
-
----
 
 ## Crates
 
 | Crate | Description |
 |-------|-------------|
-| `agentic-core` | Core agent runtime, types, protocol |
-| `agentic-llm` | LLM adapters (OpenAI, Ollama, etc.) |
-| `agentic-sandbox` | Code execution (Process, Docker) |
-| `agentic-bus` | NATS message bus |
-| `agentic-storage` | Redis + Qdrant storage |
-| `agentic-mcp` | MCP protocol client |
-| `agentic-orchestrator` | Multi-agent workflows |
+| `dasein-agentic-core` | Core runtime, executor trait, protocols |
+| `dasein-agentic-llm` | LLM adapters (OpenAI, Anthropic, Gemini, Ollama) |
+| `dasein-agentic-sandbox` | Sandboxed code execution |
+| `dasein-agentic-bus` | NATS message bus |
+| `dasein-agentic-orchestrator` | Multi-agent workflows |
+| `dasein-agentic-mcp` | Model Context Protocol client |
 
----
-
-## LLM Providers
-
-| Provider | Feature | Status |
-|----------|---------|--------|
-| OpenAI | `openai` | ✅ Ready |
-| Ollama | `ollama` | ✅ Ready |
-| Anthropic | `anthropic` | 🚧 Coming |
-| Gemini | `gemini` | 🚧 Coming |
-
----
-
-## Execution Modes
-
-| Mode | Behavior |
-|------|----------|
-| `Always` | Always execute generated code |
-| `Never` | Never execute (return code only) |
-| `Auto` | LLM decides via `[EXECUTE]`/`[NO_EXECUTE]` markers |
-| `Task` | Based on action type (default) |
-
----
-
-## Development
+## Examples
 
 ```bash
-# Build
-cargo build --workspace
+# Interactive chat
+cargo run --example chat --features "anthropic"
 
-# Test
-cargo test --workspace
+# Single agent with sandbox
+cargo run --example single_agent
 
-# Lint
-cargo clippy --workspace --all-features
-
-# Format
-cargo fmt --all
-
-# Docs
-cargo doc --workspace --open
+# Graph workflow
+cargo run --example graph_workflow
 ```
 
----
+See [examples/](examples/) for more.
 
-## Performance
+## Documentation
 
-| Metric | Value |
-|--------|-------|
-| Agent overhead (excl. LLM) | ~5ms |
-| Memory per agent (idle) | ~20MB |
-| Concurrent agents | 1000+ |
+- [Getting Started](docs/guide/index.md)
+- [API Reference](https://docs.rs/dasein-agentic-core)
+- [Examples](docs/examples/index.md)
 
----
+## Contributing
+
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+Looking for something to work on? Check out issues labeled [`good first issue`](https://github.com/aktraiser/framework_dasein-rust/labels/good%20first%20issue).
 
 ## License
 
@@ -198,6 +132,6 @@ MIT License - see [LICENSE](LICENSE)
 
 ---
 
-## Contributing
-
-Contributions welcome! Please read our contributing guidelines first.
+<p align="center">
+  <sub>Built with Rust for reliability and performance</sub>
+</p>
