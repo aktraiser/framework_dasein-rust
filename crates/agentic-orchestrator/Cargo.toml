@@ -1,5 +1,5 @@
 [package]
-name = "agentic-orchestrator"
+name = "dasein-agentic-orchestrator"
 description = "Multi-agent orchestration and workflow execution"
 version.workspace = true
 edition.workspace = true
@@ -29,10 +29,10 @@ tracing = { workspace = true }
 uuid = { workspace = true }
 
 # Internal
-agentic-core = { workspace = true }
-agentic-llm = { workspace = true }
-agentic-sandbox = { workspace = true }
-agentic-bus = { workspace = true }
+dasein-agentic-core = { workspace = true }
+dasein-agentic-llm = { workspace = true }
+dasein-agentic-sandbox = { workspace = true }
+dasein-agentic-bus = { workspace = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }

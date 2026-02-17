@@ -4,6 +4,7 @@
 //! - **Executors** are nodes that do work (generate code, validate, assemble)
 //! - **Edges** are connections that transport data between executors
 //! - **Workflows** orchestrate execution via Supersteps (Pregel/BSP model)
+//! - **Agents** are high-level interfaces for conversation (Phase 6)
 //!
 //! # Executor Types
 //!
@@ -13,10 +14,17 @@
 //! | Validator | Verifies | Compile, test, lint |
 //! | Orchestrator | Coordinates sub-graph | Complex sub-tasks |
 //!
+//! # Agent Types (Phase 6)
+//!
+//! | Type | Role | Example |
+//! |------|------|---------|
+//! | ChatAgent | LLM wrapper | Simple conversational agent |
+//! | WorkflowAgent | Workflow delegate | Agent backed by workflow |
+//!
 //! # Example
 //!
 //! ```rust,ignore
-//! use agentic_core::distributed::graph::{Executor, ExecutorKind, ExecutorId};
+//! use dasein_agentic_core::distributed::graph::{Executor, ExecutorKind, ExecutorId};
 //!
 //! struct MyWorker {
 //!     id: ExecutorId,
@@ -37,8 +45,18 @@
 //! }
 //! ```
 
+pub mod agent;
+mod builder;
+mod context;
+mod edge;
 mod executor;
+pub mod executors;
+#[cfg(test)]
+mod integration_test;
+mod persistence;
+mod superstep;
 mod types;
+mod workflow;
 
 // PR #1: Executor Trait
 pub use executor::{Executor, ExecutorContext, ExecutorKind, LogLevel, ValidationResult};
@@ -47,8 +65,35 @@ pub use types::{
     TaskId, WorkflowId,
 };
 
-// Future PRs will add:
-// - PR #2: WorkflowContext implementation
-// - PR #3: Edge types (Direct, Conditional, Switch, FanOut, FanIn)
-// - PR #4: WorkflowBuilder
-// - PR #5: Workflow with Superstep execution
+// PR #2: WorkflowContext
+pub use context::{
+    InMemoryStateBackend, MessageSink, OutputSink, SharedStateBackend, WorkflowContext,
+    WorkflowContextBuilder, WorkflowEvent,
+};
+
+// PR #3: Edge Types
+pub use edge::{
+    AggregationFn, ConditionFn, Edge, EdgeCollection, EdgeId, EdgeKind, EdgeSource, EdgeTarget,
+    SelectionFn, SwitchFn,
+};
+
+// PR #4: WorkflowBuilder
+pub use builder::{
+    validate_workflow, ExecutorMetadata, ValidationReport, WorkflowBuilder, WorkflowDefinition,
+};
+
+// PR #5: Superstep Execution
+pub use superstep::{
+    Checkpoint, CheckpointBackend, ExecutorSuperstepResult, InMemoryCheckpointBackend,
+    SuperstepMetrics, SuperstepState,
+};
+pub use workflow::{
+    DynExecutor, ExecutorRegistry, Workflow, WorkflowConfig, WorkflowResult, WorkflowStreamEvent,
+};
+
+// PR #6: Graph Persistence
+pub use persistence::{
+    CheckpointMetadata, InMemoryPersistentBackend, PersistentCheckpoint, PersistentCheckpointBackend,
+};
+#[cfg(feature = "redis-persistence")]
+pub use persistence::RedisCheckpointBackend;

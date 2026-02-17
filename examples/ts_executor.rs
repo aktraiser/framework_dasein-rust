@@ -16,7 +16,7 @@
 //! GEMINI_API_KEY=xxx cargo run --example ts_executor --features remote
 //! ```
 
-use agentic_core::distributed::{
+use dasein_agentic_core::distributed::{
     bus::{
         BusCoordinator, DecisionRecord, EnrichedError, ErrorFingerprinter, ErrorLocation,
         ErrorSeverity, GenerationRecord, ModelInfo, ModelTier, PipelineTracer, RollbackDecision,
@@ -35,8 +35,8 @@ use agentic_core::distributed::{
     ValidatorPipeline,
 };
 #[cfg(feature = "remote")]
-use agentic_sandbox::RemoteSandbox;
-use agentic_sandbox::{ProcessSandbox, Sandbox};
+use dasein_agentic_sandbox::RemoteSandbox;
+use dasein_agentic_sandbox::{ProcessSandbox, Sandbox};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -210,7 +210,7 @@ Requirements:
 
     // Incremental pipeline for staged validation (Types → Stubs → Logic)
     let sandbox_validator = SandboxValidator::new(ProcessSandbox::new());
-    let incremental = IncrementalPipeline::new(sandbox_validator, Language::TypeScript);
+    let _incremental = IncrementalPipeline::new(sandbox_validator, Language::TypeScript);
     let ts_extractor = get_extractor(Language::TypeScript);
 
     tracer
@@ -231,7 +231,7 @@ Requirements:
     println!("✓ Repair Engine enabled (targeted fix prompts)");
 
     // === Generate with full pipeline ===
-    let total_start = Instant::now();
+    let _total_start = Instant::now();
     let system = r#"You are an expert TypeScript developer. Return ONLY valid TypeScript code.
 No markdown, no explanations. Include Jest tests at the bottom using describe/it blocks.
 
@@ -350,7 +350,7 @@ CRITICAL: For string interpolation, ALWAYS use backticks:
 
                 let input = ValidatorInput::new(fixed_code, "typescript").with_task(task);
                 let val_result = pipeline.validate(input).await;
-                let val_duration = val_start.elapsed().as_millis() as u64;
+                let _val_duration = val_start.elapsed().as_millis() as u64;
 
                 let errors: Vec<String> = val_result
                     .results

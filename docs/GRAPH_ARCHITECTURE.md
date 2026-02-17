@@ -2,6 +2,92 @@
 
 > **Vision**: Passer d'une architecture linéaire (Executor → Validator → Retry) à une architecture **graph dynamique** avec **Executors** (noeuds) et **Edges** (connexions).
 
+---
+
+## 📊 STATUS TRACKER (2025-02-04)
+
+### Implémenté ✅
+
+| PR | Feature | Fichier(s) | Status |
+|----|---------|------------|--------|
+| **PR #1** | Executor Trait | `graph/executor.rs` | ✅ Complet |
+| **PR #2** | WorkflowContext | `graph/context.rs` | ✅ Complet |
+| **PR #3** | 5 Edge Types | `graph/edge.rs` | ✅ Complet |
+| **PR #4** | WorkflowBuilder | `graph/builder.rs` | ✅ Complet |
+| **PR #5** | Superstep Execution | `graph/superstep.rs`, `graph/workflow.rs` | ✅ Complet |
+| **PR #6** | Graph Persistence | `graph/persistence.rs` | ✅ Complet |
+
+### En cours 🚧
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `Workflow.run_with_resume()` | 🚧 PR #6 | Resume depuis checkpoint |
+| `SharedValidatorPipeline` | 🚧 PR #6 | Arc wrapper pour stateless sharing |
+
+### Implémenté récemment ✅
+
+| Feature | PR/Phase | Notes |
+|---------|----------|-------|
+| **Agent Trait** (`run`, `run_stream`, `tools`) | Phase 6 | `distributed/graph/agent/trait_def.rs` |
+| **AgentThread** (in-memory) | Phase 6 | NATS KV déféré Phase 8 |
+| **ChatAgent** | Phase 6 | `distributed/graph/agent/chat_agent.rs` |
+| **WorkflowAgent** | Phase 6 | `distributed/graph/agent/workflow_agent.rs` |
+| **`workflow.as_agent()`** | Phase 6 | `WorkflowAsAgent` trait |
+| **SequentialBuilder** | Phase 7 | `patterns/sequential.rs` |
+| **ConcurrentBuilder** | Phase 7 | `patterns/concurrent.rs` |
+| **GroupChatBuilder** | Phase 7 | `patterns/group_chat.rs` + selectors |
+| **HandoffBuilder** | Phase 7 | `patterns/handoff.rs` + `HandoffCapable` |
+| **MemoryProvider** | Phase 8 | `agent/memory.rs` - trait + InMemoryProvider |
+| **ChatReducer** | Phase 8 | `agent/reducer.rs` - 4 implémentations |
+| **Memory types** | Phase 8 | `Memory`, `MemoryCategory`, `MemoryContext` |
+| **GatewaySandbox** | Phase 8 | `agentic-sandbox/gateway.rs` - Firecracker via Gateway |
+
+### Non implémenté ❌
+
+| Feature | Priorité | Effort | Section doc |
+|---------|----------|--------|-------------|
+| **AgentThread NATS KV** (persisté) | P1 | 0.5 sem | [Thread](#thread-conversation-persistee-sur-nats) |
+| **NatsMemoryProvider** | P1 | 0.5 sem | [Agent Memory](#agent-memory-court-terme-et-long-terme) |
+| **BedrockProvider** (Converse API) | P1 | 1 sem | [Bedrock Integration](#aws-bedrock-integration) |
+| **BedrockProvider Tool Use** | P1 | 0.5 sem | [Bedrock Tool Use](#tool-use-loop-pattern) |
+| **BedrockAgentExecutor** | P2 | 1 sem | [Bedrock Integration](#aws-bedrock-integration) |
+| **BedrockKnowledgeBaseExecutor** | P2 | 1 sem | [Bedrock KB](#niveau-3-knowledge-bases-direct-access) |
+| **BedrockFlowExecutor** | P3 | 1 sem | [Bedrock Flows](#niveau-4-bedrock-flows) |
+| **BedrockSessionManager** | P2 | 0.5 sem | [Bedrock Sessions](#niveau-5-session-management-multi-turn) |
+| **GuardrailExecutor** | P2 | 0.5 sem | [Bedrock Guardrails](#niveau-6-guardrails-integration) |
+| **BedrockCircuitBreaker** | P2 | 0.5 sem | [Bedrock Retry](#niveau-7-error-handling-et-retry) |
+| **ContinuationToken** | P2 | 1 sem | [Background Responses](#background-responses-taches-longues-avec-continuation) |
+| **MagenticPlanner** | P3 | 2 sem | [Magentic](#pattern-magentic-planner-based) |
+| **llm_selector** | P2 | 0.5 sem | LLM-based speaker selection |
+
+### Architecture actuelle vs cible
+
+```
+ACTUEL (v0.3.0):                          CIBLE (v1.0):
+┌─────────────────────────────┐           ┌─────────────────────────────┐
+│         AGENT LAYER         │           │         AGENT LAYER         │
+│  ✅ trait Agent             │           │  ✅ trait Agent + ChatAgent │
+│  ✅ ChatAgent, WorkflowAgent│  ──────▶  │  + WorkflowAgent + Thread   │
+│  ✅ Memory (in-memory)      │           │  + Memory + Background      │
+│  ✅ ChatReducer (4 types)   │           │  + NatsMemoryProvider       │
+└─────────────────────────────┘           └─────────────────────────────┘
+              │                                         │
+              ▼                                         ▼
+┌─────────────────────────────┐           ┌─────────────────────────────┐
+│       WORKFLOW LAYER        │           │       WORKFLOW LAYER        │
+│  ✅ Executor trait          │           │  ✅ Executor trait          │
+│  ✅ 5 Edge types            │           │  ✅ 5 Edge types            │
+│  ✅ Superstep execution     │           │  ✅ Superstep execution     │
+│  ✅ WorkflowBuilder         │           │  ✅ WorkflowBuilder         │
+│  ✅ Persistence (Redis)     │           │  ✅ Persistence (Redis)     │
+│  ✅ Orchestration Patterns  │           │  ✅ Sequential, Concurrent  │
+│    Sequential, Concurrent   │           │  ✅ GroupChat, Handoff      │
+│    GroupChat, Handoff       │           │  ⏳ MagenticPlanner         │
+└─────────────────────────────┘           └─────────────────────────────┘
+```
+
+---
+
 ## TL;DR
 
 | Concept | Description | Inspiré de |
@@ -68,6 +154,10 @@
 ---
 
 ## Agent Layer: L'Interface Utilisateur
+
+> ✅ **STATUT: IMPLÉMENTÉ (Phase 6)** - `distributed/graph/agent/` module.
+> Le `trait Agent` avec `run()` et `run_stream()` est implémenté.
+> `ChatAgent`, `WorkflowAgent`, `AgentThread` (in-memory), et `Tool` sont disponibles.
 
 Inspiré de [Microsoft Agent Framework - Agent Types](https://learn.microsoft.com/fr-fr/agent-framework/user-guide/agents/agent-types/).
 
@@ -626,6 +716,8 @@ async for event in workflow.run_stream("Write a blog post about AI").await {
 
 ### Thread: Conversation Persistée sur NATS
 
+> ✅ **STATUT: PARTIELLEMENT IMPLÉMENTÉ** - `AgentThread` in-memory implémenté en Phase 6. Persistance NATS KV planifiée pour Phase 8.
+
 > Inspiré de [MAF Multi-turn Conversation](https://learn.microsoft.com/fr-fr/agent-framework/user-guide/agents/multi-turn-conversation)
 
 #### Principe Clé: Agents Stateless, Threads Stateful
@@ -777,6 +869,8 @@ Critères de compatibilité:
 
 ### Background Responses: Tâches Longues avec Continuation
 
+> ⚠️ **STATUT: NON IMPLÉMENTÉ** - Planifié pour Phase 9.
+
 > Inspiré de [MAF Background Responses](https://learn.microsoft.com/fr-fr/agent-framework/user-guide/agents/agent-background-responses)
 
 Pour les tâches de longue durée (raisonnement complexe, génération massive), on utilise un système de **continuation token** permettant de reprendre le traitement.
@@ -921,6 +1015,17 @@ async fn resumable_stream(agent: &ChatAgent, thread: &mut AgentThread) {
 ---
 
 ### Agent Memory: Court Terme et Long Terme
+
+> ✅ **STATUT: PARTIELLEMENT IMPLÉMENTÉ** - Phase 8 complète pour in-memory.
+>
+> Implémenté:
+> - `MemoryProvider` trait avec `before_invoke`/`after_invoke`
+> - `InMemoryProvider` et `NoOpMemoryProvider`
+> - `Memory`, `MemoryCategory`, `UserMemories`, `MemoryContext`
+> - `ChatReducer` trait avec 4 implémentations
+> - Example: `examples/memory_demo.rs`
+>
+> À faire: `NatsMemoryProvider` (Phase 9)
 
 > Inspiré de [MAF Agent Memory](https://learn.microsoft.com/fr-fr/agent-framework/user-guide/agents/agent-memory)
 
@@ -1238,11 +1343,13 @@ pub trait Executor: Send + Sync {
     fn kind(&self) -> ExecutorKind;
 
     /// Traite un message et utilise le contexte pour communiquer
-    async fn handle(
+    async fn handle<Ctx>(
         &self,
         input: Self::Input,
-        ctx: &mut WorkflowContext<Self::Message, Self::Output>,
-    ) -> Result<(), ExecutorError>;
+        ctx: &mut Ctx,
+    ) -> Result<(), ExecutorError>
+    where
+        Ctx: ExecutorContext<Self::Message, Self::Output> + Send;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1254,6 +1361,66 @@ pub enum ExecutorKind {
     /// Coordonne un sub-graph (récursif)
     Orchestrator,
 }
+```
+
+### MAF Dynamic Dispatch Pattern
+
+> **Important**: Inspiré de [MAF Python Executors](https://learn.microsoft.com/en-us/agent-framework/user-guide/workflows/core-concepts/executors),
+> nos executors utilisent `serde_json::Value` pour le **dynamic dispatch**.
+
+**Problème**: L'`ExecutorRegistry` impose une contrainte de types:
+```rust
+pub struct ExecutorRegistry<TMessage, TOutput> {
+    executors: HashMap<ExecutorId, Arc<dyn Executor<Message = TMessage, Output = TOutput>>>,
+}
+```
+
+Tous les executors d'un workflow DOIVENT avoir les mêmes types `Message` et `Output`.
+
+**Solution MAF**: Type erasure avec `serde_json::Value`:
+
+```rust
+// TOUS les executors built-in utilisent le même pattern:
+impl Executor for LLMGeneratorExecutor {
+    type Input = Value;     // Dynamic dispatch
+    type Message = Value;   // Dynamic dispatch
+    type Output = String;   // Status messages
+
+    async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
+    where
+        Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
+    {
+        // Deserialize dynamically
+        let typed_input: GeneratorInput = serde_json::from_value(input)?;
+
+        // ... process ...
+
+        // Serialize output to Value
+        ctx.send_message(generated.to_value()).await?;
+        Ok(())
+    }
+}
+```
+
+**Avantages**:
+- ✅ Tous les executors compatibles dans un même workflow
+- ✅ Type-safe construction avec helpers (`GeneratorInput`, `CompileInput`, etc.)
+- ✅ Runtime flexibility pour routing dynamique
+- ✅ Matches MAF Python pattern avec `WorkflowContext[T]`
+
+**Trade-off**: Validation des types au runtime plutôt qu'à la compilation.
+
+### Input/Output Schemas
+
+Chaque executor documente son schema JSON:
+
+| Executor | Input Schema | Output Schema |
+|----------|--------------|---------------|
+| `LLMGeneratorExecutor` | `GeneratorInput` → `{prompt, language, context?, previous_errors?}` | `GeneratedCode` → `{code, language, prompt, tokens_used}` |
+| `CompileValidatorExecutor` | `CompileInput` → `{code, language, task?}` | `CompileOutput` → `{code, language, passed, errors, feedback?}` |
+| `TestValidatorExecutor` | `TestInput` → `{code, language, test_filter?, task?}` | `TestOutput` → `{code, language, passed, test_count, tests_passed, tests_failed, errors}` |
+| `CodeAssemblerExecutor` | `AssemblyInput` → `{parts: [{name, code, language, section?}], language}` | `AssembledCode` → `{code, language, part_count, size_bytes}` |
+| `SubWorkflowExecutor` | `SubWorkflowInput` → `{input: any, task_id?}` | `SubWorkflowOutput` → `{outputs, superstep_count, duration_ms, success, error?}` |
 ```
 
 ### Executors Déclaratifs (Function-based)
@@ -1776,146 +1943,1429 @@ impl Executor for IntermediateProcessor {
 }
 ```
 
-### Exemples d'Executors Concrets
+### Exemples d'Executors Concrets (MAF Pattern)
+
+> **Note**: Tous les executors utilisent `serde_json::Value` pour Input/Message
+> (MAF dynamic dispatch). Les types helpers (`GeneratorInput`, etc.) sont pour
+> la construction type-safe côté appelant.
 
 ```rust
-// === WORKER: Génère du code ===
-pub struct CodeGenerator {
+use serde_json::Value;
+
+// === WORKER: Génère du code avec LLM ===
+pub struct LLMGeneratorExecutor {
     id: ExecutorId,
-    llm: Arc<dyn LLMAdapter>,
+    llm: Arc<Mutex<LLMExecutor>>,
     system_prompt: String,
 }
 
 #[async_trait]
-impl Executor for CodeGenerator {
-    type Input = GenerationRequest;
-    type Message = GeneratedCode;       // → vers autres executors
-    type Output = Never;                 // pas de sortie externe
+impl Executor for LLMGeneratorExecutor {
+    type Input = Value;      // MAF: dynamic dispatch
+    type Message = Value;    // MAF: dynamic dispatch
+    type Output = String;    // Status messages
 
     fn id(&self) -> &ExecutorId { &self.id }
     fn kind(&self) -> ExecutorKind { ExecutorKind::Worker }
 
-    async fn handle(
-        &self,
-        input: GenerationRequest,
-        ctx: &mut WorkflowContext<GeneratedCode>,
-    ) -> Result<(), ExecutorError> {
-        // Consulter l'historique pour éviter les mêmes erreurs
-        let previous_errors = ctx.previous_errors();
-        let prompt = self.build_prompt_with_context(&input, previous_errors);
+    async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
+    where
+        Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
+    {
+        // Deserialize dynamically
+        let typed_input: GeneratorInput = serde_json::from_value(input)?;
 
         // Appeler le LLM
-        let response = self.llm.generate(&self.system_prompt, &prompt).await?;
+        let response = self.llm.lock().await.execute(&self.system_prompt, &typed_input.prompt).await?;
 
-        // Envoyer le résultat aux edges sortants (send_message = interne)
-        ctx.send_message(GeneratedCode {
-            code: response.content,
-            language: input.language,
-        }).await?;
+        // Build output
+        let generated = GeneratedCode::new(&response.content, &typed_input.language);
+
+        // Serialize output to Value for next executors
+        ctx.send_message(generated.to_value()).await?;
+
+        // Yield status output
+        ctx.yield_output(format!("Generated {} bytes", response.content.len())).await?;
 
         Ok(())
     }
 }
 
 // === VALIDATOR: Vérifie la compilation ===
-pub struct CompileValidator {
+pub struct CompileValidatorExecutor<S: Sandbox> {
     id: ExecutorId,
-    sandbox: Arc<dyn Sandbox>,
+    validator: SandboxValidator<S>,
 }
 
 #[async_trait]
-impl Executor for CompileValidator {
-    type Input = CodeToValidate;
-    type Message = ValidationResult;    // → vers autres executors
-    type Output = Never;
+impl<S: Sandbox + Send + Sync + 'static> Executor for CompileValidatorExecutor<S> {
+    type Input = Value;      // MAF: dynamic dispatch
+    type Message = Value;    // MAF: dynamic dispatch
+    type Output = String;    // Status messages
 
     fn id(&self) -> &ExecutorId { &self.id }
     fn kind(&self) -> ExecutorKind { ExecutorKind::Validator }
 
-    async fn handle(
-        &self,
-        input: CodeToValidate,
-        ctx: &mut WorkflowContext<ValidationResult>,
-    ) -> Result<(), ExecutorError> {
-        // Compiler dans le sandbox
-        let result = self.sandbox.compile(&input.code, &input.language).await?;
+    async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
+    where
+        Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
+    {
+        // Deserialize dynamically
+        let typed_input: CompileInput = serde_json::from_value(input)?;
 
-        // Envoyer le résultat (les edges conditionnels routeront selon passed)
-        ctx.send_message(ValidationResult {
-            passed: result.success,
-            errors: result.errors,
-            feedback: self.build_feedback(&result),
-        }).await?;
+        // Compiler dans le sandbox
+        let result = self.validator.validate_code(&typed_input.code, language).await?;
+
+        // Build output
+        let output = CompileOutput {
+            code: typed_input.code.clone(),
+            language: typed_input.language.clone(),
+            passed: result.compiles,
+            errors: result.compiler_errors,
+            feedback: result.feedback,
+            execution_time_ms: result.execution_time_ms,
+        };
+
+        // Serialize to Value (edges conditionnels routeront selon "passed")
+        ctx.send_message(output.to_value()).await?;
+
+        // Yield status
+        let status = if output.passed { "Compilation: PASSED" } else { "Compilation: FAILED" };
+        ctx.yield_output(status.into()).await?;
 
         Ok(())
     }
 }
 
-// === FINAL ASSEMBLER: Produit la sortie du workflow ===
-pub struct FinalAssembler {
+// === WORKER: Assemble code fragments ===
+pub struct CodeAssemblerExecutor {
     id: ExecutorId,
+    assembler: CodeAssembler,
 }
 
 #[async_trait]
-impl Executor for FinalAssembler {
-    type Input = AssemblyParts;
-    type Message = Never;                // pas de message interne
-    type Output = FinalCode;             // → sortie visible par l'Agent
+impl Executor for CodeAssemblerExecutor {
+    type Input = Value;      // MAF: dynamic dispatch
+    type Message = Value;    // MAF: dynamic dispatch
+    type Output = String;    // Final assembled code
 
     fn id(&self) -> &ExecutorId { &self.id }
     fn kind(&self) -> ExecutorKind { ExecutorKind::Worker }
 
-    async fn handle(
-        &self,
-        input: AssemblyParts,
-        ctx: &mut WorkflowContext<Never, FinalCode>,
-    ) -> Result<(), ExecutorError> {
-        // Assembler toutes les parties
-        let final_code = FinalCode {
-            types: input.types,
-            implementation: input.implementation,
-            tests: input.tests,
-        };
+    async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
+    where
+        Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
+    {
+        // Deserialize dynamically
+        let typed_input: AssemblyInput = serde_json::from_value(input)?;
 
-        // yield_output = sortie finale visible par l'Agent
-        ctx.yield_output(final_code).await?;
+        // Assemble code
+        let code = self.assemble_parts(&typed_input);
+        let assembled = AssembledCode::new(&code, &typed_input.language, typed_input.parts.len());
+
+        // Send as Value to next executors
+        ctx.send_message(assembled.to_value()).await?;
+
+        // Yield the final code as workflow output
+        ctx.yield_output(code).await?;
 
         Ok(())
     }
 }
 
 // === ORCHESTRATOR: Coordonne un sub-workflow ===
-pub struct SubWorkflowOrchestrator {
+pub struct SubWorkflowExecutor {
     id: ExecutorId,
-    sub_workflow: Workflow,
+    workflow: Arc<Workflow<Value, String>>,  // Child workflow
+    fail_on_child_failure: bool,
 }
 
 #[async_trait]
-impl Executor for SubWorkflowOrchestrator {
-    type Input = SubTaskRequest;
-    type Message = SubTaskResult;        // → vers autres executors
-    type Output = Never;
+impl Executor for SubWorkflowExecutor {
+    type Input = Value;      // MAF: dynamic dispatch
+    type Message = Value;    // MAF: dynamic dispatch
+    type Output = String;    // Status messages
 
     fn id(&self) -> &ExecutorId { &self.id }
     fn kind(&self) -> ExecutorKind { ExecutorKind::Orchestrator }
 
-    async fn handle(
-        &self,
-        input: SubTaskRequest,
-        ctx: &mut WorkflowContext<SubTaskResult>,
-    ) -> Result<(), ExecutorError> {
-        // Exécuter le sub-workflow (récursif!)
-        let result = self.sub_workflow.run(input).await?;
+    async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
+    where
+        Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
+    {
+        // Run the child workflow
+        let result = self.workflow.run(input).await?;
 
-        // Envoyer le résultat agrégé aux edges sortants
-        ctx.send_message(SubTaskResult {
-            outputs: result.outputs,
-            passed: result.all_passed(),
+        // Convert to output
+        let output = SubWorkflowOutput::from_result(result);
+
+        // Check for failure
+        if self.fail_on_child_failure && !output.success {
+            return Err(ExecutorError::new(self.id.clone(), output.error.unwrap_or_default()));
+        }
+
+        // Yield status
+        ctx.yield_output(format!(
+            "Sub-workflow: {} ({} outputs, {} supersteps)",
+            if output.success { "COMPLETED" } else { "FAILED" },
+            output.outputs.len(),
+            output.superstep_count
+        )).await?;
+
+        // Send output as Value to next executors
+        ctx.send_message(output.to_value()).await?;
+
+        Ok(())
+    }
+}
+```
+
+### Type-Safe Construction Helpers
+
+```rust
+// Input helpers with builder pattern
+let input = GeneratorInput::new("Write fibonacci function", "rust")
+    .with_context("Must be iterative, not recursive")
+    .with_errors(vec!["error[E0308]: type mismatch".into()])
+    .to_value();  // → serde_json::Value
+
+let compile_input = CompileInput::new(code, "rust")
+    .with_task("Implement state machine")
+    .to_value();
+
+let assembly_input = AssemblyInput::new("rust")
+    .add_part(CodePart::new("types", types_code, "rust").with_section("Type Definitions"))
+    .add_part(CodePart::new("impl", impl_code, "rust").with_section("Implementation"))
+    .to_value();
+
+// Workflow usage
+let workflow = WorkflowBuilder::<Value>::new("code-gen")
+    .set_start("generator")
+    .add_executor(LLMGeneratorExecutor::new("generator", llm))
+    .add_executor(CompileValidatorExecutor::new("validator", sandbox))
+    .add_direct_edge("generator", "validator")
+    .build()?;
+
+workflow.run(input).await?;
+```
+
+---
+
+## AWS Bedrock Integration
+
+> ⚠️ **STATUT: NON IMPLÉMENTÉ** - Planifié pour Phase 9.
+
+Inspiré de [AWS Multi-Agent Orchestration](https://github.com/aws-samples/agentic-orchestration) et de l'intégration de Bedrock avec LangGraph/CrewAI.
+
+### Architecture: Notre Orchestration + Agents Bedrock
+
+Le pattern recommandé par AWS consiste à **garder notre propre orchestration** et à **appeler les agents Bedrock comme services externes**. C'est ce que font LangGraph et CrewAI avec Bedrock.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│           Framework Dasein (NOTRE Orchestration)                │
+│                                                                 │
+│   ┌─────────────────────────────────────────────────────────┐  │
+│   │              Workflow / Supervisor                       │  │
+│   │   (Sequential, Concurrent, GroupChat, Handoff)          │  │
+│   └───────────────────────┬─────────────────────────────────┘  │
+│                           │                                     │
+│           ┌───────────────┼───────────────┐                    │
+│           ▼               ▼               ▼                    │
+│   ┌─────────────┐ ┌─────────────┐ ┌─────────────┐             │
+│   │   Agent A   │ │   Agent B   │ │   Agent C   │             │
+│   │  (Bedrock)  │ │  (Bedrock)  │ │   (Local)   │             │
+│   └──────┬──────┘ └──────┬──────┘ └──────┬──────┘             │
+│          │               │               │                      │
+└──────────┼───────────────┼───────────────┼──────────────────────┘
+           │               │               │
+           ▼               ▼               │
+┌─────────────────────────────────────┐    │
+│            AWS Bedrock              │    │
+│   InvokeAgent API / Converse API   │    │
+└─────────────────────────────────────┘    │
+                                           │
+                              ┌────────────▼────────────┐
+                              │   Local LLM / Anthropic │
+                              │   Direct API            │
+                              └─────────────────────────┘
+```
+
+### Sept Niveaux d'Intégration
+
+| Niveau | Composant | Usage | Contrôle |
+|--------|-----------|-------|----------|
+| **1. LLM Provider** | `BedrockProvider` | Modèles Bedrock (Claude, Llama, Mistral) via Converse API | Total |
+| **2. Tool Use** | `BedrockProvider` | Function calling avec boucle agentic | Total |
+| **3. Agent Executor** | `BedrockAgentExecutor` | Agents Bedrock existants avec Knowledge Bases | Partiel |
+| **4. Knowledge Base** | `BedrockKBExecutor` | RAG direct sur Knowledge Bases | Total |
+| **5. Flows** | `BedrockFlowExecutor` | Sous-workflows créés via console AWS | Partiel |
+| **6. Sessions** | `BedrockSessionManager` | Conversations multi-turn persistantes | Total |
+| **7. Guardrails** | `GuardrailExecutor` | Filtrage sécurité input/output | Total |
+
+**Bonus: Error Handling**
+- `BedrockRetryConfig` - Exponential backoff pour throttling
+- `BedrockCircuitBreaker` - Protection contre surcharge
+
+### Niveau 1: BedrockProvider (Converse API)
+
+Utilise les **modèles** Bedrock comme LLM provider, avec **notre orchestration**.
+
+```rust
+use aws_sdk_bedrockruntime::Client;
+
+/// Provider LLM utilisant AWS Bedrock Converse API
+pub struct BedrockProvider {
+    client: Client,
+    model_id: String,  // ex: "anthropic.claude-3-sonnet-20240229-v1:0"
+    region: String,
+}
+
+impl BedrockProvider {
+    pub fn new(model_id: impl Into<String>) -> Self {
+        let config = aws_config::load_from_env().await;
+        Self {
+            client: Client::new(&config),
+            model_id: model_id.into(),
+            region: config.region().unwrap().to_string(),
+        }
+    }
+
+    /// Modèles supportés
+    pub fn claude_sonnet() -> Self {
+        Self::new("anthropic.claude-3-sonnet-20240229-v1:0")
+    }
+
+    pub fn claude_haiku() -> Self {
+        Self::new("anthropic.claude-3-haiku-20240307-v1:0")
+    }
+
+    pub fn llama3_70b() -> Self {
+        Self::new("meta.llama3-70b-instruct-v1:0")
+    }
+
+    pub fn mistral_large() -> Self {
+        Self::new("mistral.mistral-large-2402-v1:0")
+    }
+}
+
+#[async_trait]
+impl LLMAdapter for BedrockProvider {
+    async fn generate(&self, messages: &[LLMMessage]) -> Result<LLMResponse, LLMError> {
+        let response = self.client
+            .converse()
+            .model_id(&self.model_id)
+            .messages(convert_to_bedrock_messages(messages))
+            .send()
+            .await?;
+
+        Ok(LLMResponse {
+            content: extract_text(&response),
+            tokens_used: TokenUsage {
+                input: response.usage().input_tokens() as u32,
+                output: response.usage().output_tokens() as u32,
+            },
+            model: self.model_id.clone(),
+            ..Default::default()
+        })
+    }
+
+    async fn generate_stream(&self, messages: &[LLMMessage])
+        -> Pin<Box<dyn Stream<Item = LLMChunk> + Send>>
+    {
+        let stream = self.client
+            .converse_stream()
+            .model_id(&self.model_id)
+            .messages(convert_to_bedrock_messages(messages))
+            .send()
+            .await
+            .unwrap();
+
+        Box::pin(stream.stream.map(|event| {
+            match event {
+                Ok(ConversationStreamOutput::ContentBlockDelta(delta)) => {
+                    LLMChunk::Text(delta.delta.text().unwrap_or_default().to_string())
+                }
+                Ok(ConversationStreamOutput::MessageStop(_)) => LLMChunk::Done,
+                Err(e) => LLMChunk::Error(e.to_string()),
+                _ => LLMChunk::Empty,
+            }
+        }))
+    }
+
+    fn supports_tools(&self) -> bool { true }
+    fn supports_streaming(&self) -> bool { true }
+
+    async fn generate_with_tools(
+        &self,
+        messages: &[LLMMessage],
+        tools: &[ToolDefinition],
+    ) -> Result<LLMResponse, LLMError> {
+        use aws_sdk_bedrockruntime::types::{Tool, ToolSpecification, ToolInputSchema};
+
+        // Convertir nos tools vers le format Bedrock
+        let bedrock_tools: Vec<Tool> = tools.iter().map(|t| {
+            Tool::ToolSpec(
+                ToolSpecification::builder()
+                    .name(&t.name)
+                    .description(&t.description)
+                    .input_schema(ToolInputSchema::Json(
+                        aws_smithy_types::Document::from(t.parameters.clone())
+                    ))
+                    .build()
+                    .unwrap()
+            )
+        }).collect();
+
+        let response = self.client
+            .converse()
+            .model_id(&self.model_id)
+            .messages(convert_to_bedrock_messages(messages))
+            .set_tool_config(Some(
+                aws_sdk_bedrockruntime::types::ToolConfiguration::builder()
+                    .set_tools(Some(bedrock_tools))
+                    .build()
+                    .unwrap()
+            ))
+            .send()
+            .await?;
+
+        // Parser tool_use blocks si présents
+        let tool_calls = extract_tool_calls(&response);
+
+        Ok(LLMResponse {
+            content: extract_text(&response),
+            tool_calls,
+            tokens_used: TokenUsage {
+                input: response.usage().input_tokens() as u32,
+                output: response.usage().output_tokens() as u32,
+            },
+            model: self.model_id.clone(),
+            stop_reason: map_stop_reason(&response),
+        })
+    }
+}
+
+/// Configuration avancée avec Guardrails
+impl BedrockProvider {
+    pub fn with_guardrails(mut self, guardrail_id: &str, version: &str) -> Self {
+        self.guardrail_config = Some(GuardrailConfig {
+            guardrail_id: guardrail_id.to_string(),
+            guardrail_version: version.to_string(),
+        });
+        self
+    }
+
+    pub fn with_inference_config(mut self, config: InferenceConfig) -> Self {
+        self.inference_config = Some(config);
+        self
+    }
+}
+
+#[derive(Clone)]
+pub struct InferenceConfig {
+    pub max_tokens: Option<i32>,
+    pub temperature: Option<f32>,
+    pub top_p: Option<f32>,
+    pub stop_sequences: Vec<String>,
+}
+```
+
+#### Tool Use Loop Pattern
+
+```rust
+/// Boucle d'exécution avec tool use (agentic loop)
+pub async fn run_with_tools(
+    provider: &BedrockProvider,
+    messages: &mut Vec<LLMMessage>,
+    tools: &[ToolDefinition],
+    tool_executor: &impl ToolExecutor,
+) -> Result<String, LLMError> {
+    loop {
+        let response = provider.generate_with_tools(messages, tools).await?;
+
+        // Si pas de tool calls, retourner la réponse
+        if response.tool_calls.is_empty() {
+            return Ok(response.content);
+        }
+
+        // Ajouter la réponse assistant avec tool_use
+        messages.push(LLMMessage::assistant_with_tools(
+            &response.content,
+            &response.tool_calls,
+        ));
+
+        // Exécuter chaque tool call
+        let mut tool_results = Vec::new();
+        for call in &response.tool_calls {
+            let result = tool_executor.execute(&call.name, &call.arguments).await?;
+            tool_results.push(ToolResult {
+                tool_use_id: call.id.clone(),
+                content: result,
+            });
+        }
+
+        // Ajouter les résultats comme message user
+        messages.push(LLMMessage::tool_results(tool_results));
+    }
+}
+```
+
+#### Usage avec nos Agents
+
+```rust
+// Créer un agent avec Bedrock comme LLM
+let bedrock_llm = BedrockProvider::claude_sonnet();
+
+let researcher = ChatAgent::builder()
+    .name("researcher")
+    .llm(Arc::new(bedrock_llm))
+    .system_prompt("Tu es un expert en recherche...")
+    .build();
+
+// Notre workflow, notre orchestration
+let workflow = SequentialBuilder::new("pipeline")
+    .add_participant(researcher)
+    .build();
+```
+
+### Niveau 2: BedrockAgentExecutor (InvokeAgent)
+
+Wrapper pour appeler des **agents Bedrock existants** depuis notre workflow.
+
+```rust
+use aws_sdk_bedrockagentruntime::Client;
+
+/// Executor qui appelle un agent Bedrock managé
+pub struct BedrockAgentExecutor {
+    id: ExecutorId,
+    client: Client,
+    agent_id: String,
+    agent_alias_id: String,
+}
+
+impl BedrockAgentExecutor {
+    pub fn new(
+        id: impl Into<String>,
+        agent_id: impl Into<String>,
+        agent_alias_id: impl Into<String>,
+    ) -> Self {
+        let config = aws_config::load_from_env().await;
+        Self {
+            id: ExecutorId::new(id),
+            client: Client::new(&config),
+            agent_id: agent_id.into(),
+            agent_alias_id: agent_alias_id.into(),
+        }
+    }
+}
+
+#[async_trait]
+impl Executor for BedrockAgentExecutor {
+    type Input = Value;
+    type Message = Value;
+    type Output = String;
+
+    fn id(&self) -> &ExecutorId { &self.id }
+    fn kind(&self) -> ExecutorKind { ExecutorKind::Worker }
+
+    async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
+    where
+        Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
+    {
+        let input_text = input.as_str()
+            .or_else(|| input.get("text").and_then(|v| v.as_str()))
+            .ok_or_else(|| ExecutorError::InvalidInput("Expected text input".into()))?;
+
+        // Générer un session ID unique pour cette invocation
+        let session_id = uuid::Uuid::new_v4().to_string();
+
+        // Appeler l'agent Bedrock
+        let response = self.client
+            .invoke_agent()
+            .agent_id(&self.agent_id)
+            .agent_alias_id(&self.agent_alias_id)
+            .session_id(&session_id)
+            .input_text(input_text)
+            .send()
+            .await
+            .map_err(|e| ExecutorError::External(format!("Bedrock error: {}", e)))?;
+
+        // Collecter la réponse streamée
+        let mut full_response = String::new();
+        let mut completion = response.completion;
+
+        while let Some(event) = completion.recv().await
+            .map_err(|e| ExecutorError::External(format!("Stream error: {}", e)))?
+        {
+            if let Some(chunk) = event.as_chunk() {
+                let text = std::str::from_utf8(chunk.bytes())
+                    .unwrap_or_default();
+                full_response.push_str(text);
+
+                // Émettre un événement de progression
+                ctx.add_event(BedrockChunkEvent {
+                    executor_id: self.id.clone(),
+                    chunk: text.to_string(),
+                }).await?;
+            }
+        }
+
+        // Envoyer le résultat au prochain executor
+        ctx.send_message(json!({
+            "response": full_response,
+            "agent_id": self.agent_id,
+            "session_id": session_id,
+        })).await?;
+
+        // Yield le résultat final
+        ctx.yield_output(full_response).await?;
+
+        Ok(())
+    }
+}
+```
+
+#### Usage: Mix Agents Bedrock + Locaux
+
+```rust
+// Agents Bedrock existants (avec Knowledge Bases, etc.)
+let bedrock_researcher = BedrockAgentExecutor::new(
+    "researcher",
+    "AGENT_ID_ABC123",
+    "ALIAS_ID_XYZ",
+);
+
+let bedrock_analyst = BedrockAgentExecutor::new(
+    "analyst",
+    "AGENT_ID_DEF456",
+    "ALIAS_ID_ABC",
+);
+
+// Agent local (notre contrôle total)
+let local_writer = ChatAgent::builder()
+    .name("writer")
+    .llm(Arc::new(AnthropicProvider::new()))
+    .system_prompt("Tu es un rédacteur technique...")
+    .build();
+
+// NOTRE workflow orchestre tout
+let workflow = SequentialBuilder::new("research-write-pipeline")
+    .add_participant(bedrock_researcher)  // Appelle Bedrock
+    .add_participant(bedrock_analyst)     // Appelle Bedrock
+    .add_participant(local_writer)        // Local
+    .build();
+
+let result = workflow.run("Analyse les tendances AI 2025").await?;
+```
+
+### Niveau 3: Knowledge Bases Direct Access
+
+Accès direct aux Knowledge Bases Bedrock **sans passer par un agent**, utile pour RAG personnalisé.
+
+```rust
+use aws_sdk_bedrockagentruntime::Client as AgentRuntimeClient;
+
+/// Executor pour requêter directement une Knowledge Base Bedrock
+pub struct BedrockKnowledgeBaseExecutor {
+    id: ExecutorId,
+    client: AgentRuntimeClient,
+    knowledge_base_id: String,
+    model_arn: String,  // Modèle pour générer les réponses
+}
+
+impl BedrockKnowledgeBaseExecutor {
+    pub fn new(
+        id: impl Into<String>,
+        knowledge_base_id: impl Into<String>,
+        model_arn: impl Into<String>,
+    ) -> Self {
+        let config = aws_config::load_from_env().await;
+        Self {
+            id: ExecutorId::new(id),
+            client: AgentRuntimeClient::new(&config),
+            knowledge_base_id: knowledge_base_id.into(),
+            model_arn: model_arn.into(),
+        }
+    }
+
+    /// Configuration du retrieval
+    pub fn with_retrieval_config(mut self, config: RetrievalConfig) -> Self {
+        self.retrieval_config = Some(config);
+        self
+    }
+}
+
+#[derive(Clone)]
+pub struct RetrievalConfig {
+    pub number_of_results: i32,           // Nombre de chunks à retourner
+    pub search_type: SearchType,           // HYBRID | SEMANTIC
+    pub metadata_filter: Option<Value>,    // Filtres sur métadonnées
+}
+
+#[async_trait]
+impl Executor for BedrockKnowledgeBaseExecutor {
+    type Input = String;
+    type Message = KBRetrievalResult;
+    type Output = KBResponse;
+
+    async fn handle<Ctx>(&self, query: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
+    where
+        Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
+    {
+        // Option 1: Retrieve only (RAG manuel)
+        let retrieval = self.client
+            .retrieve()
+            .knowledge_base_id(&self.knowledge_base_id)
+            .retrieval_query(
+                RetrievalQuery::builder()
+                    .text(&query)
+                    .build()
+            )
+            .retrieval_configuration(/* ... */)
+            .send()
+            .await?;
+
+        // Envoyer les chunks récupérés
+        for result in retrieval.retrieval_results() {
+            ctx.send_message(KBRetrievalResult {
+                content: result.content().text().to_string(),
+                location: result.location().clone(),
+                score: result.score(),
+                metadata: result.metadata().clone(),
+            }).await?;
+        }
+
+        // Option 2: Retrieve and Generate (réponse complète)
+        let response = self.client
+            .retrieve_and_generate()
+            .knowledge_base_id(&self.knowledge_base_id)
+            .input(
+                RetrieveAndGenerateInput::builder()
+                    .text(&query)
+                    .build()
+            )
+            .retrieve_and_generate_configuration(
+                RetrieveAndGenerateConfiguration::builder()
+                    .r#type(RetrieveAndGenerateType::KnowledgeBase)
+                    .knowledge_base_configuration(
+                        KnowledgeBaseRetrieveAndGenerateConfiguration::builder()
+                            .knowledge_base_id(&self.knowledge_base_id)
+                            .model_arn(&self.model_arn)
+                            .build()
+                    )
+                    .build()
+            )
+            .send()
+            .await?;
+
+        ctx.yield_output(KBResponse {
+            answer: response.output().text().to_string(),
+            citations: extract_citations(&response),
+            session_id: response.session_id().map(|s| s.to_string()),
         }).await?;
 
         Ok(())
     }
 }
+```
+
+#### Usage: RAG Hybride
+
+```rust
+// Knowledge Base pour documentation technique
+let kb_docs = BedrockKnowledgeBaseExecutor::new(
+    "doc-retriever",
+    "KB_ID_DOCS_123",
+    "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0",
+).with_retrieval_config(RetrievalConfig {
+    number_of_results: 5,
+    search_type: SearchType::Hybrid,
+    metadata_filter: Some(json!({"domain": {"equals": "technical"}})),
+});
+
+// Agent local utilise le contexte KB
+let synthesizer = ChatAgent::builder()
+    .name("synthesizer")
+    .system_prompt("Utilise le contexte fourni pour répondre...")
+    .build();
+
+// Pipeline: KB retrieve -> synthesis
+let rag_pipeline = SequentialBuilder::new("rag-pipeline")
+    .add_participant(kb_docs)
+    .add_participant(synthesizer)
+    .build();
+```
+
+### Niveau 4: Bedrock Flows
+
+Intégration avec **Bedrock Flows** (workflows visuels AWS) comme sous-workflow.
+
+```rust
+use aws_sdk_bedrockagentruntime::Client;
+
+/// Executor pour déclencher un Bedrock Flow
+pub struct BedrockFlowExecutor {
+    id: ExecutorId,
+    client: Client,
+    flow_identifier: String,
+    flow_alias_identifier: String,
+}
+
+impl BedrockFlowExecutor {
+    pub fn new(
+        id: impl Into<String>,
+        flow_identifier: impl Into<String>,
+        flow_alias_identifier: impl Into<String>,
+    ) -> Self {
+        let config = aws_config::load_from_env().await;
+        Self {
+            id: ExecutorId::new(id),
+            client: Client::new(&config),
+            flow_identifier: flow_identifier.into(),
+            flow_alias_identifier: flow_alias_identifier.into(),
+        }
+    }
+}
+
+#[async_trait]
+impl Executor for BedrockFlowExecutor {
+    type Input = Value;
+    type Message = FlowEvent;
+    type Output = Value;
+
+    async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
+    where
+        Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
+    {
+        // Préparer les inputs du flow
+        let flow_inputs = vec![
+            FlowInput::builder()
+                .node_name("FlowInputNode")
+                .node_output_name("document")
+                .content(FlowInputContent::Document(
+                    DocumentBlock::builder()
+                        .source(DocumentSource::Bytes(
+                            serde_json::to_vec(&input)?.into()
+                        ))
+                        .build()
+                ))
+                .build()
+        ];
+
+        // Invoquer le flow
+        let mut response = self.client
+            .invoke_flow()
+            .flow_identifier(&self.flow_identifier)
+            .flow_alias_identifier(&self.flow_alias_identifier)
+            .set_inputs(Some(flow_inputs))
+            .send()
+            .await?;
+
+        // Traiter le stream de réponse
+        let mut final_output = Value::Null;
+
+        while let Some(event) = response.response_stream.recv().await? {
+            match event {
+                FlowResponseStream::FlowOutputEvent(output) => {
+                    let content = output.content();
+                    if let FlowOutputContent::Document(doc) = content {
+                        final_output = serde_json::from_slice(doc.bytes())?;
+                    }
+                    ctx.send_message(FlowEvent::Output(final_output.clone())).await?;
+                }
+                FlowResponseStream::FlowCompletionEvent(completion) => {
+                    ctx.send_message(FlowEvent::Completed(
+                        completion.completion_reason().to_string()
+                    )).await?;
+                }
+                FlowResponseStream::FlowTraceEvent(trace) => {
+                    // Optionnel: émettre les traces pour observabilité
+                    ctx.add_event(trace).await?;
+                }
+                _ => {}
+            }
+        }
+
+        ctx.yield_output(final_output).await?;
+        Ok(())
+    }
+}
+```
+
+#### Usage: Orchestration Hiérarchique
+
+```rust
+// Flow Bedrock pour traitement complexe (créé via console AWS)
+let document_flow = BedrockFlowExecutor::new(
+    "doc-processor",
+    "FLOW_ID_ABC123",
+    "FLOW_ALIAS_XYZ",
+);
+
+// Notre workflow orchestre le flow comme un sous-composant
+let pipeline = SequentialBuilder::new("main-pipeline")
+    .add_participant(preprocessor)       // Local
+    .add_participant(document_flow)      // Bedrock Flow
+    .add_participant(postprocessor)      // Local
+    .build();
+```
+
+### Niveau 5: Session Management Multi-Turn
+
+Gestion des sessions pour conversations multi-turn avec agents Bedrock.
+
+```rust
+/// Session manager pour conversations persistantes
+pub struct BedrockSessionManager {
+    sessions: DashMap<String, BedrockSession>,
+}
+
+pub struct BedrockSession {
+    session_id: String,
+    agent_id: String,
+    agent_alias_id: String,
+    memory_id: Option<String>,  // Pour sessions avec mémoire
+    created_at: Instant,
+    last_used: Instant,
+}
+
+impl BedrockSessionManager {
+    /// Créer ou récupérer une session existante
+    pub fn get_or_create_session(
+        &self,
+        user_id: &str,
+        agent_id: &str,
+        agent_alias_id: &str,
+    ) -> BedrockSession {
+        let key = format!("{}:{}", user_id, agent_id);
+
+        self.sessions
+            .entry(key)
+            .or_insert_with(|| BedrockSession {
+                session_id: uuid::Uuid::new_v4().to_string(),
+                agent_id: agent_id.to_string(),
+                agent_alias_id: agent_alias_id.to_string(),
+                memory_id: None,
+                created_at: Instant::now(),
+                last_used: Instant::now(),
+            })
+            .clone()
+    }
+
+    /// Invoquer avec session persistante
+    pub async fn invoke_with_session(
+        &self,
+        client: &Client,
+        session: &BedrockSession,
+        input: &str,
+    ) -> Result<String, BedrockError> {
+        let mut request = client
+            .invoke_agent()
+            .agent_id(&session.agent_id)
+            .agent_alias_id(&session.agent_alias_id)
+            .session_id(&session.session_id)
+            .input_text(input);
+
+        // Activer la mémoire si configurée
+        if let Some(memory_id) = &session.memory_id {
+            request = request.memory_id(memory_id);
+        }
+
+        let response = request.send().await?;
+        collect_response(response).await
+    }
+
+    /// Terminer une session
+    pub async fn end_session(&self, session: &BedrockSession) {
+        // La session Bedrock se termine automatiquement après inactivité
+        // Mais on peut forcer le cleanup local
+        let key = format!("{}:{}", "user", session.agent_id);
+        self.sessions.remove(&key);
+    }
+}
+```
+
+### Niveau 6: Guardrails Integration
+
+Appliquer des Guardrails AWS aux requêtes et réponses.
+
+```rust
+use aws_sdk_bedrockruntime::types::{GuardrailConfiguration, GuardrailStreamConfiguration};
+
+/// Extension BedrockProvider avec Guardrails
+impl BedrockProvider {
+    /// Appliquer un guardrail à toutes les requêtes
+    pub fn with_guardrail(mut self, guardrail_id: &str, version: &str) -> Self {
+        self.guardrail = Some(GuardrailConfiguration::builder()
+            .guardrail_identifier(guardrail_id)
+            .guardrail_version(version)
+            .trace(GuardrailTrace::Enabled)  // Pour debugging
+            .build()
+            .unwrap()
+        );
+        self
+    }
+}
+
+/// Guardrail Executor standalone (pré/post processing)
+pub struct GuardrailExecutor {
+    id: ExecutorId,
+    client: BedrockRuntimeClient,
+    guardrail_id: String,
+    guardrail_version: String,
+}
+
+impl GuardrailExecutor {
+    /// Valider un texte contre le guardrail
+    pub async fn validate(&self, text: &str, source: GuardrailSource) -> GuardrailResult {
+        let response = self.client
+            .apply_guardrail()
+            .guardrail_identifier(&self.guardrail_id)
+            .guardrail_version(&self.guardrail_version)
+            .source(source)  // INPUT ou OUTPUT
+            .content(
+                GuardrailContentBlock::builder()
+                    .text(GuardrailTextBlock::builder().text(text).build())
+                    .build()
+            )
+            .send()
+            .await?;
+
+        GuardrailResult {
+            action: response.action().clone(),  // NONE | GUARDRAIL_INTERVENED
+            outputs: response.outputs().to_vec(),
+            assessments: response.assessments().to_vec(),
+        }
+    }
+}
+
+#[async_trait]
+impl Executor for GuardrailExecutor {
+    type Input = GuardrailInput;
+    type Message = ();
+    type Output = GuardrailResult;
+
+    async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
+    where
+        Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
+    {
+        let result = self.validate(&input.text, input.source).await?;
+
+        // Si guardrail intervient, bloquer le pipeline
+        if result.action == GuardrailAction::GuardrailIntervened {
+            return Err(ExecutorError::GuardrailBlocked {
+                reason: result.assessments.clone(),
+            });
+        }
+
+        ctx.yield_output(result).await?;
+        Ok(())
+    }
+}
+```
+
+#### Usage: Pipeline avec Guardrails
+
+```rust
+// Guardrail pour contenu sensible
+let input_guardrail = GuardrailExecutor::new(
+    "input-filter",
+    "GUARDRAIL_ID_123",
+    "1",
+);
+
+let output_guardrail = GuardrailExecutor::new(
+    "output-filter",
+    "GUARDRAIL_ID_123",
+    "1",
+);
+
+// Pipeline sécurisé
+let secure_pipeline = SequentialBuilder::new("secure-chat")
+    .add_participant(input_guardrail)    // Valide l'entrée
+    .add_participant(chat_agent)          // Traitement
+    .add_participant(output_guardrail)   // Valide la sortie
+    .build();
+```
+
+### Niveau 7: Error Handling et Retry
+
+Patterns robustes pour gérer les erreurs AWS.
+
+```rust
+use aws_sdk_bedrockruntime::error::SdkError;
+use backoff::{ExponentialBackoff, Error as BackoffError};
+
+/// Configuration de retry pour Bedrock
+#[derive(Clone)]
+pub struct BedrockRetryConfig {
+    pub max_retries: u32,
+    pub initial_interval_ms: u64,
+    pub max_interval_ms: u64,
+    pub multiplier: f64,
+    pub retry_throttling: bool,
+    pub retry_model_not_ready: bool,
+}
+
+impl Default for BedrockRetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 3,
+            initial_interval_ms: 1000,
+            max_interval_ms: 30000,
+            multiplier: 2.0,
+            retry_throttling: true,
+            retry_model_not_ready: true,
+        }
+    }
+}
+
+impl BedrockProvider {
+    pub async fn generate_with_retry(
+        &self,
+        messages: &[LLMMessage],
+        retry_config: &BedrockRetryConfig,
+    ) -> Result<LLMResponse, LLMError> {
+        let backoff = ExponentialBackoff {
+            initial_interval: Duration::from_millis(retry_config.initial_interval_ms),
+            max_interval: Duration::from_millis(retry_config.max_interval_ms),
+            multiplier: retry_config.multiplier,
+            max_elapsed_time: Some(Duration::from_secs(120)),
+            ..Default::default()
+        };
+
+        backoff::future::retry(backoff, || async {
+            match self.generate(messages).await {
+                Ok(response) => Ok(response),
+                Err(LLMError::Bedrock(sdk_error)) => {
+                    if is_retryable(&sdk_error, retry_config) {
+                        Err(BackoffError::transient(LLMError::Bedrock(sdk_error)))
+                    } else {
+                        Err(BackoffError::permanent(LLMError::Bedrock(sdk_error)))
+                    }
+                }
+                Err(e) => Err(BackoffError::permanent(e)),
+            }
+        }).await
+    }
+}
+
+fn is_retryable<E>(error: &SdkError<E>, config: &BedrockRetryConfig) -> bool {
+    match error {
+        SdkError::ServiceError(service_err) => {
+            let status = service_err.raw().status().as_u16();
+            match status {
+                429 => config.retry_throttling,  // ThrottlingException
+                503 => config.retry_model_not_ready,  // ModelNotReadyException
+                500 | 502 | 504 => true,  // Server errors
+                _ => false,
+            }
+        }
+        SdkError::TimeoutError(_) => true,
+        SdkError::DispatchFailure(_) => true,  // Network issues
+        _ => false,
+    }
+}
+
+/// Circuit breaker pour éviter de surcharger Bedrock
+pub struct BedrockCircuitBreaker {
+    failure_count: AtomicU32,
+    last_failure: AtomicU64,
+    threshold: u32,
+    reset_timeout_ms: u64,
+    state: AtomicU8,  // 0=Closed, 1=Open, 2=HalfOpen
+}
+
+impl BedrockCircuitBreaker {
+    pub fn should_allow_request(&self) -> bool {
+        match self.state.load(Ordering::SeqCst) {
+            0 => true,  // Closed - allow
+            1 => {      // Open - check if should try again
+                let elapsed = now_ms() - self.last_failure.load(Ordering::SeqCst);
+                if elapsed > self.reset_timeout_ms {
+                    self.state.store(2, Ordering::SeqCst);  // Move to HalfOpen
+                    true
+                } else {
+                    false
+                }
+            }
+            2 => true,  // HalfOpen - allow one request
+            _ => false,
+        }
+    }
+
+    pub fn record_success(&self) {
+        self.failure_count.store(0, Ordering::SeqCst);
+        self.state.store(0, Ordering::SeqCst);  // Close circuit
+    }
+
+    pub fn record_failure(&self) {
+        let failures = self.failure_count.fetch_add(1, Ordering::SeqCst) + 1;
+        self.last_failure.store(now_ms(), Ordering::SeqCst);
+
+        if failures >= self.threshold {
+            self.state.store(1, Ordering::SeqCst);  // Open circuit
+        }
+    }
+}
+```
+
+### Avantages de cette Architecture
+
+| Aspect | Bénéfice |
+|--------|----------|
+| **Orchestration** | 100% contrôlée par Dasein |
+| **Flexibilité** | Mix agents Bedrock + locaux + OpenAI |
+| **Knowledge Bases** | Accès via agents Bedrock |
+| **Observabilité** | Notre tracing, nos events NATS |
+| **Coût** | Choix par agent (Bedrock vs API directe) |
+| **Pas de lock-in** | Swap agents sans changer le workflow |
+
+### Dépendances Cargo
+
+```toml
+[dependencies]
+# AWS SDK pour Bedrock
+aws-config = "1.5"
+aws-sdk-bedrockruntime = "1.60"       # Converse API, Guardrails
+aws-sdk-bedrockagentruntime = "1.60"  # InvokeAgent, KB, Flows
+
+# Utilitaires
+aws-smithy-types = "1.2"              # Document types pour tools
+backoff = { version = "0.4", features = ["tokio"] }  # Retry
+dashmap = "6"                          # Concurrent sessions
+uuid = { version = "1", features = ["v4"] }
+```
+
+### Architecture Complète Bedrock
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          DASEIN FRAMEWORK                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐         │
+│  │ BedrockProvider │    │ BedrockKBExec   │    │ BedrockFlowExec │         │
+│  │ (LLM Adapter)   │    │ (Knowledge Base)│    │ (AWS Flows)     │         │
+│  └────────┬────────┘    └────────┬────────┘    └────────┬────────┘         │
+│           │                      │                      │                   │
+│  ┌────────┼──────────────────────┼──────────────────────┼────────┐         │
+│  │        │         Bedrock      │                      │        │         │
+│  │        ▼         Session      ▼                      ▼        │         │
+│  │  ┌───────────┐   Manager ┌───────────┐        ┌───────────┐   │         │
+│  │  │ Converse  │◄─────────►│ InvokeKB  │        │InvokeFlow │   │         │
+│  │  │ API       │           │ API       │        │ API       │   │         │
+│  │  └─────┬─────┘           └─────┬─────┘        └─────┬─────┘   │         │
+│  │        │                       │                    │         │         │
+│  │        │   ┌───────────────────┼────────────────────┤         │         │
+│  │        │   │                   │                    │         │         │
+│  │        ▼   ▼                   ▼                    ▼         │         │
+│  │  ┌─────────────────────────────────────────────────────────┐  │         │
+│  │  │                  AWS Bedrock Services                   │  │         │
+│  │  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌───────────┐  │  │         │
+│  │  │  │ Models  │  │  KBs    │  │ Agents  │  │ Guardrails│  │  │         │
+│  │  │  │ Claude  │  │ OpenSrch│  │ Action  │  │  Safety   │  │  │         │
+│  │  │  │ Llama   │  │ Pinecone│  │ Groups  │  │  Filters  │  │  │         │
+│  │  │  │ Mistral │  │ Redis   │  │         │  │           │  │  │         │
+│  │  │  └─────────┘  └─────────┘  └─────────┘  └───────────┘  │  │         │
+│  │  └─────────────────────────────────────────────────────────┘  │         │
+│  │                       Circuit Breaker                         │         │
+│  │                       Retry Logic                             │         │
+│  └───────────────────────────────────────────────────────────────┘         │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Références
+
+**AWS SDK Rust:**
+- [AWS SDK for Rust - Bedrock Runtime](https://docs.aws.amazon.com/sdk-for-rust/latest/dg/rust_bedrock-runtime_code_examples.html)
+- [AWS SDK for Rust - Bedrock Agent Runtime](https://docs.aws.amazon.com/sdk-for-rust/latest/dg/rust_bedrock-agent-runtime_code_examples.html)
+- [Bedrock Converse API with Rust - Tool Use](https://levelup.gitconnected.com/aws-bedrock-converse-api-with-rust-tool-use-8d1af829480a)
+
+**Bedrock Features:**
+- [Bedrock Knowledge Bases](https://docs.aws.amazon.com/bedrock/latest/userguide/knowledge-base.html)
+- [Bedrock Flows](https://docs.aws.amazon.com/bedrock/latest/userguide/flows.html)
+- [Bedrock Guardrails](https://docs.aws.amazon.com/bedrock/latest/userguide/guardrails.html)
+- [Bedrock Agents with Memory](https://docs.aws.amazon.com/bedrock/latest/userguide/agents-memory.html)
+
+**Multi-Agent Patterns:**
+- [AWS Multi-Agent Orchestration](https://github.com/aws-samples/agentic-orchestration)
+- [Bedrock + LangGraph Integration](https://aws.amazon.com/blogs/machine-learning/build-multi-agent-systems-with-langgraph-and-amazon-bedrock/)
+- [Bedrock + CrewAI Pattern](https://github.com/aws-samples/amazon-bedrock-samples/tree/main/agents-and-function-calling/bedrock-agents)
+- [Multi-Agent Collaboration](https://aws.amazon.com/blogs/machine-learning/build-a-multi-agent-system-with-amazon-bedrock/)
+
+**Best Practices:**
+- [Bedrock Throttling & Quotas](https://docs.aws.amazon.com/bedrock/latest/userguide/quotas.html)
+- [Bedrock Cross-Region Inference](https://docs.aws.amazon.com/bedrock/latest/userguide/cross-region-inference.html)
+
+---
+
+## Sandbox & Gateway Infrastructure
+
+L'exécution de code généré par LLM nécessite une isolation sécurisée. Le framework propose plusieurs backends.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           SANDBOX OPTIONS                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ agentic-sandbox crate                                               │   │
+│  │                                                                     │   │
+│  │  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────────┐  │   │
+│  │  │ Process    │ │ Docker     │ │ Gateway    │ │ Firecracker    │  │   │
+│  │  │ (default)  │ │            │ │ (recomm.)  │ │ (direct)       │  │   │
+│  │  └─────┬──────┘ └─────┬──────┘ └─────┬──────┘ └───────┬────────┘  │   │
+│  │        │              │              │                │           │   │
+│  │        ▼              ▼              │                ▼           │   │
+│  │   Local shell    Docker API          │           KVM/Firecracker  │   │
+│  │   (dev only)     (isolation)         │           (Linux only)     │   │
+│  └──────────────────────────────────────┼────────────────────────────┘   │
+│                                         │                                 │
+│                                         │ HTTP API                        │
+│                                         ▼                                 │
+│  ┌──────────────────────────────────────────────────────────────────────┐│
+│  │                    Agentic Gateway                                   ││
+│  │  ┌────────────────┐  ┌─────────────────────────────────────────┐   ││
+│  │  │ gateway-llm    │  │ gateway-sandbox                         │   ││
+│  │  │ - OpenAI API   │  │ - Firecracker microVMs                  │   ││
+│  │  │ - Multi-provider│  │ - Pool de VMs warm (<50ms)             │   ││
+│  │  │ - Rate limiting │  │ - Cold start <200ms                    │   ││
+│  │  └────────────────┘  └─────────────────────────────────────────┘   ││
+│  └──────────────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Features agentic-sandbox
+
+| Feature | Backend | Isolation | Usage |
+|---------|---------|-----------|-------|
+| `process` | Shell local | ❌ Aucune | Dev rapide |
+| `docker` | Docker API | ✅ Container | Prod locale |
+| `gateway` | **Agentic Gateway** | ✅ **MicroVM** | **Production** |
+| `firecracker` | Direct (firepilot) | ✅ MicroVM | Linux avec KVM |
+
+### Usage: GatewaySandbox (Recommandé)
+
+```rust
+use dasein_agentic_sandbox::{GatewaySandbox, Sandbox};
+
+// Créer une session sandbox via le Gateway
+let sandbox = GatewaySandbox::builder("http://gateway:8080")
+    .runtime("python")           // python, node, rust, bash
+    .api_key("your-api-key")     // optionnel
+    .memory_mb(512)              // optionnel
+    .timeout_ms(30000)
+    .build()
+    .await?;
+
+// Exécuter du code
+let result = sandbox.execute(r#"
+import json
+data = {"status": "success", "value": 42}
+print(json.dumps(data))
+"#).await?;
+
+println!("stdout: {}", result.stdout);
+println!("exit_code: {}", result.exit_code);
+println!("duration: {}ms", result.execution_time_ms);
+
+// Cleanup automatique à la fin (ou explicite)
+sandbox.cleanup().await?;
+```
+
+### Usage avec Validators
+
+```rust
+use dasein_agentic_sandbox::{GatewaySandbox, Sandbox};
+use dasein_agentic_core::distributed::SandboxValidator;
+
+// Sandbox pour validation de code
+let sandbox = GatewaySandbox::builder("http://gateway:8080")
+    .runtime("rust")
+    .build()
+    .await?;
+
+// Validator qui compile et teste le code
+let validator = SandboxValidator::new(sandbox);
+
+// Dans un workflow
+let compile_executor = CompileValidatorExecutor::new("compiler", validator);
+
+let workflow = WorkflowBuilder::new("code-gen-pipeline")
+    .add_executor(code_gen_executor)      // Génère du code
+    .add_executor(compile_executor)        // Compile via Gateway
+    .connect("code_gen", "compiler")
+    .build();
+```
+
+### Configuration Gateway
+
+Le Gateway se configure via `config.toml`:
+
+```toml
+[server]
+host = "0.0.0.0"
+port = 8080
+
+[sandbox]
+firecracker_path = "/usr/bin/firecracker"
+kernel_path = "/var/lib/firecracker/vmlinux"
+rootfs_path = "/var/lib/firecracker/rootfs.ext4"
+
+[sandbox.pool]
+min_ready = 2      # VMs warm en attente
+max_total = 10     # Max VMs simultanées
+
+[sandbox.limits]
+default_memory_mb = 512
+default_timeout_ms = 30000
+max_memory_mb = 2048
+max_timeout_ms = 120000
+```
+
+### Déploiement
+
+```bash
+# Démarrer le Gateway (sur serveur Linux avec KVM)
+cd gateway
+cargo build --release
+./target/release/gateway-server
+
+# Depuis agentic-rs (n'importe où)
+let sandbox = GatewaySandbox::builder("http://your-server:8080")
+    .runtime("python")
+    .build()
+    .await?;
+```
+
+### Comparaison des backends
+
+| Critère | Process | Docker | Gateway |
+|---------|---------|--------|---------|
+| Isolation | ❌ | ✅ Container | ✅ **MicroVM** |
+| Sécurité | ❌ | ⚠️ Moyen | ✅ **Fort** |
+| Cold start | ~0ms | ~500ms | **<200ms** |
+| Warm start | ~0ms | ~50ms | **<50ms** |
+| Cross-platform | ✅ | ✅ | ✅ (via HTTP) |
+| Scalabilité | ❌ | ⚠️ | ✅ **Pool** |
+
+### Dépendances Cargo
+
+```toml
+[dependencies]
+# Pour utiliser le Gateway (recommandé)
+agentic-sandbox = { version = "0.1", features = ["gateway"] }
+
+# Ou pour Docker local
+agentic-sandbox = { version = "0.1", features = ["docker"] }
+
+# Ou dev rapide (pas d'isolation)
+agentic-sandbox = { version = "0.1" }  # default = process
 ```
 
 ---
@@ -2443,6 +3893,80 @@ while let Some(event) = stream.next().await {
 
 ---
 
+## Graph Persistence: Checkpoints Durables (PR #6)
+
+> ✅ **STATUT: IMPLÉMENTÉ** - `crates/agentic-core/src/distributed/graph/persistence.rs`
+
+Permet aux workflows de survivre aux crashes et de reprendre depuis le dernier checkpoint.
+
+### Cas d'usage: Migration à grande échelle
+
+```text
+Vendredi 18:00: Démarrage migration de 500 services
+    → Checkpoint sauvegardé au superstep 50
+Samedi 02:00: Crash serveur (panne de courant)
+Lundi 09:00: Redémarrage du workflow
+    → Charge le checkpoint du superstep 50
+    → Reprend exactement où il s'était arrêté
+    → Pas de tokens LLM gaspillés, pas de progression perdue
+```
+
+### API Implémentée
+
+```rust
+// Backends disponibles
+use dasein_agentic_core::distributed::graph::{
+    InMemoryPersistentBackend,  // Pour tests
+    RedisCheckpointBackend,      // Pour production (feature "redis-persistence")
+    PersistentCheckpoint,
+    PersistentCheckpointBackend,
+};
+
+// Connexion Redis
+let backend = RedisCheckpointBackend::connect("redis://localhost:6379").await?
+    .with_ttl_days(7);  // Expire après 7 jours
+
+// Workflow avec persistence
+let workflow = Workflow::with_config(definition, registry, config)
+    .with_checkpoint_backend(Arc::new(backend));
+
+// Exécution normale (checkpoints automatiques)
+let result = workflow.run(input).await?;
+
+// OU: Reprise depuis un checkpoint existant
+let result = workflow.run_with_resume(Some("checkpoint-id")).await?;
+
+// OU: Reprise automatique du dernier checkpoint
+let result = workflow.run_with_resume(None).await?;
+```
+
+### PersistentCheckpoint
+
+```rust
+/// Checkpoint étendu avec état partagé pour récupération complète.
+pub struct PersistentCheckpoint {
+    pub checkpoint: Checkpoint,           // Données de base
+    pub shared_state: HashMap<String, Value>,  // État partagé capturé
+    pub schema_version: u32,              // Pour migrations
+    pub workflow_hash: Option<String>,    // Détection changements incompatibles
+}
+```
+
+### Cleanup automatique
+
+```rust
+// Garder seulement les 3 derniers checkpoints
+backend.cleanup_keep_last(&workflow_id, &task_id, 3).await?;
+
+// Supprimer tous les checkpoints d'une tâche
+backend.delete_all(&workflow_id, &task_id).await?;
+
+// Lister les checkpoints (metadata légère)
+let checkpoints = backend.list_metadata(&workflow_id, None).await?;
+```
+
+---
+
 ## NATS: Le Système Nerveux Central
 
 **Insight clé**: NATS n'est pas juste pour la persistence. C'est le **bus de communication** entre TOUS les composants.
@@ -2862,6 +4386,9 @@ AGENTIC_METRICS         # Métriques de performance
 ---
 
 ## Orchestration Patterns (Prédéfinis)
+
+> ⚠️ **STATUT: NON IMPLÉMENTÉ** - Ces patterns sont planifiés pour Phase 7.
+> Actuellement, vous devez construire les patterns manuellement avec `WorkflowBuilder`.
 
 Inspiré de [MAF Orchestrations](https://learn.microsoft.com/fr-fr/agent-framework/user-guide/workflows/orchestrations/overview), nous proposons des **patterns de workflow prêts à l'emploi**:
 
@@ -3546,52 +5073,91 @@ impl Executor for MagenticPlanner {
 
 ## Prochaines Étapes
 
-### Phase 1: Core Abstractions
-- [ ] `Executor` trait avec `WorkflowContext`
-- [ ] `Edge` enum (Direct, Conditional, Switch, FanOut, FanIn)
-- [ ] `Workflow` struct avec exécution Superstep
+### ✅ Phase 1: Core Abstractions (COMPLÉTÉ - PR #1-3)
+- [x] `Executor` trait avec `WorkflowContext`
+- [x] `Edge` enum (Direct, Conditional, Switch, FanOut, FanIn)
+- [x] `Workflow` struct avec exécution Superstep
 
-### Phase 2: WorkflowBuilder
-- [ ] API fluent pour construction du graph
-- [ ] Validation du graph (types, connectivité)
-- [ ] Intégration NATS pour persistence
+### ✅ Phase 2: WorkflowBuilder (COMPLÉTÉ - PR #4)
+- [x] API fluent pour construction du graph
+- [x] Validation du graph (types, connectivité)
+- [x] Intégration NATS pour persistence
 
-### Phase 3: Executors de base
-- [ ] `CodeGenerator` (Worker) - génération LLM
-- [ ] `CodeAssembler` (Worker) - merge du code
-- [ ] `CompileValidator` (Validator) - compilation
-- [ ] `TestValidator` (Validator) - tests
-- [ ] `SubWorkflowOrchestrator` (Orchestrator) - sub-graphs
+### ✅ Phase 3: Superstep Execution (COMPLÉTÉ - PR #5)
+- [x] Exécution BSP (Bulk Synchronous Parallel)
+- [x] Checkpointing aux frontières de superstep
+- [x] `WorkflowConfig` (max_supersteps, max_retries)
+- [x] `WorkflowResult` avec métriques
 
-### Phase 4: NATS Integration
-- [ ] Persistence des edges/outputs dans KV
-- [ ] Events pub/sub pour monitoring
-- [ ] Historique et replay
-- [ ] Checkpointing aux frontières de superstep
+### ✅ Phase 4: Graph Persistence (COMPLÉTÉ - PR #6)
+- [x] `PersistentCheckpoint` avec shared state
+- [x] `InMemoryPersistentBackend` pour tests
+- [x] `RedisCheckpointBackend` pour production
+- [x] `Workflow.run_with_resume()` pour reprise
+- [x] Cleanup automatique des vieux checkpoints
 
-### Phase 5: Agent Layer
-- [ ] `Agent` trait avec `run()` et `run_stream()`
-- [ ] `AgentThread` persisté sur NATS
-- [ ] `ChatAgent` - agent simple (wrapper LLM)
-- [ ] `WorkflowAgent` - agent qui invoque des workflows
-- [ ] Outils: function calling, streaming
+### ✅ Phase 5: Executors de base (COMPLÉTÉ)
+- [x] Executor trait générique
+- [x] **MAF Dynamic Dispatch Pattern** - tous les executors utilisent `serde_json::Value` pour Input/Message
+- [x] `LLMGeneratorExecutor` (Worker) - génération LLM via `executors/llm_generator.rs`
+- [x] `CodeAssemblerExecutor` (Worker) - merge du code via `executors/code_assembler.rs`
+- [x] `CompileValidatorExecutor` (Validator) - compilation via `executors/compile_validator.rs`
+- [x] `TestValidatorExecutor` (Validator) - tests via `executors/test_validator.rs`
+- [x] `SubWorkflowExecutor` (Orchestrator) - nested workflows via `executors/sub_workflow.rs`
 
-### Phase 6: Orchestration Patterns
-- [ ] `sequential()` - pipeline linéaire
-- [ ] `concurrent()` - fan-out/fan-in parallèle
-- [ ] `group_chat()` - topologie étoile avec manager
-- [ ] `handoff()` - mesh dynamique entre agents
-- [ ] `magentic()` - planificateur qui décompose les tâches
+### ✅ Phase 6: Agent Layer (IMPLÉMENTÉ)
+- [x] `Agent` trait avec `run()` et `run_stream()` - `agent/trait_def.rs`
+- [x] `AgentThread` in-memory (NATS KV déféré à Phase 8) - `agent/thread.rs`
+- [x] `ChatAgent` - agent simple (wrapper LLM) - `agent/chat_agent.rs`
+- [x] `WorkflowAgent` - agent qui invoque des workflows - `agent/workflow_agent.rs`
+- [x] `workflow.as_agent()` - conversion workflow → agent - `WorkflowAsAgent` trait
+- [x] `Tool`, `ToolParam`, `ToolParameters` - définitions pour function calling - `agent/tools.rs`
+- [x] `AgentChunk` streaming response - `agent/response.rs`
+- [x] `AgentError`, `AgentResult` - gestion d'erreurs - `agent/error.rs`
+- [x] `AgentExt` - extensions: `invoke()`, `run_once()`, `new_thread()` - `agent/trait_def.rs`
 
-### Phase 7: Feedback & Learning
-- [ ] Context enrichment depuis NATS (erreurs passées)
-- [ ] Pattern learning (ce qui marche/échoue)
-- [ ] Retry intelligent avec historique
+### ✅ Phase 7: Orchestration Patterns (IMPLÉMENTÉ)
+- [x] `SequentialBuilder` - pipeline linéaire - `patterns/sequential.rs`
+- [x] `ConcurrentBuilder` - fan-out/fan-in parallèle - `patterns/concurrent.rs`
+- [x] `GroupChatBuilder` - topologie étoile avec orchestrateur - `patterns/group_chat.rs`
+- [x] `handoff()` - mesh dynamique entre agents - `patterns/handoff.rs`
+- [x] Selectors: `round_robin_selector`, `smart_selector`, `no_repeat_selector`
+- [x] Termination: `max_messages`, `max_rounds`, `keyword`, `any_termination`
+- [ ] `MagenticPlanner` - planificateur (déféré Phase 8)
 
-### Phase 8: Tests E2E
-- [ ] Exemple TypeScript state machine
-- [ ] Exemple Rust async cache
-- [ ] Benchmarks vs architecture linéaire actuelle
+### ✅ Phase 8: Agent Memory (FAIT - P1)
+- [x] `MemoryProvider` trait - `agent/memory.rs`
+- [x] `InMemoryProvider` - implémentation in-memory
+- [x] `NoOpMemoryProvider` - implémentation no-op
+- [x] `Memory`, `MemoryCategory`, `MemoryContext` types
+- [x] `UserMemories` avec retrieval par importance
+- [x] Short-term memory (Thread) - in-memory
+- [ ] `AgentThread` persisté sur NATS KV (déféré Phase 9)
+- [ ] `NatsMemoryProvider` - NATS KV persistence (déféré Phase 9)
+- [x] `ChatReducer` trait - `agent/reducer.rs`
+- [x] `MessageCountingReducer` - garde N derniers messages
+- [x] `TokenCountingReducer` - budget tokens
+- [x] `SlidingWindowReducer` - récent + important
+- [x] `NoOpReducer` - pas de réduction
+- [x] Example: `examples/memory_demo.rs`
+- [x] 17 tests (8 memory + 9 reducer)
+
+### ✅ Phase 9: Production Features (FAIT - P2)
+- [x] `NatsMemoryProvider` - NATS KV persistence for long-term memory
+- [x] `ThreadStore` trait + `NatsThreadStore` - NATS KV persistence for AgentThread
+- [x] `InMemoryThreadStore` - In-memory implementation for testing
+- [x] `ContinuationToken` - Serializable token for background tasks
+- [x] `BackgroundTask` + `BackgroundResponse` - Task lifecycle management
+- [x] `TaskStatus` - Pending/InProgress/Complete/Failed/Cancelled
+- [x] `InMemoryTaskStore` - In-memory task store
+- [ ] `ProxyAgent` (agents distants via A2A) - déféré Phase 10
+
+### ✅ Phase 10: Tests E2E (FAIT)
+- [x] `graph_workflow` - exemple basique de workflow
+- [x] `graph_persistence_test` - test de crash/resume
+- [x] `graph_refactor` - LLM refactoring avec persistence
+- [x] `ts_state_machine_graph` - Exemple TypeScript state machine complet (fan-out/fan-in)
+- [x] `benches/graph_vs_linear` - Benchmarks vs architecture linéaire (Criterion)
 
 ---
 

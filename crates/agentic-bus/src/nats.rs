@@ -6,7 +6,7 @@ use futures::{Stream, StreamExt};
 use std::pin::Pin;
 use tracing::{debug, info};
 
-use agentic_core::protocol::Message;
+use dasein_agentic_core::protocol::Message;
 
 use crate::{
     error::BusError,

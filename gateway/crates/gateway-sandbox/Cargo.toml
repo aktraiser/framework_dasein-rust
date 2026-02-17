@@ -1,0 +1,51 @@
+[package]
+name = "gateway-sandbox"
+version = "0.1.0"
+edition = "2021"
+description = "Firecracker microVM sandbox management for Agentic Gateway"
+
+[dependencies]
+gateway-core = { path = "../gateway-core" }
+
+# Async runtime
+tokio = { version = "1.0", features = ["full", "process"] }
+
+# HTTP client (for Firecracker API)
+reqwest = { version = "0.12", features = ["json"] }
+hyper = { version = "1.0", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "tokio"] }
+
+# Unix socket support (via tokio built-in)
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Async utilities
+async-trait = "0.1"
+futures = "0.3"
+
+# Error handling
+thiserror = "2.0"
+
+# Tracing
+tracing = "0.1"
+
+# Base64 encoding for file transfers
+base64 = "0.22"
+
+# Pool management
+deadpool = "0.12"
+
+# SSH client for remote server management
+russh = "0.46"
+russh-keys = "0.46"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3.0"
+tracing-subscriber = "0.3"
+
+[[example]]
+name = "test_remote"
+path = "examples/test_remote.rs"

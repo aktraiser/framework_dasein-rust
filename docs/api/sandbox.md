@@ -16,7 +16,7 @@ agentic-sandbox = "0.1"
 Local process-based execution. Fast but **no isolation** - for development only.
 
 ```rust
-use agentic_sandbox::ProcessSandbox;
+use dasein_agentic_sandbox::ProcessSandbox;
 
 let sandbox = ProcessSandbox::new()
     .with_timeout(30000)      // 30 seconds
@@ -31,7 +31,7 @@ println!("Output: {}", result.stdout);
 Container-based execution with full isolation. For production use.
 
 ```rust
-use agentic_sandbox::DockerSandbox;
+use dasein_agentic_sandbox::DockerSandbox;
 
 let sandbox = DockerSandbox::new("python:3.11-slim")
     .with_timeout(60000)

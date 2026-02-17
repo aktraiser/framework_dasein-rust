@@ -1,11 +1,15 @@
 [package]
-name = "agentic-mcp"
-description = "MCP Code Mode - agents write code that calls MCP tools"
+name = "dasein-agentic-mcp"
+description = "MCP (Model Context Protocol) client for tool integration"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+authors.workspace = true
 repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/dasein-agentic-mcp"
+readme = "README.md"
 keywords.workspace = true
 categories.workspace = true
 
@@ -36,7 +40,7 @@ reqwest = { workspace = true }
 uuid = { workspace = true }
 
 # Internal crates
-agentic-sandbox = { workspace = true }
+dasein-agentic-sandbox = { workspace = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }

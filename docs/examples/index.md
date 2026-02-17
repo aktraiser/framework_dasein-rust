@@ -24,7 +24,7 @@ cargo run --example chat --features "all"
 ### Minimal LLM Call
 
 ```rust
-use agentic_llm::{GeminiAdapter, LLMAdapter, LLMMessage};
+use dasein_agentic_llm::{GeminiAdapter, LLMAdapter, LLMMessage};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -42,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Multi-Turn Conversation
 
 ```rust
-use agentic_llm::{AnthropicAdapter, LLMAdapter, LLMMessage};
+use dasein_agentic_llm::{AnthropicAdapter, LLMAdapter, LLMMessage};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -70,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Streaming Response
 
 ```rust
-use agentic_llm::{OpenAIAdapter, LLMAdapter, LLMMessage};
+use dasein_agentic_llm::{OpenAIAdapter, LLMAdapter, LLMMessage};
 use futures::StreamExt;
 
 #[tokio::main]
@@ -95,7 +95,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Compare Providers
 
 ```rust
-use agentic_llm::{
+use dasein_agentic_llm::{
     OpenAIAdapter, AnthropicAdapter, GeminiAdapter, OllamaAdapter,
     LLMAdapter, LLMMessage
 };

@@ -18,7 +18,7 @@ agentic-mcp = "0.1"
 ### Tool Discovery
 
 ```rust
-use agentic_mcp::McpClient;
+use dasein_agentic_mcp::McpClient;
 
 // Connect to MCP server
 let client = McpClient::connect_stdio("npx", &["-y", "@anthropic/mcp-server-filesystem"]).await?;
@@ -44,8 +44,8 @@ println!("Content: {}", result);
 ### Integration with Agents
 
 ```rust
-use agentic_core::Agent;
-use agentic_mcp::McpToolProvider;
+use dasein_agentic_core::Agent;
+use dasein_agentic_mcp::McpToolProvider;
 
 // Create MCP tool provider
 let mcp = McpToolProvider::new()

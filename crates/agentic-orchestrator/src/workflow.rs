@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use agentic_core::types::{ResultPayload, ResultStatus};
+use dasein_agentic_core::types::{ResultPayload, ResultStatus};
 
 /// A step in a workflow.
 #[derive(Debug, Clone, Serialize, Deserialize)]

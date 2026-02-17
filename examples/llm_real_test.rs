@@ -5,7 +5,7 @@
 //! GEMINI_API_KEY=your-key cargo run --example llm_real_test
 //! ```
 
-use agentic_core::distributed::{Capability, Supervisor, ValidationRule};
+use dasein_agentic_core::distributed::{Capability, Supervisor};
 use std::time::Instant;
 
 #[tokio::main]
@@ -278,7 +278,7 @@ mod tests {
     println!();
     println!("▶ [MOCK] Validating output...");
 
-    let result = supervisor.validate(&mock_output, 0);
+    let result = supervisor.validate(mock_output, 0);
     println!(
         "  {} Validation (score: {})",
         if result.passed {

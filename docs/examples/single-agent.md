@@ -21,9 +21,9 @@ This example demonstrates:
 ```rust
 //! Single agent example
 
-use agentic_core::{Agent, AgentConfig, ExecutionMode, TaskPayload};
-use agentic_llm::OpenAIAdapter;
-use agentic_sandbox::ProcessSandbox;
+use dasein_agentic_core::{Agent, AgentConfig, ExecutionMode, TaskPayload};
+use dasein_agentic_llm::OpenAIAdapter;
+use dasein_agentic_sandbox::ProcessSandbox;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

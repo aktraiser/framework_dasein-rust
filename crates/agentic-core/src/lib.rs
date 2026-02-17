@@ -20,7 +20,7 @@
 //! ## Quick Start (Distributed Mode)
 //!
 //! ```rust,no_run
-//! use agentic_core::distributed::{Supervisor, Executor, Validator};
+//! use dasein_agentic_core::distributed::{Supervisor, Executor, Validator};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -43,7 +43,7 @@
 //! ## Even Simpler
 //!
 //! ```rust,no_run
-//! use agentic_core::distributed::Supervisor;
+//! use dasein_agentic_core::distributed::Supervisor;
 //!
 //! // One-liner
 //! let config = Supervisor::quick("my-sup", 4).build();
@@ -52,6 +52,7 @@
 pub mod agent;
 pub mod distributed;
 pub mod error;
+pub mod patterns;
 pub mod prelude;
 pub mod protocol;
 pub mod types;

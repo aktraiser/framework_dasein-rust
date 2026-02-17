@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-use agentic_sandbox::Sandbox;
+use dasein_agentic_sandbox::Sandbox;
 
 /// MCP Server exposing validation/audit tools.
 pub struct ValidatorMCPServer<S: Sandbox> {
@@ -518,7 +518,7 @@ edition = "2021"
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agentic_sandbox::ProcessSandbox;
+    use dasein_agentic_sandbox::ProcessSandbox;
 
     #[tokio::test]
     async fn test_list_tools() {

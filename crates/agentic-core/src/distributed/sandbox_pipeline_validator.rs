@@ -2,7 +2,7 @@
 
 use async_trait::async_trait;
 
-use agentic_sandbox::Sandbox;
+use dasein_agentic_sandbox::Sandbox;
 
 use super::sandbox_validator::{Language, SandboxValidator};
 use super::validator_pipeline::{PipelineValidator, ValidatorInput, ValidatorOutput};
@@ -124,7 +124,7 @@ impl<S: Sandbox + Send + Sync + 'static> PipelineValidator for SandboxPipelineVa
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agentic_sandbox::ProcessSandbox;
+    use dasein_agentic_sandbox::ProcessSandbox;
 
     #[tokio::test]
     async fn test_sandbox_pipeline_validator() {

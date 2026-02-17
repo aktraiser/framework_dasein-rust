@@ -12,7 +12,7 @@
 //! GEMINI_API_KEY=xxx ANTHROPIC_API_KEY=xxx cargo run --example go_executor
 //! ```
 
-use agentic_core::distributed::{
+use dasein_agentic_core::distributed::{
     bus::{
         BusCoordinator, DecisionRecord, EnrichedError, ErrorFingerprinter, ErrorLocation,
         ErrorSeverity, GenerationRecord, ModelInfo, ModelTier, PipelineTracer, RollbackDecision,
@@ -21,7 +21,7 @@ use agentic_core::distributed::{
     CodeAssembler, ErrorEnricherValidator, Executor, SandboxPipelineValidator, ValidatorInput,
     ValidatorPipeline,
 };
-use agentic_sandbox::FirecrackerSandbox;
+use dasein_agentic_sandbox::FirecrackerSandbox;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -176,7 +176,7 @@ Example:
     println!("✓ Error Enricher enabled");
 
     // === Generate with full pipeline ===
-    let total_start = Instant::now();
+    let _total_start = Instant::now();
     let system = "You are an expert Go developer. Return ONLY valid Go code. No markdown, no explanations. Include the package declaration (package main), imports, and tests in the same file. Tests must use the testing package with func TestXxx(t *testing.T) format.";
 
     let mut previous_errors: Vec<String> = vec![];

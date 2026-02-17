@@ -1,0 +1,188 @@
+{% extends "layout.html" %}
+
+{% block content %}
+{% match message %}
+{% when Some with (msg) %}
+<div class="bg-blue-900/50 border border-blue-700 text-blue-200 px-4 py-3 rounded mb-6">
+    {{ msg }}
+</div>
+{% when None %}
+{% endmatch %}
+
+<!-- VM Status Card -->
+<div class="bg-dark-800 rounded-lg border border-dark-600 p-6 mb-6">
+    <div class="flex items-center justify-between mb-6">
+        <div class="flex items-center space-x-3">
+            <div class="p-3 bg-primary/10 rounded-lg">
+                <svg class="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/>
+                </svg>
+            </div>
+            <div>
+                <h2 class="text-xl font-bold text-gray-100">Remote Firecracker VM</h2>
+                <p class="text-sm text-gray-400">{{ vm_host }}</p>
+            </div>
+        </div>
+        <div id="vm-status-badge" class="flex items-center space-x-2">
+            {% if vm_status.agent_healthy %}
+            <span class="flex items-center px-3 py-1 text-sm rounded-full bg-green-900/50 text-green-400">
+                <span class="w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse"></span>
+                Healthy
+            </span>
+            {% else %}
+            <span class="flex items-center px-3 py-1 text-sm rounded-full bg-red-900/50 text-red-400">
+                <span class="w-2 h-2 bg-red-400 rounded-full mr-2"></span>
+                Offline
+            </span>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Status Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div class="bg-dark-700 rounded-lg p-4">
+            <p class="text-xs text-gray-400 mb-1">Firecracker Process</p>
+            <p class="text-lg font-semibold {% if vm_status.firecracker_running %}text-green-400{% else %}text-red-400{% endif %}">
+                {% if vm_status.firecracker_running %}Running{% else %}Stopped{% endif %}
+            </p>
+        </div>
+        <div class="bg-dark-700 rounded-lg p-4">
+            <p class="text-xs text-gray-400 mb-1">Agent Health</p>
+            <p class="text-lg font-semibold {% if vm_status.agent_healthy %}text-green-400{% else %}text-red-400{% endif %}">
+                {% if vm_status.agent_healthy %}Healthy{% else %}Unhealthy{% endif %}
+            </p>
+        </div>
+        <div class="bg-dark-700 rounded-lg p-4">
+            <p class="text-xs text-gray-400 mb-1">Server Uptime</p>
+            <p class="text-lg font-semibold text-gray-100">{{ vm_status.server_uptime }}</p>
+        </div>
+    </div>
+
+    <!-- Control Buttons -->
+    <div class="flex flex-wrap gap-3">
+        <form method="POST" action="/admin/sandboxes/vm/start" class="inline">
+            <button type="submit"
+                    class="px-4 py-2 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 transition duration-200 flex items-center space-x-2"
+                    {% if vm_status.agent_healthy %}disabled class="opacity-50 cursor-not-allowed"{% endif %}>
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                <span>Start VM</span>
+            </button>
+        </form>
+
+        <form method="POST" action="/admin/sandboxes/vm/restart" class="inline">
+            <button type="submit"
+                    class="px-4 py-2 bg-yellow-600 text-white font-medium rounded-lg hover:bg-yellow-700 transition duration-200 flex items-center space-x-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+                <span>Restart VM</span>
+            </button>
+        </form>
+
+        <form method="POST" action="/admin/sandboxes/vm/stop" class="inline">
+            <button type="submit"
+                    class="px-4 py-2 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 transition duration-200 flex items-center space-x-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/>
+                </svg>
+                <span>Stop VM</span>
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- Available Runtimes -->
+<div class="bg-dark-800 rounded-lg border border-dark-600 p-6 mb-6">
+    <h3 class="text-lg font-semibold text-gray-100 mb-4">Available Runtimes</h3>
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        {% for runtime in runtimes %}
+        <div class="bg-dark-700 rounded-lg p-4 text-center">
+            <div class="text-2xl mb-2">
+                {% if runtime.name == "python" %}🐍
+                {% else if runtime.name == "node" %}🟢
+                {% else if runtime.name == "typescript" %}🔷
+                {% else if runtime.name == "rust" %}🦀
+                {% else if runtime.name == "go" %}🐹
+                {% else if runtime.name == "bash" %}💻
+                {% else %}📦
+                {% endif %}
+            </div>
+            <p class="font-medium text-gray-100 capitalize">{{ runtime.name }}</p>
+            <p class="text-xs text-gray-400">{{ runtime.version }}</p>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Quick Test -->
+<div class="bg-dark-800 rounded-lg border border-dark-600 p-6">
+    <h3 class="text-lg font-semibold text-gray-100 mb-4">Quick Test</h3>
+    <form method="POST" action="/admin/sandboxes/test" class="space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+                <label class="block text-xs font-medium text-gray-400 mb-1">Runtime</label>
+                <select name="runtime" id="runtime-select" onchange="updateCodeExample()" class="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded text-gray-100 text-sm focus:ring-2 focus:ring-primary focus:border-transparent">
+                    <option value="python">Python</option>
+                    <option value="node">Node.js</option>
+                    <option value="bash">Bash</option>
+                    <option value="go">Go</option>
+                    <option value="rust">Rust</option>
+                </select>
+            </div>
+            <div class="md:col-span-2">
+                <label class="block text-xs font-medium text-gray-400 mb-1">Code</label>
+                <input type="text" name="code" id="code-input" value="print('Hello from Firecracker!')"
+                       class="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded text-gray-100 text-sm focus:ring-2 focus:ring-primary focus:border-transparent">
+            </div>
+            <div class="flex items-end">
+                <button type="submit"
+                        class="w-full px-4 py-2 bg-primary text-dark-900 font-medium rounded-lg hover:bg-primary/90 transition duration-200">
+                    Execute
+                </button>
+            </div>
+        </div>
+    </form>
+    <script>
+        const codeExamples = {
+            python: "print('Hello!')",
+            node: "console.log('Hello!')",
+            bash: "echo Hello",
+            go: 'package main\nimport "fmt"\nfunc main() { fmt.Println("Hello!") }',
+            rust: 'fn main() { println!("Hello!"); }'
+        };
+        function updateCodeExample() {
+            const runtime = document.getElementById('runtime-select').value;
+            document.getElementById('code-input').value = codeExamples[runtime] || codeExamples.python;
+        }
+    </script>
+
+    {% match test_result %}
+    {% when Some with (result) %}
+    <div class="mt-4 bg-dark-700 rounded-lg p-4">
+        <div class="flex items-center justify-between mb-2">
+            <span class="text-xs text-gray-400">Output</span>
+            <span class="text-xs {% if result.exit_code == 0 %}text-green-400{% else %}text-red-400{% endif %}">
+                Exit: {{ result.exit_code }} | {{ result.duration_ms }}ms
+            </span>
+        </div>
+        <pre class="text-sm text-gray-100 whitespace-pre-wrap">{{ result.stdout }}</pre>
+        {% if !result.stderr.is_empty() %}
+        <pre class="text-sm text-red-400 whitespace-pre-wrap mt-2">{{ result.stderr }}</pre>
+        {% endif %}
+    </div>
+    {% when None %}
+    {% endmatch %}
+</div>
+
+{% if !orchestrator_enabled %}
+<div class="mt-6 bg-yellow-900/30 border border-yellow-700 text-yellow-200 px-4 py-3 rounded">
+    <p class="font-medium">SSH Orchestrator not configured</p>
+    <p class="text-sm mt-1">Set <code class="bg-dark-700 px-1 rounded">FIRECRACKER_SSH_PASSWORD</code> to enable VM management.</p>
+</div>
+{% endif %}
+
+{% endblock %}

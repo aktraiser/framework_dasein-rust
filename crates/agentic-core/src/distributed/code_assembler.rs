@@ -159,7 +159,7 @@ impl CodeAssembler {
                     .last()
                     .unwrap_or("")
                     .trim_end_matches(';');
-                if !code.contains(&format!("use "))
+                if !code.contains(&"use ".to_string())
                     || !code
                         .lines()
                         .any(|l| l.contains(base) && l.trim().starts_with("use "))

@@ -7,7 +7,7 @@ Agentic-RS provides a unified interface for multiple LLM providers through the `
 ### OpenAI
 
 ```rust
-use agentic_llm::OpenAIAdapter;
+use dasein_agentic_llm::OpenAIAdapter;
 
 let llm = OpenAIAdapter::new("sk-...", "gpt-4o")
     .with_temperature(0.7)
@@ -19,7 +19,7 @@ let llm = OpenAIAdapter::new("sk-...", "gpt-4o")
 ### Anthropic (Claude)
 
 ```rust
-use agentic_llm::AnthropicAdapter;
+use dasein_agentic_llm::AnthropicAdapter;
 
 let llm = AnthropicAdapter::new("sk-ant-...", "claude-sonnet-4-20250514")
     .with_temperature(0.7)
@@ -31,7 +31,7 @@ let llm = AnthropicAdapter::new("sk-ant-...", "claude-sonnet-4-20250514")
 ### Google Gemini
 
 ```rust
-use agentic_llm::GeminiAdapter;
+use dasein_agentic_llm::GeminiAdapter;
 
 let llm = GeminiAdapter::new("AIza...", "gemini-2.0-flash")
     .with_temperature(0.7)
@@ -43,7 +43,7 @@ let llm = GeminiAdapter::new("AIza...", "gemini-2.0-flash")
 ### Ollama (Local)
 
 ```rust
-use agentic_llm::OllamaAdapter;
+use dasein_agentic_llm::OllamaAdapter;
 
 let llm = OllamaAdapter::new("llama3.2")
     .with_base_url("http://localhost:11434")
@@ -82,7 +82,7 @@ pub trait LLMAdapter: Send + Sync {
 ## Messages
 
 ```rust
-use agentic_llm::LLMMessage;
+use dasein_agentic_llm::LLMMessage;
 
 let messages = vec![
     LLMMessage::system("You are a helpful assistant."),
@@ -138,7 +138,7 @@ agentic-llm = { version = "0.1", features = ["all"] }  # All providers
 You can implement `LLMAdapter` for any provider:
 
 ```rust
-use agentic_llm::{LLMAdapter, LLMMessage, LLMResponse, LLMError};
+use dasein_agentic_llm::{LLMAdapter, LLMMessage, LLMResponse, LLMError};
 
 pub struct MyCustomAdapter {
     // your fields

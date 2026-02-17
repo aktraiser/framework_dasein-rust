@@ -1,11 +1,15 @@
 [package]
-name = "agentic-sandbox"
-description = "Sandboxed code execution (Docker, Process)"
+name = "dasein-agentic-sandbox"
+description = "Sandboxed code execution: Process, Docker, Firecracker, Gateway"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+authors.workspace = true
 repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/dasein-agentic-sandbox"
+readme = "README.md"
 keywords.workspace = true
 categories.workspace = true
 
@@ -15,6 +19,7 @@ process = []
 docker = ["bollard"]
 firecracker = ["firepilot"]
 remote = ["reqwest"]
+gateway = ["reqwest"]  # Recommended for Firecracker via Agentic Gateway
 
 [dependencies]
 # Async

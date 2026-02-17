@@ -12,8 +12,8 @@ agentic-orchestrator = "0.1"
 ## Orchestrator
 
 ```rust
-use agentic_orchestrator::{Orchestrator, Workflow, WorkflowStep};
-use agentic_core::Agent;
+use dasein_agentic_orchestrator::{Orchestrator, Workflow, WorkflowStep};
+use dasein_agentic_core::Agent;
 
 // Create orchestrator
 let orchestrator = Orchestrator::new();

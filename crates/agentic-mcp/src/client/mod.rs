@@ -46,7 +46,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use agentic_mcp::client::{MCPClientPool, MCPConfig};
+//! use dasein_agentic_mcp::client::{MCPClientPool, MCPConfig};
 //!
 //! // Load config
 //! let config = MCPConfig::from_file("mcp_servers.json")?;
