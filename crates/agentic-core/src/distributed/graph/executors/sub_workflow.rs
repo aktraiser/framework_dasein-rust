@@ -180,7 +180,7 @@ impl SubWorkflowExecutor {
         }
     }
 
-    /// Create from an Arc<Workflow> (for sharing).
+    /// Create from an `Arc<Workflow>` (for sharing).
     pub fn from_arc(id: impl Into<String>, workflow: Arc<Workflow<Value, String>>) -> Self {
         Self {
             id: ExecutorId::new(id),

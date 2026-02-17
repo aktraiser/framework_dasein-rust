@@ -257,7 +257,7 @@ IMPORTANT:
 
 struct CodeValidatorExecutor {
     id: ExecutorId,
-    /// SharedValidatorPipeline = Arc<ValidatorPipeline>
+    /// `SharedValidatorPipeline = Arc<ValidatorPipeline>`
     /// No Mutex needed - pipeline.validate() takes &self (immutable)
     pipeline: SharedValidatorPipeline,
 }
