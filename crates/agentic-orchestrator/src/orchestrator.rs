@@ -129,7 +129,7 @@ impl<L: LLMAdapter + 'static, S: Sandbox + 'static> Orchestrator<L, S> {
             let ready_steps: Vec<_> = pending_steps
                 .iter()
                 .filter(|step| step.depends_on.iter().all(|dep| results.contains_key(dep)))
-                .cloned()
+                .copied()
                 .collect();
 
             if ready_steps.is_empty() && !pending_steps.is_empty() {
@@ -143,7 +143,7 @@ impl<L: LLMAdapter + 'static, S: Sandbox + 'static> Orchestrator<L, S> {
                 let step_id = format!("{}:{}", step.agent, step.action);
                 let task = TaskPayload {
                     action: step.action.clone(),
-                    spec: step.inputs.clone().unwrap_or(serde_json::json!({})),
+                    spec: step.inputs.clone().unwrap_or_else(|| serde_json::json!({})),
                     inputs: None,
                     constraints: vec![],
                 };
