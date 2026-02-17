@@ -444,14 +444,16 @@ impl GatewaySandbox {
 
 impl Drop for GatewaySandbox {
     fn drop(&mut self) {
-        // Schedule async cleanup
-        let session = self.session.clone();
-        tokio::spawn(async move {
-            let mut guard = session.write().await;
-            if let Some(s) = guard.take() {
-                let _ = s.cleanup().await;
-            }
-        });
+        // Schedule async cleanup only if we're in a Tokio runtime
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            let session = self.session.clone();
+            handle.spawn(async move {
+                let mut guard = session.write().await;
+                if let Some(s) = guard.take() {
+                    let _ = s.cleanup().await;
+                }
+            });
+        }
     }
 }
 
