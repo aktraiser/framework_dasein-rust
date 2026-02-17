@@ -146,7 +146,12 @@ impl Checkpoint {
         state: SuperstepState,
     ) -> Self {
         Self {
-            id: format!("{}-{}-{}", workflow_id.as_str(), task_id.as_str(), superstep),
+            id: format!(
+                "{}-{}-{}",
+                workflow_id.as_str(),
+                task_id.as_str(),
+                superstep
+            ),
             workflow_id,
             task_id,
             superstep,
@@ -642,11 +647,8 @@ mod tests {
 
     #[test]
     fn test_executor_superstep_result_failure() {
-        let result = ExecutorSuperstepResult::failure(
-            ExecutorId::new("exec-1"),
-            "Test error".into(),
-            25,
-        );
+        let result =
+            ExecutorSuperstepResult::failure(ExecutorId::new("exec-1"), "Test error".into(), 25);
 
         assert!(!result.success);
         assert_eq!(result.error, Some("Test error".into()));

@@ -14,13 +14,13 @@
 //! GEMINI_API_KEY=xxx cargo run --example patterns_llm_test
 //! ```
 
+use async_trait::async_trait;
 use dasein_agentic_core::distributed::graph::{
     Executor, ExecutorContext, ExecutorError, ExecutorId, ExecutorKind, ExecutorRegistry, Workflow,
     WorkflowConfig,
 };
 use dasein_agentic_core::distributed::Executor as LLMExecutor;
 use dasein_agentic_core::patterns::{ConcurrentBuilder, SequentialBuilder};
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Instant;
@@ -115,7 +115,11 @@ impl Executor for WriterExecutor {
             .with_stage("draft")
             .add_tokens(result.tokens_used);
 
-        println!("[Writer] Generated {} chars, {} tokens", result.content.len(), output.tokens_used);
+        println!(
+            "[Writer] Generated {} chars, {} tokens",
+            result.content.len(),
+            output.tokens_used
+        );
 
         ctx.send_message(serde_json::to_value(&output).unwrap())
             .await?;
@@ -162,7 +166,10 @@ impl Executor for ReviewerExecutor {
         let msg: ContentMessage = serde_json::from_value(input)
             .map_err(|e| ExecutorError::new(self.id.clone(), e.to_string()))?;
 
-        println!("\n[Reviewer] Reviewing content ({} chars)...", msg.content.len());
+        println!(
+            "\n[Reviewer] Reviewing content ({} chars)...",
+            msg.content.len()
+        );
 
         let system = "You are an editor. Review and improve the following text. Keep it concise (2-3 sentences). Focus on clarity and flow.";
 
@@ -176,7 +183,10 @@ impl Executor for ReviewerExecutor {
             .with_stage("reviewed")
             .add_tokens(msg.tokens_used + result.tokens_used);
 
-        println!("[Reviewer] Improved content, total {} tokens", output.tokens_used);
+        println!(
+            "[Reviewer] Improved content, total {} tokens",
+            output.tokens_used
+        );
 
         ctx.send_message(serde_json::to_value(&output).unwrap())
             .await?;
@@ -237,7 +247,10 @@ impl Executor for PolisherExecutor {
             .with_stage("polished")
             .add_tokens(msg.tokens_used + result.tokens_used);
 
-        println!("[Polisher] Final content ready, total {} tokens", output.tokens_used);
+        println!(
+            "[Polisher] Final content ready, total {} tokens",
+            output.tokens_used
+        );
 
         ctx.send_message(serde_json::to_value(&output).unwrap())
             .await?;
@@ -306,12 +319,19 @@ impl Executor for ResearcherExecutor {
             .with_stage(format!("research-{}", self.focus))
             .add_tokens(result.tokens_used);
 
-        println!("[{}] Found insights, {} tokens", self.id, output.tokens_used);
+        println!(
+            "[{}] Found insights, {} tokens",
+            self.id, output.tokens_used
+        );
 
         ctx.send_message(serde_json::to_value(&output).unwrap())
             .await?;
-        ctx.yield_output(format!("{}: {}", self.id, result.content.lines().next().unwrap_or("")))
-            .await?;
+        ctx.yield_output(format!(
+            "{}: {}",
+            self.id,
+            result.content.lines().next().unwrap_or("")
+        ))
+        .await?;
 
         Ok(())
     }
@@ -392,7 +412,11 @@ impl Executor for AggregatorExecutor {
         let msg: ContentMessage = serde_json::from_value(input)
             .map_err(|e| ExecutorError::new(self.id.clone(), e.to_string()))?;
 
-        println!("\n[Aggregator] Received research: {} chars from {}", msg.content.len(), msg.stage);
+        println!(
+            "\n[Aggregator] Received research: {} chars from {}",
+            msg.content.len(),
+            msg.stage
+        );
 
         // For simplicity, just yield each research result
         ctx.yield_output(format!("Research ({}): {}", msg.stage, msg.content))
@@ -474,7 +498,10 @@ async fn test_sequential_llm() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     assert!(result.success, "Workflow should succeed");
-    assert!(result.superstep_count >= 3, "Should have at least 3 supersteps");
+    assert!(
+        result.superstep_count >= 3,
+        "Should have at least 3 supersteps"
+    );
 
     println!("\n✅ Sequential LLM test PASSED\n");
     Ok(())

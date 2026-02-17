@@ -92,8 +92,9 @@ pub use workflow::{
 };
 
 // PR #6: Graph Persistence
-pub use persistence::{
-    CheckpointMetadata, InMemoryPersistentBackend, PersistentCheckpoint, PersistentCheckpointBackend,
-};
 #[cfg(feature = "redis-persistence")]
 pub use persistence::RedisCheckpointBackend;
+pub use persistence::{
+    CheckpointMetadata, InMemoryPersistentBackend, PersistentCheckpoint,
+    PersistentCheckpointBackend,
+};

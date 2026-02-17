@@ -46,9 +46,7 @@ use super::context::{SharedStateBackend, WorkflowContext, WorkflowContextBuilder
 use super::executor::Executor;
 use super::persistence::{PersistentCheckpoint, PersistentCheckpointBackend};
 use super::superstep::{Checkpoint, CheckpointBackend, InMemoryCheckpointBackend, SuperstepState};
-use super::types::{
-    ExecutorError, ExecutorId, GraphError, GraphResult, TaskId, WorkflowId,
-};
+use super::types::{ExecutorError, ExecutorId, GraphError, GraphResult, TaskId, WorkflowId};
 
 // ============================================================================
 // WORKFLOW CONFIGURATION
@@ -81,9 +79,9 @@ impl Default for WorkflowConfig {
             max_retries_per_executor: 3,
             enable_checkpointing: false,
             checkpoint_interval: 5,
-            executor_timeout_ms: 60_000,    // 60 seconds
-            retry_backoff_base_ms: 1_000,   // 1 second base
-            retry_backoff_max_ms: 30_000,   // 30 seconds max
+            executor_timeout_ms: 60_000,  // 60 seconds
+            retry_backoff_base_ms: 1_000, // 1 second base
+            retry_backoff_max_ms: 30_000, // 30 seconds max
         }
     }
 }
@@ -136,7 +134,8 @@ impl WorkflowConfig {
     /// Calculate backoff delay for a given retry count.
     pub fn calculate_backoff(&self, retry_count: u32) -> std::time::Duration {
         let delay_ms = std::cmp::min(
-            self.retry_backoff_base_ms.saturating_mul(1u64 << retry_count.min(10)),
+            self.retry_backoff_base_ms
+                .saturating_mul(1u64 << retry_count.min(10)),
             self.retry_backoff_max_ms,
         );
         std::time::Duration::from_millis(delay_ms)
@@ -209,10 +208,7 @@ pub enum WorkflowStreamEvent {
         output_count: usize,
     },
     /// Workflow failed.
-    Failed {
-        error: String,
-        last_superstep: u32,
-    },
+    Failed { error: String, last_superstep: u32 },
 }
 
 // ============================================================================
@@ -388,9 +384,8 @@ where
         input: serde_json::Value,
         ctx: &mut WorkflowContext<TMessage, TOutput>,
     ) -> Result<(), ExecutorError> {
-        let typed_input: E::Input = serde_json::from_value(input).map_err(|e| {
-            ExecutorError::internal(format!("Failed to deserialize input: {e}"))
-        })?;
+        let typed_input: E::Input = serde_json::from_value(input)
+            .map_err(|e| ExecutorError::internal(format!("Failed to deserialize input: {e}")))?;
         self.executor.handle(typed_input, ctx).await
     }
 }
@@ -486,7 +481,10 @@ where
     /// let workflow = Workflow::new(definition, registry)
     ///     .with_persistent_backend(Arc::new(backend));
     /// ```
-    pub fn with_persistent_backend(mut self, backend: Arc<dyn PersistentCheckpointBackend>) -> Self {
+    pub fn with_persistent_backend(
+        mut self,
+        backend: Arc<dyn PersistentCheckpointBackend>,
+    ) -> Self {
         self.persistent_backend = Some(backend);
         self
     }
@@ -640,16 +638,17 @@ where
         let checkpoint = if let Some(backend) = &self.persistent_backend {
             if let Some(id) = checkpoint_id {
                 // Load specific checkpoint
-                backend
-                    .load_persistent_by_id(id)
-                    .await
-                    .map_err(|e| GraphError::ExecutorFailed(format!("Failed to load checkpoint: {}", e)))?
+                backend.load_persistent_by_id(id).await.map_err(|e| {
+                    GraphError::ExecutorFailed(format!("Failed to load checkpoint: {}", e))
+                })?
             } else {
                 // Load latest checkpoint for this task
                 backend
                     .load_persistent(&self.definition.id, &task_id)
                     .await
-                    .map_err(|e| GraphError::ExecutorFailed(format!("Failed to load checkpoint: {}", e)))?
+                    .map_err(|e| {
+                        GraphError::ExecutorFailed(format!("Failed to load checkpoint: {}", e))
+                    })?
             }
         } else {
             None
@@ -669,7 +668,9 @@ where
                 self.state_backend
                     .set(key, value.clone())
                     .await
-                    .map_err(|e| GraphError::ExecutorFailed(format!("Failed to restore shared state: {}", e)))?;
+                    .map_err(|e| {
+                        GraphError::ExecutorFailed(format!("Failed to restore shared state: {}", e))
+                    })?;
             }
 
             (pc.checkpoint.state.clone(), pc.checkpoint.superstep + 1)
@@ -700,7 +701,10 @@ where
 
                 // Clean up checkpoints on success (optional)
                 if let Some(backend) = &self.persistent_backend {
-                    if let Err(e) = backend.cleanup_keep_last(&self.definition.id, &task_id, 1).await {
+                    if let Err(e) = backend
+                        .cleanup_keep_last(&self.definition.id, &task_id, 1)
+                        .await
+                    {
                         tracing::warn!(error = %e, "Failed to clean up old checkpoints");
                     }
                 }
@@ -797,9 +801,10 @@ where
 
         // Process each executor's messages
         for (executor_id, executor_messages) in messages {
-            let executor = self.registry.get(&executor_id).ok_or_else(|| {
-                GraphError::ExecutorNotFound(executor_id.clone())
-            })?;
+            let executor = self
+                .registry
+                .get(&executor_id)
+                .ok_or_else(|| GraphError::ExecutorNotFound(executor_id.clone()))?;
 
             // Process each message
             for input_json in executor_messages {
@@ -823,10 +828,7 @@ where
                                 ))
                             })?;
 
-                            let targets = self
-                                .definition
-                                .edges
-                                .route_from(&executor_id, &message);
+                            let targets = self.definition.edges.route_from(&executor_id, &message);
 
                             for target_id in targets {
                                 state.enqueue_message(target_id, message_json.clone());
@@ -1175,8 +1177,7 @@ mod tests {
 
         // Create workflow with in-memory persistent backend
         let backend = Arc::new(super::super::persistence::InMemoryPersistentBackend::new());
-        let workflow = Workflow::new(definition, registry)
-            .with_persistent_backend(backend);
+        let workflow = Workflow::new(definition, registry).with_persistent_backend(backend);
 
         // Run with resume (no checkpoint exists, so starts fresh)
         let task_id = TaskId::new("my-task");
@@ -1202,8 +1203,7 @@ mod tests {
         registry.register(UppercaseExecutor::new("uppercase"));
 
         let backend = Arc::new(super::super::persistence::InMemoryPersistentBackend::new());
-        let workflow = Workflow::new(definition, registry)
-            .with_persistent_backend(backend.clone());
+        let workflow = Workflow::new(definition, registry).with_persistent_backend(backend.clone());
 
         assert!(workflow.persistent_backend.is_some());
     }

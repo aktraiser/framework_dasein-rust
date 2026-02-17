@@ -182,8 +182,14 @@ impl<T: Send + Sync + Serialize + 'static> HandoffBuilder<T> {
     }
 
     /// Set all participants at once.
-    pub fn participants(mut self, executor_ids: impl IntoIterator<Item = impl Into<ExecutorId>>) -> Self {
-        self.participants = executor_ids.into_iter().map(std::convert::Into::into).collect();
+    pub fn participants(
+        mut self,
+        executor_ids: impl IntoIterator<Item = impl Into<ExecutorId>>,
+    ) -> Self {
+        self.participants = executor_ids
+            .into_iter()
+            .map(std::convert::Into::into)
+            .collect();
         self
     }
 
@@ -214,9 +220,7 @@ impl<T: Send + Sync + Serialize + 'static> HandoffBuilder<T> {
         }
 
         // Determine start executor
-        let start = self
-            .start
-            .unwrap_or_else(|| self.participants[0].clone());
+        let start = self.start.unwrap_or_else(|| self.participants[0].clone());
 
         if !self.participants.contains(&start) {
             return Err(PatternError::InvalidConfiguration(format!(
@@ -293,9 +297,7 @@ pub fn handoff<T: Send + Sync + Serialize + 'static>(
     id: impl Into<String>,
     executor_ids: impl IntoIterator<Item = impl Into<ExecutorId>>,
 ) -> PatternResult<WorkflowDefinition<T>> {
-    HandoffBuilder::new(id)
-        .participants(executor_ids)
-        .build()
+    HandoffBuilder::new(id).participants(executor_ids).build()
 }
 
 // ============================================================================
@@ -392,11 +394,7 @@ mod tests {
 
     #[test]
     fn test_handoff_convenience_function() {
-        let definition = handoff::<serde_json::Value>(
-            "quick",
-            vec!["x", "y", "z"],
-        )
-        .unwrap();
+        let definition = handoff::<serde_json::Value>("quick", vec!["x", "y", "z"]).unwrap();
 
         assert_eq!(definition.executors.len(), 3);
         assert_eq!(definition.start.as_str(), "x");

@@ -121,7 +121,13 @@ impl AgentThread {
     /// Add a message to the thread.
     pub fn add_message(&mut self, message: ChatMessage) {
         // Track turns (user message followed by assistant)
-        if message.is_user() && self.messages.last().map(super::types::ChatMessage::is_assistant).unwrap_or(true) {
+        if message.is_user()
+            && self
+                .messages
+                .last()
+                .map(super::types::ChatMessage::is_assistant)
+                .unwrap_or(true)
+        {
             self.turn_count += 1;
         }
 
@@ -154,12 +160,7 @@ impl AgentThread {
         }
 
         // Add conversation messages (excluding system messages which are in system_prompt)
-        messages.extend(
-            self.messages
-                .iter()
-                .filter(|m| !m.is_system())
-                .cloned(),
-        );
+        messages.extend(self.messages.iter().filter(|m| !m.is_system()).cloned());
 
         messages
     }

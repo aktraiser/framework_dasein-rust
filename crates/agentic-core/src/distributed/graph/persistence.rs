@@ -40,9 +40,9 @@ use tokio::sync::RwLock;
 use super::superstep::Checkpoint;
 #[cfg(feature = "redis-persistence")]
 use super::superstep::CheckpointBackend;
-use super::types::{ExecutorError, TaskId, WorkflowId};
 #[cfg(feature = "redis-persistence")]
 use super::types::ExecutorId;
+use super::types::{ExecutorError, TaskId, WorkflowId};
 
 // ============================================================================
 // ENHANCED CHECKPOINT WITH SHARED STATE
@@ -143,7 +143,8 @@ impl From<&PersistentCheckpoint> for CheckpointMetadata {
 #[async_trait]
 pub trait PersistentCheckpointBackend: Send + Sync {
     /// Save a persistent checkpoint.
-    async fn save_persistent(&self, checkpoint: &PersistentCheckpoint) -> Result<(), ExecutorError>;
+    async fn save_persistent(&self, checkpoint: &PersistentCheckpoint)
+        -> Result<(), ExecutorError>;
 
     /// Load the latest persistent checkpoint.
     async fn load_persistent(
@@ -199,7 +200,10 @@ impl InMemoryPersistentBackend {
 
 #[async_trait]
 impl PersistentCheckpointBackend for InMemoryPersistentBackend {
-    async fn save_persistent(&self, checkpoint: &PersistentCheckpoint) -> Result<(), ExecutorError> {
+    async fn save_persistent(
+        &self,
+        checkpoint: &PersistentCheckpoint,
+    ) -> Result<(), ExecutorError> {
         let mut store = self.checkpoints.write().await;
         store.insert(checkpoint.id().to_string(), checkpoint.clone());
         Ok(())
@@ -270,7 +274,11 @@ impl PersistentCheckpointBackend for InMemoryPersistentBackend {
         matching.sort_by(|a, b| b.1.cmp(&a.1));
 
         // Remove all but the last `keep_count`
-        let to_remove: Vec<_> = matching.into_iter().skip(keep_count).map(|(id, _)| id).collect();
+        let to_remove: Vec<_> = matching
+            .into_iter()
+            .skip(keep_count)
+            .map(|(id, _)| id)
+            .collect();
 
         let count = to_remove.len();
         for id in to_remove {
@@ -327,12 +335,21 @@ pub struct RedisCheckpointBackend {
 impl RedisCheckpointBackend {
     /// Connect to Redis.
     pub async fn connect(url: &str) -> Result<Self, ExecutorError> {
-        let client = redis::Client::open(url)
-            .map_err(|e| ExecutorError::new(ExecutorId::new("checkpoint"), format!("Redis connection failed: {}", e)))?;
+        let client = redis::Client::open(url).map_err(|e| {
+            ExecutorError::new(
+                ExecutorId::new("checkpoint"),
+                format!("Redis connection failed: {}", e),
+            )
+        })?;
 
         let conn = redis::aio::ConnectionManager::new(client)
             .await
-            .map_err(|e| ExecutorError::new(ExecutorId::new("checkpoint"), format!("Redis connection failed: {}", e)))?;
+            .map_err(|e| {
+                ExecutorError::new(
+                    ExecutorId::new("checkpoint"),
+                    format!("Redis connection failed: {}", e),
+                )
+            })?;
 
         Ok(Self {
             client: conn,
@@ -367,7 +384,10 @@ impl RedisCheckpointBackend {
 #[cfg(feature = "redis-persistence")]
 #[async_trait]
 impl PersistentCheckpointBackend for RedisCheckpointBackend {
-    async fn save_persistent(&self, checkpoint: &PersistentCheckpoint) -> Result<(), ExecutorError> {
+    async fn save_persistent(
+        &self,
+        checkpoint: &PersistentCheckpoint,
+    ) -> Result<(), ExecutorError> {
         use redis::AsyncCommands;
 
         let mut conn = self.client.clone();
@@ -379,29 +399,51 @@ impl PersistentCheckpointBackend for RedisCheckpointBackend {
         let workflow_index = Self::workflow_index_key(checkpoint.checkpoint.workflow_id.as_str());
 
         // Serialize checkpoint
-        let data = serde_json::to_string(checkpoint)
-            .map_err(|e| ExecutorError::new(ExecutorId::new("checkpoint"), format!("Serialization failed: {}", e)))?;
+        let data = serde_json::to_string(checkpoint).map_err(|e| {
+            ExecutorError::new(
+                ExecutorId::new("checkpoint"),
+                format!("Serialization failed: {}", e),
+            )
+        })?;
 
         // Store checkpoint
         if let Some(ttl) = self.ttl_seconds {
             conn.set_ex::<_, _, ()>(&key, &data, ttl)
                 .await
-                .map_err(|e| ExecutorError::new(ExecutorId::new("checkpoint"), format!("Redis set failed: {}", e)))?;
+                .map_err(|e| {
+                    ExecutorError::new(
+                        ExecutorId::new("checkpoint"),
+                        format!("Redis set failed: {}", e),
+                    )
+                })?;
         } else {
-            conn.set::<_, _, ()>(&key, &data)
-                .await
-                .map_err(|e| ExecutorError::new(ExecutorId::new("checkpoint"), format!("Redis set failed: {}", e)))?;
+            conn.set::<_, _, ()>(&key, &data).await.map_err(|e| {
+                ExecutorError::new(
+                    ExecutorId::new("checkpoint"),
+                    format!("Redis set failed: {}", e),
+                )
+            })?;
         }
 
         // Add to index (sorted set with superstep as score)
         conn.zadd::<_, _, _, ()>(&index_key, checkpoint.id(), checkpoint.superstep() as f64)
             .await
-            .map_err(|e| ExecutorError::new(ExecutorId::new("checkpoint"), format!("Redis zadd failed: {}", e)))?;
+            .map_err(|e| {
+                ExecutorError::new(
+                    ExecutorId::new("checkpoint"),
+                    format!("Redis zadd failed: {}", e),
+                )
+            })?;
 
         // Add task_id to workflow index
         conn.sadd::<_, _, ()>(&workflow_index, checkpoint.checkpoint.task_id.as_str())
             .await
-            .map_err(|e| ExecutorError::new(ExecutorId::new("checkpoint"), format!("Redis sadd failed: {}", e)))?;
+            .map_err(|e| {
+                ExecutorError::new(
+                    ExecutorId::new("checkpoint"),
+                    format!("Redis sadd failed: {}", e),
+                )
+            })?;
 
         tracing::debug!(
             checkpoint_id = %checkpoint.id(),
@@ -423,10 +465,12 @@ impl PersistentCheckpointBackend for RedisCheckpointBackend {
         let index_key = Self::index_key(workflow_id.as_str(), task_id.as_str());
 
         // Get the checkpoint ID with highest score (latest superstep)
-        let result: Vec<String> = conn
-            .zrevrange(&index_key, 0, 0)
-            .await
-            .map_err(|e| ExecutorError::new(ExecutorId::new("checkpoint"), format!("Redis zrevrange failed: {}", e)))?;
+        let result: Vec<String> = conn.zrevrange(&index_key, 0, 0).await.map_err(|e| {
+            ExecutorError::new(
+                ExecutorId::new("checkpoint"),
+                format!("Redis zrevrange failed: {}", e),
+            )
+        })?;
 
         let Some(checkpoint_id) = result.first() else {
             return Ok(None);
@@ -444,17 +488,23 @@ impl PersistentCheckpointBackend for RedisCheckpointBackend {
         let mut conn = self.client.clone();
         let key = Self::checkpoint_key(checkpoint_id);
 
-        let data: Option<String> = conn
-            .get(&key)
-            .await
-            .map_err(|e| ExecutorError::new(ExecutorId::new("checkpoint"), format!("Redis get failed: {}", e)))?;
+        let data: Option<String> = conn.get(&key).await.map_err(|e| {
+            ExecutorError::new(
+                ExecutorId::new("checkpoint"),
+                format!("Redis get failed: {}", e),
+            )
+        })?;
 
         let Some(data) = data else {
             return Ok(None);
         };
 
-        let checkpoint: PersistentCheckpoint = serde_json::from_str(&data)
-            .map_err(|e| ExecutorError::new(ExecutorId::new("checkpoint"), format!("Deserialization failed: {}", e)))?;
+        let checkpoint: PersistentCheckpoint = serde_json::from_str(&data).map_err(|e| {
+            ExecutorError::new(
+                ExecutorId::new("checkpoint"),
+                format!("Deserialization failed: {}", e),
+            )
+        })?;
 
         Ok(Some(checkpoint))
     }
@@ -474,19 +524,25 @@ impl PersistentCheckpointBackend for RedisCheckpointBackend {
             vec![tid.as_str().to_string()]
         } else {
             let workflow_index = Self::workflow_index_key(workflow_id.as_str());
-            conn.smembers(&workflow_index)
-                .await
-                .map_err(|e| ExecutorError::new(ExecutorId::new("checkpoint"), format!("Redis smembers failed: {}", e)))?
+            conn.smembers(&workflow_index).await.map_err(|e| {
+                ExecutorError::new(
+                    ExecutorId::new("checkpoint"),
+                    format!("Redis smembers failed: {}", e),
+                )
+            })?
         };
 
         for tid in task_ids {
             let index_key = Self::index_key(workflow_id.as_str(), &tid);
 
             // Get all checkpoint IDs (sorted by superstep descending)
-            let checkpoint_ids: Vec<String> = conn
-                .zrevrange(&index_key, 0, -1)
-                .await
-                .map_err(|e| ExecutorError::new(ExecutorId::new("checkpoint"), format!("Redis zrevrange failed: {}", e)))?;
+            let checkpoint_ids: Vec<String> =
+                conn.zrevrange(&index_key, 0, -1).await.map_err(|e| {
+                    ExecutorError::new(
+                        ExecutorId::new("checkpoint"),
+                        format!("Redis zrevrange failed: {}", e),
+                    )
+                })?;
 
             for id in checkpoint_ids {
                 if let Some(checkpoint) = self.load_persistent_by_id(&id).await? {
@@ -513,19 +569,30 @@ impl PersistentCheckpointBackend for RedisCheckpointBackend {
         let to_remove: Vec<String> = conn
             .zrange(&index_key, 0, -(keep_count as isize + 1))
             .await
-            .map_err(|e| ExecutorError::new(ExecutorId::new("checkpoint"), format!("Redis zrange failed: {}", e)))?;
+            .map_err(|e| {
+                ExecutorError::new(
+                    ExecutorId::new("checkpoint"),
+                    format!("Redis zrange failed: {}", e),
+                )
+            })?;
 
         let count = to_remove.len();
 
         for id in &to_remove {
             let key = Self::checkpoint_key(id);
-            conn.del::<_, ()>(&key)
-                .await
-                .map_err(|e| ExecutorError::new(ExecutorId::new("checkpoint"), format!("Redis del failed: {}", e)))?;
+            conn.del::<_, ()>(&key).await.map_err(|e| {
+                ExecutorError::new(
+                    ExecutorId::new("checkpoint"),
+                    format!("Redis del failed: {}", e),
+                )
+            })?;
 
-            conn.zrem::<_, _, ()>(&index_key, id)
-                .await
-                .map_err(|e| ExecutorError::new(ExecutorId::new("checkpoint"), format!("Redis zrem failed: {}", e)))?;
+            conn.zrem::<_, _, ()>(&index_key, id).await.map_err(|e| {
+                ExecutorError::new(
+                    ExecutorId::new("checkpoint"),
+                    format!("Redis zrem failed: {}", e),
+                )
+            })?;
         }
 
         tracing::info!(
@@ -550,10 +617,12 @@ impl PersistentCheckpointBackend for RedisCheckpointBackend {
         let index_key = Self::index_key(workflow_id.as_str(), task_id.as_str());
 
         // Get all checkpoint IDs
-        let checkpoint_ids: Vec<String> = conn
-            .zrange(&index_key, 0, -1)
-            .await
-            .map_err(|e| ExecutorError::new(ExecutorId::new("checkpoint"), format!("Redis zrange failed: {}", e)))?;
+        let checkpoint_ids: Vec<String> = conn.zrange(&index_key, 0, -1).await.map_err(|e| {
+            ExecutorError::new(
+                ExecutorId::new("checkpoint"),
+                format!("Redis zrange failed: {}", e),
+            )
+        })?;
 
         let count = checkpoint_ids.len();
 
@@ -653,7 +722,10 @@ mod tests {
         assert!(loaded.is_some());
         let loaded = loaded.unwrap();
         assert_eq!(loaded.superstep(), 5);
-        assert_eq!(loaded.shared_state.get("key"), Some(&serde_json::json!("value")));
+        assert_eq!(
+            loaded.shared_state.get("key"),
+            Some(&serde_json::json!("value"))
+        );
     }
 
     #[tokio::test]

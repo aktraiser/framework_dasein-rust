@@ -77,10 +77,7 @@ impl Sequencer {
         // Check if dependencies are satisfied
         if !task.depends_on.is_empty() {
             let completed = self.completed_tasks.read().await;
-            let has_unsatisfied = task
-                .depends_on
-                .iter()
-                .any(|dep| !completed.contains(dep));
+            let has_unsatisfied = task.depends_on.iter().any(|dep| !completed.contains(dep));
 
             if has_unsatisfied {
                 // Task is blocked, store it separately

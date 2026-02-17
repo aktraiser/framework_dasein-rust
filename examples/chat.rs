@@ -38,7 +38,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut key = String::new();
             io::stdin().lock().read_line(&mut key)?;
             Box::new(
-                dasein_agentic_llm::OpenAIAdapter::new(key.trim(), "gpt-4o-mini").with_temperature(0.7),
+                dasein_agentic_llm::OpenAIAdapter::new(key.trim(), "gpt-4o-mini")
+                    .with_temperature(0.7),
             )
         }
         "3" => {

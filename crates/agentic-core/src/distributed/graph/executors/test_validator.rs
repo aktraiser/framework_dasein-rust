@@ -265,7 +265,9 @@ impl<S: Sandbox + Send + Sync + 'static> Executor for TestValidatorExecutor<S> {
         let language = self.parse_language(&typed_input.language);
 
         // Run tests
-        let sandbox_result = self.validate_with_tests(&typed_input.code, language).await?;
+        let sandbox_result = self
+            .validate_with_tests(&typed_input.code, language)
+            .await?;
 
         // Convert to ValidationResult
         let result = if sandbox_result.tests_passed {

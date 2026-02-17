@@ -18,16 +18,24 @@
 
 use dasein_agentic_core::distributed::graph::ExecutorId;
 use dasein_agentic_core::patterns::{
-    // Builders
-    ConcurrentBuilder, GroupChatBuilder, HandoffBuilder, SequentialBuilder,
+    any_termination,
     // Convenience functions
-    handoff, sequential,
+    handoff,
+    keyword_termination,
+    max_messages_termination,
+    // Termination conditions
+    max_rounds_termination,
     // Selectors
     round_robin_selector,
-    // Termination conditions
-    max_rounds_termination, max_messages_termination, keyword_termination, any_termination,
+    sequential,
+    // Builders
+    ConcurrentBuilder,
+    GroupChatBuilder,
     // Types
-    GroupChatState, HandoffDecision,
+    GroupChatState,
+    HandoffBuilder,
+    HandoffDecision,
+    SequentialBuilder,
 };
 
 fn main() {
@@ -66,12 +74,14 @@ fn demo_sequential() {
     println!("  Flow: writer → reviewer → polisher\n");
 
     // Method 2: Using convenience function
-    let quick = sequential::<serde_json::Value>(
-        "quick-pipeline",
-        vec!["step1", "step2", "step3"],
-    ).expect("Failed to build");
+    let quick = sequential::<serde_json::Value>("quick-pipeline", vec!["step1", "step2", "step3"])
+        .expect("Failed to build");
 
-    println!("Quick sequential: {} with {} steps\n", quick.id, quick.executors.len());
+    println!(
+        "Quick sequential: {} with {} steps\n",
+        quick.id,
+        quick.executors.len()
+    );
 }
 
 // ============================================================================
@@ -93,7 +103,10 @@ fn demo_concurrent() {
     println!("Built concurrent workflow: {}", definition.id);
     println!("  Name: {:?}", definition.name);
     println!("  Start: {} (splitter)", definition.start);
-    println!("  Executors: {} (splitter + 3 workers + aggregator)", definition.executors.len());
+    println!(
+        "  Executors: {} (splitter + 3 workers + aggregator)",
+        definition.executors.len()
+    );
 
     // Check topology
     let has_splitter = definition.has_executor(&ExecutorId::new("analysis-splitter"));
@@ -110,7 +123,10 @@ fn demo_concurrent() {
         .build()
         .expect("Failed to build");
 
-    println!("Custom aggregator: {}\n", custom.has_executor(&ExecutorId::new("my-custom-aggregator")));
+    println!(
+        "Custom aggregator: {}\n",
+        custom.has_executor(&ExecutorId::new("my-custom-aggregator"))
+    );
 }
 
 // ============================================================================
@@ -135,7 +151,10 @@ fn demo_group_chat() {
     println!("Built group chat workflow: {}", definition.id);
     println!("  Name: {:?}", definition.name);
     println!("  Start: {} (orchestrator)", definition.start);
-    println!("  Executors: {} (orchestrator + collector + 3 participants)", definition.executors.len());
+    println!(
+        "  Executors: {} (orchestrator + collector + 3 participants)",
+        definition.executors.len()
+    );
 
     // Check components
     let has_orchestrator = definition.has_executor(&ExecutorId::new("code-review-orchestrator"));
@@ -191,15 +210,20 @@ fn demo_handoff() {
     println!("  Name: {:?}", definition.name);
     println!("  Start: {}", definition.start);
     println!("  Executors: {}", definition.executors.len());
-    println!("  Edges: {} (mesh: each can route to any other)", definition.edges.all().len());
+    println!(
+        "  Edges: {} (mesh: each can route to any other)",
+        definition.edges.all().len()
+    );
 
     // Method 2: Convenience function
     let quick = handoff::<serde_json::Value>(
         "quick-support",
         vec!["general", "code_expert", "math_expert"],
-    ).expect("Failed to build");
+    )
+    .expect("Failed to build");
 
-    println!("\n  Quick handoff: {} executors, {} edges",
+    println!(
+        "\n  Quick handoff: {} executors, {} edges",
         quick.executors.len(),
         quick.edges.all().len()
     );
@@ -211,8 +235,14 @@ fn demo_handoff() {
     let done = HandoffDecision::Terminate;
 
     println!("    Handle.is_handoff(): {}", handle.is_handoff());
-    println!("    HandoffTo('specialist').is_handoff(): {}", transfer.is_handoff());
-    println!("    HandoffTo('specialist').target(): {:?}", transfer.handoff_target().map(|id| id.as_str()));
+    println!(
+        "    HandoffTo('specialist').is_handoff(): {}",
+        transfer.is_handoff()
+    );
+    println!(
+        "    HandoffTo('specialist').target(): {:?}",
+        transfer.handoff_target().map(|id| id.as_str())
+    );
     println!("    Terminate.is_terminate(): {}", done.is_terminate());
 
     // Demo HandoffCapable trait

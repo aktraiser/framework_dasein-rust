@@ -50,6 +50,7 @@
 //! GEMINI_API_KEY=xxx cargo run --example ts_state_machine_graph
 //! ```
 
+use async_trait::async_trait;
 use dasein_agentic_core::distributed::graph::{
     Executor as GraphExecutor, ExecutorContext, ExecutorError, ExecutorId, ExecutorKind,
     ExecutorRegistry, Workflow, WorkflowBuilder, WorkflowConfig,
@@ -59,7 +60,6 @@ use dasein_agentic_core::distributed::{
     ValidatorPipeline,
 };
 use dasein_agentic_sandbox::ProcessSandbox;
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -478,10 +478,7 @@ impl GraphExecutor for AssemblerExecutor {
 
         // Need 3 parts: types, impl, tests
         if parts.len() < 3 {
-            println!(
-                "[Assembler] Waiting for more parts ({}/3)...",
-                parts.len()
-            );
+            println!("[Assembler] Waiting for more parts ({}/3)...", parts.len());
             return Ok(());
         }
 
@@ -587,8 +584,7 @@ impl GraphExecutor for CompileValidatorExecutor {
         println!("[CompileVal] Validating TypeScript compilation...");
 
         let resources = self.resources.lock().await;
-        let validator_input =
-            ValidatorInput::new(&input.code, "typescript").with_task(&input.task);
+        let validator_input = ValidatorInput::new(&input.code, "typescript").with_task(&input.task);
         let result = resources.pipeline.validate(validator_input).await;
         drop(resources);
 
@@ -673,8 +669,7 @@ impl GraphExecutor for TestValidatorExecutor {
         println!("[TestVal] Running Jest tests...");
 
         let resources = self.resources.lock().await;
-        let validator_input =
-            ValidatorInput::new(&input.code, "typescript").with_task(&input.task);
+        let validator_input = ValidatorInput::new(&input.code, "typescript").with_task(&input.task);
         let result = resources.pipeline.validate(validator_input).await;
         drop(resources);
 
@@ -842,15 +837,31 @@ Requirements:
     println!("  Edges: {}", definition.edges.len());
     for edge in definition.edges.all() {
         let source = match &edge.source {
-            dasein_agentic_core::distributed::graph::EdgeSource::Single(id) => id.as_str().to_string(),
+            dasein_agentic_core::distributed::graph::EdgeSource::Single(id) => {
+                id.as_str().to_string()
+            }
             dasein_agentic_core::distributed::graph::EdgeSource::Multiple(ids) => {
-                format!("[{}]", ids.iter().map(|id| id.as_str()).collect::<Vec<_>>().join(", "))
+                format!(
+                    "[{}]",
+                    ids.iter()
+                        .map(|id| id.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
             }
         };
         let target = match &edge.target {
-            dasein_agentic_core::distributed::graph::EdgeTarget::Single(id) => id.as_str().to_string(),
+            dasein_agentic_core::distributed::graph::EdgeTarget::Single(id) => {
+                id.as_str().to_string()
+            }
             dasein_agentic_core::distributed::graph::EdgeTarget::Multiple(ids) => {
-                format!("[{}]", ids.iter().map(|id| id.as_str()).collect::<Vec<_>>().join(", "))
+                format!(
+                    "[{}]",
+                    ids.iter()
+                        .map(|id| id.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
             }
         };
         println!("    {} → {} ({:?})", source, target, edge.kind);
@@ -920,7 +931,10 @@ Requirements:
     }
 
     // Find final code in outputs
-    let final_code = result.outputs.iter().find(|o| o.contains("TYPES & INTERFACES"));
+    let final_code = result
+        .outputs
+        .iter()
+        .find(|o| o.contains("TYPES & INTERFACES"));
 
     if let Some(code) = final_code {
         println!("\n  --- Final Code Preview ---");

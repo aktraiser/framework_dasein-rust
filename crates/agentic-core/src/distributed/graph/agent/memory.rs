@@ -388,11 +388,7 @@ pub trait MemoryProvider: Send + Sync {
     ) -> MemoryResult<()>;
 
     /// Retrieve all memories for a user/agent pair.
-    async fn get_memories(
-        &self,
-        agent_id: &AgentId,
-        user_id: &str,
-    ) -> MemoryResult<Vec<Memory>>;
+    async fn get_memories(&self, agent_id: &AgentId, user_id: &str) -> MemoryResult<Vec<Memory>>;
 
     /// Store a memory explicitly.
     async fn store_memory(
@@ -403,11 +399,7 @@ pub trait MemoryProvider: Send + Sync {
     ) -> MemoryResult<()>;
 
     /// Clear all memories for a user/agent pair.
-    async fn clear_memories(
-        &self,
-        agent_id: &AgentId,
-        user_id: &str,
-    ) -> MemoryResult<()>;
+    async fn clear_memories(&self, agent_id: &AgentId, user_id: &str) -> MemoryResult<()>;
 }
 
 // ============================================================================
@@ -471,7 +463,10 @@ impl MemoryProvider for InMemoryProvider {
         };
 
         let key = Self::storage_key(agent_id, &user_id);
-        let storage = self.storage.read().map_err(|e| MemoryError::internal(e.to_string()))?;
+        let storage = self
+            .storage
+            .read()
+            .map_err(|e| MemoryError::internal(e.to_string()))?;
 
         if let Some(user_memories) = storage.get(&key) {
             // Inject top memories into context
@@ -510,13 +505,12 @@ impl MemoryProvider for InMemoryProvider {
         Ok(())
     }
 
-    async fn get_memories(
-        &self,
-        agent_id: &AgentId,
-        user_id: &str,
-    ) -> MemoryResult<Vec<Memory>> {
+    async fn get_memories(&self, agent_id: &AgentId, user_id: &str) -> MemoryResult<Vec<Memory>> {
         let key = Self::storage_key(agent_id, user_id);
-        let storage = self.storage.read().map_err(|e| MemoryError::internal(e.to_string()))?;
+        let storage = self
+            .storage
+            .read()
+            .map_err(|e| MemoryError::internal(e.to_string()))?;
 
         Ok(storage
             .get(&key)
@@ -531,7 +525,10 @@ impl MemoryProvider for InMemoryProvider {
         memory: Memory,
     ) -> MemoryResult<()> {
         let key = Self::storage_key(agent_id, user_id);
-        let mut storage = self.storage.write().map_err(|e| MemoryError::internal(e.to_string()))?;
+        let mut storage = self
+            .storage
+            .write()
+            .map_err(|e| MemoryError::internal(e.to_string()))?;
 
         let user_memories = storage
             .entry(key)
@@ -542,22 +539,21 @@ impl MemoryProvider for InMemoryProvider {
         // Trim if over max
         if user_memories.memories.len() > self.max_memories {
             // Remove oldest (lowest importance first)
-            user_memories.memories.sort_by(|a, b| {
-                b.importance.partial_cmp(&a.importance).unwrap()
-            });
+            user_memories
+                .memories
+                .sort_by(|a, b| b.importance.partial_cmp(&a.importance).unwrap());
             user_memories.memories.truncate(self.max_memories);
         }
 
         Ok(())
     }
 
-    async fn clear_memories(
-        &self,
-        agent_id: &AgentId,
-        user_id: &str,
-    ) -> MemoryResult<()> {
+    async fn clear_memories(&self, agent_id: &AgentId, user_id: &str) -> MemoryResult<()> {
         let key = Self::storage_key(agent_id, user_id);
-        let mut storage = self.storage.write().map_err(|e| MemoryError::internal(e.to_string()))?;
+        let mut storage = self
+            .storage
+            .write()
+            .map_err(|e| MemoryError::internal(e.to_string()))?;
         storage.remove(&key);
         Ok(())
     }
@@ -716,11 +712,7 @@ impl MemoryProvider for NatsMemoryProvider {
         Ok(())
     }
 
-    async fn get_memories(
-        &self,
-        agent_id: &AgentId,
-        user_id: &str,
-    ) -> MemoryResult<Vec<Memory>> {
+    async fn get_memories(&self, agent_id: &AgentId, user_id: &str) -> MemoryResult<Vec<Memory>> {
         let store = self.get_store().await?;
         let key = Self::storage_key(agent_id, user_id);
 
@@ -746,11 +738,8 @@ impl MemoryProvider for NatsMemoryProvider {
 
         // Get existing memories
         let mut user_memories = match store.get(&key).await {
-            Ok(Some(entry)) => {
-                serde_json::from_slice::<UserMemories>(&entry).unwrap_or_else(|_| {
-                    UserMemories::new(agent_id.clone(), user_id)
-                })
-            }
+            Ok(Some(entry)) => serde_json::from_slice::<UserMemories>(&entry)
+                .unwrap_or_else(|_| UserMemories::new(agent_id.clone(), user_id)),
             _ => UserMemories::new(agent_id.clone(), user_id),
         };
 
@@ -759,9 +748,9 @@ impl MemoryProvider for NatsMemoryProvider {
 
         // Trim if over max
         if user_memories.memories.len() > self.max_memories {
-            user_memories.memories.sort_by(|a, b| {
-                b.importance.partial_cmp(&a.importance).unwrap()
-            });
+            user_memories
+                .memories
+                .sort_by(|a, b| b.importance.partial_cmp(&a.importance).unwrap());
             user_memories.memories.truncate(self.max_memories);
         }
 
@@ -775,11 +764,7 @@ impl MemoryProvider for NatsMemoryProvider {
         Ok(())
     }
 
-    async fn clear_memories(
-        &self,
-        agent_id: &AgentId,
-        user_id: &str,
-    ) -> MemoryResult<()> {
+    async fn clear_memories(&self, agent_id: &AgentId, user_id: &str) -> MemoryResult<()> {
         let store = self.get_store().await?;
         let key = Self::storage_key(agent_id, user_id);
 
@@ -822,11 +807,7 @@ impl MemoryProvider for NoOpMemoryProvider {
         Ok(())
     }
 
-    async fn get_memories(
-        &self,
-        _agent_id: &AgentId,
-        _user_id: &str,
-    ) -> MemoryResult<Vec<Memory>> {
+    async fn get_memories(&self, _agent_id: &AgentId, _user_id: &str) -> MemoryResult<Vec<Memory>> {
         Ok(vec![])
     }
 
@@ -839,11 +820,7 @@ impl MemoryProvider for NoOpMemoryProvider {
         Ok(())
     }
 
-    async fn clear_memories(
-        &self,
-        _agent_id: &AgentId,
-        _user_id: &str,
-    ) -> MemoryResult<()> {
+    async fn clear_memories(&self, _agent_id: &AgentId, _user_id: &str) -> MemoryResult<()> {
         Ok(())
     }
 }
@@ -924,7 +901,10 @@ mod tests {
             .with_category(MemoryCategory::UserPreference)
             .with_importance(0.9);
 
-        provider.store_memory(&agent_id, user_id, memory).await.unwrap();
+        provider
+            .store_memory(&agent_id, user_id, memory)
+            .await
+            .unwrap();
 
         // Retrieve memories
         let memories = provider.get_memories(&agent_id, user_id).await.unwrap();
@@ -946,9 +926,11 @@ mod tests {
         // Add 5 memories with different importance
         for i in 0..5 {
             let importance = (i as f32) / 10.0;
-            let memory = Memory::new(format!("Memory {}", i))
-                .with_importance(importance);
-            provider.store_memory(&agent_id, user_id, memory).await.unwrap();
+            let memory = Memory::new(format!("Memory {}", i)).with_importance(importance);
+            provider
+                .store_memory(&agent_id, user_id, memory)
+                .await
+                .unwrap();
         }
 
         // Should only have top 3 by importance
@@ -965,7 +947,10 @@ mod tests {
         assert!(memories.is_empty());
 
         // Should not panic
-        provider.store_memory(&agent_id, "user", Memory::new("test")).await.unwrap();
+        provider
+            .store_memory(&agent_id, "user", Memory::new("test"))
+            .await
+            .unwrap();
         provider.clear_memories(&agent_id, "user").await.unwrap();
     }
 
@@ -976,16 +961,24 @@ mod tests {
         let user_id = "alice";
 
         // Store some memories
-        provider.store_memory(&agent_id, user_id, Memory::new("User name: Alice")).await.unwrap();
-        provider.store_memory(&agent_id, user_id, Memory::new("Likes Rust")).await.unwrap();
+        provider
+            .store_memory(&agent_id, user_id, Memory::new("User name: Alice"))
+            .await
+            .unwrap();
+        provider
+            .store_memory(&agent_id, user_id, Memory::new("Likes Rust"))
+            .await
+            .unwrap();
 
         // Create thread with user_id metadata
-        let thread = AgentThread::new()
-            .with_metadata("user_id", serde_json::json!("alice"));
+        let thread = AgentThread::new().with_metadata("user_id", serde_json::json!("alice"));
 
         // Before invoke should populate context
         let mut ctx = MemoryContext::new();
-        provider.before_invoke(&agent_id, &thread, &mut ctx).await.unwrap();
+        provider
+            .before_invoke(&agent_id, &thread, &mut ctx)
+            .await
+            .unwrap();
 
         assert!(!ctx.is_empty());
         assert_eq!(ctx.retrieved_memories.len(), 2);

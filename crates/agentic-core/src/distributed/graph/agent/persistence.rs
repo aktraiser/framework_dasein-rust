@@ -153,10 +153,9 @@ impl NatsThreadStore {
 
     /// Ensure KV buckets exist.
     async fn ensure_buckets(&self) -> ThreadStoreResult<()> {
-        let js = self
-            .nats
-            .jetstream()
-            .ok_or_else(|| ThreadStoreError::ConnectionError("JetStream not enabled".to_string()))?;
+        let js = self.nats.jetstream().ok_or_else(|| {
+            ThreadStoreError::ConnectionError("JetStream not enabled".to_string())
+        })?;
 
         for bucket_name in [BUCKET_THREADS, BUCKET_THREAD_INDEX] {
             match js.get_key_value(bucket_name).await {
@@ -180,13 +179,10 @@ impl NatsThreadStore {
     }
 
     /// Get the threads KV store.
-    async fn get_threads_store(
-        &self,
-    ) -> ThreadStoreResult<async_nats::jetstream::kv::Store> {
-        let js = self
-            .nats
-            .jetstream()
-            .ok_or_else(|| ThreadStoreError::ConnectionError("JetStream not enabled".to_string()))?;
+    async fn get_threads_store(&self) -> ThreadStoreResult<async_nats::jetstream::kv::Store> {
+        let js = self.nats.jetstream().ok_or_else(|| {
+            ThreadStoreError::ConnectionError("JetStream not enabled".to_string())
+        })?;
 
         js.get_key_value(BUCKET_THREADS)
             .await
@@ -194,13 +190,10 @@ impl NatsThreadStore {
     }
 
     /// Get the index KV store.
-    async fn get_index_store(
-        &self,
-    ) -> ThreadStoreResult<async_nats::jetstream::kv::Store> {
-        let js = self
-            .nats
-            .jetstream()
-            .ok_or_else(|| ThreadStoreError::ConnectionError("JetStream not enabled".to_string()))?;
+    async fn get_index_store(&self) -> ThreadStoreResult<async_nats::jetstream::kv::Store> {
+        let js = self.nats.jetstream().ok_or_else(|| {
+            ThreadStoreError::ConnectionError("JetStream not enabled".to_string())
+        })?;
 
         js.get_key_value(BUCKET_THREAD_INDEX)
             .await
@@ -218,9 +211,7 @@ impl NatsThreadStore {
 
         // Get existing index
         let mut thread_ids: Vec<String> = match store.get(key).await {
-            Ok(Some(entry)) => {
-                serde_json::from_slice(&entry).unwrap_or_default()
-            }
+            Ok(Some(entry)) => serde_json::from_slice(&entry).unwrap_or_default(),
             _ => vec![],
         };
 
@@ -250,9 +241,7 @@ impl NatsThreadStore {
 
         // Get existing index
         let mut thread_ids: Vec<String> = match store.get(key).await {
-            Ok(Some(entry)) => {
-                serde_json::from_slice(&entry).unwrap_or_default()
-            }
+            Ok(Some(entry)) => serde_json::from_slice(&entry).unwrap_or_default(),
             _ => return Ok(()),
         };
 
@@ -351,9 +340,7 @@ impl ThreadStore for NatsThreadStore {
         let key = agent_id.as_str();
 
         let thread_ids: Vec<String> = match index_store.get(key).await {
-            Ok(Some(entry)) => {
-                serde_json::from_slice(&entry).unwrap_or_default()
-            }
+            Ok(Some(entry)) => serde_json::from_slice(&entry).unwrap_or_default(),
             _ => return Ok(vec![]),
         };
 
@@ -402,9 +389,7 @@ impl ThreadStore for NatsThreadStore {
         let key = agent_id.as_str();
 
         let thread_ids: Vec<String> = match index_store.get(key).await {
-            Ok(Some(entry)) => {
-                serde_json::from_slice(&entry).unwrap_or_default()
-            }
+            Ok(Some(entry)) => serde_json::from_slice(&entry).unwrap_or_default(),
             _ => return Ok(0),
         };
 

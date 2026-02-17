@@ -177,10 +177,12 @@ impl<L: LLMAdapter + 'static> Agent for ChatAgent<L> {
         thread.add_response(&response.content, Some(response.tokens_used.total));
 
         // Build response
-        Ok(AgentResponse::with_messages(response.content, thread.messages.clone())
-            .with_tokens(response.tokens_used.total)
-            .with_model(response.model)
-            .with_truncated(response.finish_reason == dasein_agentic_llm::FinishReason::Length))
+        Ok(
+            AgentResponse::with_messages(response.content, thread.messages.clone())
+                .with_tokens(response.tokens_used.total)
+                .with_model(response.model)
+                .with_truncated(response.finish_reason == dasein_agentic_llm::FinishReason::Length),
+        )
     }
 
     fn run_stream<'a>(

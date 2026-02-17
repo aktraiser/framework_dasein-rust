@@ -316,7 +316,9 @@ impl NatsClient {
         let config = consumer::pull::Config {
             name: Some(consumer_name.to_string()),
             durable_name: Some(consumer_name.to_string()),
-            filter_subject: filter_subject.map(std::string::ToString::to_string).unwrap_or_default(),
+            filter_subject: filter_subject
+                .map(std::string::ToString::to_string)
+                .unwrap_or_default(),
             ..Default::default()
         };
 

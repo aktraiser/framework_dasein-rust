@@ -52,7 +52,7 @@ pub use concurrent::{concurrent, ConcurrentBuilder};
 pub use group_chat::{GroupChatBuilder, GroupChatState, SelectionFunc, TerminationFunc};
 pub use handoff::{handoff, HandoffBuilder, HandoffCapable, HandoffDecision};
 pub use sequential::{sequential, SequentialBuilder};
-pub use types::{AggregatedResult, AggregatorFn, PatternError, PatternResult, ParticipantResult};
+pub use types::{AggregatedResult, AggregatorFn, ParticipantResult, PatternError, PatternResult};
 
 // Re-export selectors and termination conditions from group_chat
 pub use group_chat::{

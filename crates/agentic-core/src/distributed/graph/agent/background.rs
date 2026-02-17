@@ -437,7 +437,9 @@ impl<T> BackgroundResponse<T> {
     /// Get the continuation token if in progress.
     pub fn token(&self) -> Option<&ContinuationToken> {
         match self {
-            Self::InProgress { continuation_token, .. } => Some(continuation_token),
+            Self::InProgress {
+                continuation_token, ..
+            } => Some(continuation_token),
             _ => None,
         }
     }
@@ -575,7 +577,10 @@ mod tests {
         assert!(task.status.is_running());
 
         task.update_progress(50, Some("Halfway done".into()));
-        if let TaskStatus::InProgress { progress, message, .. } = &task.status {
+        if let TaskStatus::InProgress {
+            progress, message, ..
+        } = &task.status
+        {
             assert_eq!(*progress, Some(50));
             assert_eq!(message.as_deref(), Some("Halfway done"));
         }

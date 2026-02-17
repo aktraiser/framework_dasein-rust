@@ -33,9 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Connect to NATS
     println!("🔌 Connecting to NATS...");
-    let nats = Arc::new(
-        NatsClient::connect(NatsConfig::new("nats://localhost:4222")).await?,
-    );
+    let nats = Arc::new(NatsClient::connect(NatsConfig::new("nats://localhost:4222")).await?);
     println!("   ✓ Connected to NATS with JetStream\n");
 
     // Run demos
@@ -54,9 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 // THREAD PERSISTENCE
 // ============================================================================
 
-async fn demo_thread_persistence(
-    nats: Arc<NatsClient>,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn demo_thread_persistence(nats: Arc<NatsClient>) -> Result<(), Box<dyn std::error::Error>> {
     println!("╭────────────────────────────────────────────────────────────────╮");
     println!("│ 1. THREAD PERSISTENCE (NatsThreadStore)                        │");
     println!("╰────────────────────────────────────────────────────────────────╯\n");
@@ -96,13 +92,20 @@ async fn demo_thread_persistence(
     println!("\n   📖 Loading thread from NATS KV...");
     let loaded = store.load(&thread_id).await?.expect("Thread should exist");
     println!("   ✓ Thread loaded");
-    println!("   ✓ Messages match: {}", loaded.message_count() == thread.message_count());
+    println!(
+        "   ✓ Messages match: {}",
+        loaded.message_count() == thread.message_count()
+    );
     println!("   ✓ System prompt: {:?}", loaded.system_prompt);
 
     // List threads by agent
     println!("\n   📋 Listing threads for agent...");
     let summaries = store.list_by_agent(&agent_id).await?;
-    println!("   ✓ Found {} thread(s) for '{}'", summaries.len(), agent_id);
+    println!(
+        "   ✓ Found {} thread(s) for '{}'",
+        summaries.len(),
+        agent_id
+    );
     for summary in &summaries {
         println!(
             "      - {} ({} messages, {} turns)",
@@ -122,9 +125,7 @@ async fn demo_thread_persistence(
 // MEMORY PERSISTENCE
 // ============================================================================
 
-async fn demo_memory_persistence(
-    nats: Arc<NatsClient>,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn demo_memory_persistence(nats: Arc<NatsClient>) -> Result<(), Box<dyn std::error::Error>> {
     println!("╭────────────────────────────────────────────────────────────────╮");
     println!("│ 2. MEMORY PERSISTENCE (NatsMemoryProvider)                     │");
     println!("╰────────────────────────────────────────────────────────────────╯\n");
@@ -199,7 +200,10 @@ async fn demo_memory_persistence(
     let mut ctx = MemoryContext::new();
     provider.before_invoke(&agent_id, &thread, &mut ctx).await?;
 
-    println!("   ✓ Injected {} memories into context", ctx.retrieved_memories.len());
+    println!(
+        "   ✓ Injected {} memories into context",
+        ctx.retrieved_memories.len()
+    );
     if let Some(instructions) = &ctx.extra_instructions {
         println!("\n   📝 Extra instructions for LLM:");
         for line in instructions.lines().take(6) {
@@ -231,9 +235,7 @@ async fn demo_persistence_across_reconnect() -> Result<(), Box<dyn std::error::E
     // First connection: create and save data
     println!("   📤 First connection: Creating data...");
     {
-        let nats = Arc::new(
-            NatsClient::connect(NatsConfig::new("nats://localhost:4222")).await?,
-        );
+        let nats = Arc::new(NatsClient::connect(NatsConfig::new("nats://localhost:4222")).await?);
 
         // Save a thread
         let thread_store = NatsThreadStore::new(nats.clone()).await?;
@@ -259,9 +261,7 @@ async fn demo_persistence_across_reconnect() -> Result<(), Box<dyn std::error::E
     // Second connection: verify data persists
     println!("   📥 Second connection: Verifying data...");
     {
-        let nats = Arc::new(
-            NatsClient::connect(NatsConfig::new("nats://localhost:4222")).await?,
-        );
+        let nats = Arc::new(NatsClient::connect(NatsConfig::new("nats://localhost:4222")).await?);
 
         // Check thread
         let thread_store = NatsThreadStore::new(nats.clone()).await?;
@@ -270,7 +270,11 @@ async fn demo_persistence_across_reconnect() -> Result<(), Box<dyn std::error::E
             println!("      ✓ Thread persisted: {}", thread.id);
             println!(
                 "      ✓ Content: \"{}\"",
-                thread.messages[0].content.chars().take(50).collect::<String>()
+                thread.messages[0]
+                    .content
+                    .chars()
+                    .take(50)
+                    .collect::<String>()
             );
         }
 

@@ -11,14 +11,23 @@
 //! ```
 
 use dasein_agentic_core::distributed::graph::agent::{
-    // Memory types
-    InMemoryProvider, Memory, MemoryCategory, MemoryContext, MemoryProvider,
-    NoOpMemoryProvider,
-    // Reducer types
-    ChatReducer, MessageCountingReducer, NoOpReducer, SlidingWindowReducer,
-    TokenCountingReducer,
     // Core types
-    AgentId, AgentThread, ChatMessage,
+    AgentId,
+    AgentThread,
+    ChatMessage,
+    // Reducer types
+    ChatReducer,
+    // Memory types
+    InMemoryProvider,
+    Memory,
+    MemoryCategory,
+    MemoryContext,
+    MemoryProvider,
+    MessageCountingReducer,
+    NoOpMemoryProvider,
+    NoOpReducer,
+    SlidingWindowReducer,
+    TokenCountingReducer,
 };
 
 fn main() {
@@ -150,7 +159,12 @@ fn demo_memory_provider() {
         let memories = provider.get_memories(&agent_id, user_id).await.unwrap();
         println!("Retrieved {} memories:", memories.len());
         for m in &memories {
-            println!("  - [{}] {} ({})", m.category_str(), m.content, m.importance);
+            println!(
+                "  - [{}] {} ({})",
+                m.category_str(),
+                m.content,
+                m.importance
+            );
         }
 
         // Test before_invoke
@@ -162,7 +176,10 @@ fn demo_memory_provider() {
             .await
             .unwrap();
 
-        println!("\nBefore invoke injected {} memories", ctx.retrieved_memories.len());
+        println!(
+            "\nBefore invoke injected {} memories",
+            ctx.retrieved_memories.len()
+        );
         if let Some(instructions) = &ctx.extra_instructions {
             println!("Extra instructions:\n{}", instructions);
         }

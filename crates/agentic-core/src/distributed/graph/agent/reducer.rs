@@ -218,11 +218,7 @@ impl TokenCountingReducer {
 impl ChatReducer for TokenCountingReducer {
     fn reduce(&self, messages: &[ChatMessage]) -> Vec<ChatMessage> {
         // Separate system messages
-        let system: Vec<ChatMessage> = messages
-            .iter()
-            .filter(|m| m.is_system())
-            .cloned()
-            .collect();
+        let system: Vec<ChatMessage> = messages.iter().filter(|m| m.is_system()).cloned().collect();
 
         let non_system: Vec<ChatMessage> = messages
             .iter()
@@ -309,11 +305,7 @@ impl SlidingWindowReducer {
 impl ChatReducer for SlidingWindowReducer {
     fn reduce(&self, messages: &[ChatMessage]) -> Vec<ChatMessage> {
         // System messages always kept
-        let system: Vec<ChatMessage> = messages
-            .iter()
-            .filter(|m| m.is_system())
-            .cloned()
-            .collect();
+        let system: Vec<ChatMessage> = messages.iter().filter(|m| m.is_system()).cloned().collect();
 
         // Important messages (non-system)
         let important: Vec<ChatMessage> = messages
@@ -425,9 +417,7 @@ mod tests {
     fn test_message_counting_reducer_preserves_system() {
         // Use without_pair_preservation for predictable counts
         let reducer = MessageCountingReducer::new(3).without_pair_preservation();
-        let mut messages = vec![
-            ChatMessage::system("System prompt"),
-        ];
+        let mut messages = vec![ChatMessage::system("System prompt")];
         messages.extend(make_messages(10));
 
         let reduced = reducer.reduce(&messages);
@@ -442,10 +432,10 @@ mod tests {
 
         // Create messages with known sizes
         let messages = vec![
-            ChatMessage::system("System"), // ~2 tokens
-            ChatMessage::user("a".repeat(100)), // ~25 tokens
+            ChatMessage::system("System"),           // ~2 tokens
+            ChatMessage::user("a".repeat(100)),      // ~25 tokens
             ChatMessage::assistant("b".repeat(100)), // ~25 tokens
-            ChatMessage::user("c".repeat(100)), // ~25 tokens
+            ChatMessage::user("c".repeat(100)),      // ~25 tokens
             ChatMessage::assistant("d".repeat(200)), // ~50 tokens
         ];
 
@@ -455,10 +445,7 @@ mod tests {
         assert!(reduced[0].is_system());
 
         // Verify we stayed under budget
-        let total_tokens: usize = reduced
-            .iter()
-            .map(|m| m.content.len() / 4 + 1)
-            .sum();
+        let total_tokens: usize = reduced.iter().map(|m| m.content.len() / 4 + 1).sum();
         assert!(total_tokens <= 100);
     }
 

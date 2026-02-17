@@ -64,7 +64,11 @@ pub struct CodePart {
 
 impl CodePart {
     /// Create a new code part.
-    pub fn new(name: impl Into<String>, code: impl Into<String>, language: impl Into<String>) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        code: impl Into<String>,
+        language: impl Into<String>,
+    ) -> Self {
         Self {
             name: name.into(),
             code: code.into(),
@@ -348,7 +352,8 @@ fn extract_imports(code: &str, language: &str) -> Vec<String> {
             "rust" => trimmed.starts_with("use ") || trimmed.starts_with("extern crate"),
             "python" => trimmed.starts_with("import ") || trimmed.starts_with("from "),
             "javascript" | "typescript" => {
-                trimmed.starts_with("import ") || trimmed.starts_with("const ") && trimmed.contains("require(")
+                trimmed.starts_with("import ")
+                    || trimmed.starts_with("const ") && trimmed.contains("require(")
             }
             "go" => trimmed.starts_with("import "),
             "java" => trimmed.starts_with("import "),
@@ -372,7 +377,8 @@ fn remove_imports(code: &str, language: &str) -> String {
                 "rust" => trimmed.starts_with("use ") || trimmed.starts_with("extern crate"),
                 "python" => trimmed.starts_with("import ") || trimmed.starts_with("from "),
                 "javascript" | "typescript" => {
-                    trimmed.starts_with("import ") || (trimmed.starts_with("const ") && trimmed.contains("require("))
+                    trimmed.starts_with("import ")
+                        || (trimmed.starts_with("const ") && trimmed.contains("require("))
                 }
                 "go" => trimmed.starts_with("import "),
                 "java" => trimmed.starts_with("import "),
@@ -414,8 +420,7 @@ mod tests {
 
     #[test]
     fn test_assembly_input_to_value() {
-        let input = AssemblyInput::new("rust")
-            .add_part(CodePart::new("a", "struct A {}", "rust"));
+        let input = AssemblyInput::new("rust").add_part(CodePart::new("a", "struct A {}", "rust"));
 
         let value = input.to_value();
         assert_eq!(value["language"], "rust");

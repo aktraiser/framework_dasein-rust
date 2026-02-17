@@ -6,6 +6,7 @@
 //!
 //! Run with: cargo run --example graph_refactor_python
 
+use async_trait::async_trait;
 use dasein_agentic_core::distributed::graph::{
     Executor as GraphExecutor, ExecutorContext, ExecutorError, ExecutorId, ExecutorKind,
     ExecutorRegistry, Workflow, WorkflowBuilder, WorkflowConfig,
@@ -15,7 +16,6 @@ use dasein_agentic_core::distributed::{
     ValidatorInput, ValidatorPipeline,
 };
 use dasein_agentic_sandbox::ProcessSandbox;
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -55,7 +55,11 @@ impl RefactorArtifact {
     fn with_validation(mut self, passed: bool, errors: Vec<String>) -> Self {
         self.validation_passed = Some(passed);
         self.errors = errors;
-        self.stage = if passed { "validated".into() } else { "failed".into() };
+        self.stage = if passed {
+            "validated".into()
+        } else {
+            "failed".into()
+        };
         self
     }
 }
@@ -93,14 +97,21 @@ impl GraphExecutor for CodeAnalyzerExecutor {
     type Message = RefactorArtifact;
     type Output = String;
 
-    fn id(&self) -> &ExecutorId { &self.id }
-    fn kind(&self) -> ExecutorKind { ExecutorKind::Worker }
+    fn id(&self) -> &ExecutorId {
+        &self.id
+    }
+    fn kind(&self) -> ExecutorKind {
+        ExecutorKind::Worker
+    }
 
     async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
     where
         Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
     {
-        println!("[Analyzer] Analyzing Python code ({} bytes)...", input.len());
+        println!(
+            "[Analyzer] Analyzing Python code ({} bytes)...",
+            input.len()
+        );
 
         let system = r#"You are a Python code analyzer. Analyze the code structure and identify:
 1. All class definitions
@@ -114,11 +125,17 @@ Keep the response concise (max 200 words)."#;
         let prompt = format!("Analyze this Python code:\n\n```python\n{}\n```", input);
 
         let resources = self.resources.lock().await;
-        let result = resources.executor.execute(system, &prompt).await
+        let result = resources
+            .executor
+            .execute(system, &prompt)
+            .await
             .map_err(|e| ExecutorError::new(self.id.clone(), format!("LLM error: {}", e)))?;
         drop(resources);
 
-        println!("[Analyzer] Analysis: {}", result.content.lines().next().unwrap_or(""));
+        println!(
+            "[Analyzer] Analysis: {}",
+            result.content.lines().next().unwrap_or("")
+        );
 
         ctx.send_message(RefactorArtifact::new(&input)).await?;
         ctx.yield_output("Analysis complete".into()).await?;
@@ -150,8 +167,12 @@ impl GraphExecutor for CodeGeneratorExecutor {
     type Message = RefactorArtifact;
     type Output = String;
 
-    fn id(&self) -> &ExecutorId { &self.id }
-    fn kind(&self) -> ExecutorKind { ExecutorKind::Worker }
+    fn id(&self) -> &ExecutorId {
+        &self.id
+    }
+    fn kind(&self) -> ExecutorKind {
+        ExecutorKind::Worker
+    }
 
     async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
     where
@@ -160,7 +181,10 @@ impl GraphExecutor for CodeGeneratorExecutor {
         println!("[Generator] Refactoring Python code...");
 
         let error_context = if !input.errors.is_empty() {
-            format!("\n\n=== PREVIOUS ERRORS - FIX THESE ===\n{}\n", input.errors.join("\n"))
+            format!(
+                "\n\n=== PREVIOUS ERRORS - FIX THESE ===\n{}\n",
+                input.errors.join("\n")
+            )
         } else {
             String::new()
         };
@@ -186,7 +210,10 @@ IMPORTANT:
         );
 
         let resources = self.resources.lock().await;
-        let result = resources.executor.execute(system, &prompt).await
+        let result = resources
+            .executor
+            .execute(system, &prompt)
+            .await
             .map_err(|e| ExecutorError::new(self.id.clone(), format!("LLM error: {}", e)))?;
         let code = resources.assembler.clean_for_validation(&result.content);
         drop(resources);
@@ -194,7 +221,8 @@ IMPORTANT:
         println!("[Generator] Generated {} bytes", code.len());
 
         ctx.send_message(input.with_refactored(&code)).await?;
-        ctx.yield_output(format!("Generated {} bytes", code.len())).await?;
+        ctx.yield_output(format!("Generated {} bytes", code.len()))
+            .await?;
         Ok(())
     }
 }
@@ -223,8 +251,12 @@ impl GraphExecutor for CodeValidatorExecutor {
     type Message = RefactorArtifact;
     type Output = String;
 
-    fn id(&self) -> &ExecutorId { &self.id }
-    fn kind(&self) -> ExecutorKind { ExecutorKind::Validator }
+    fn id(&self) -> &ExecutorId {
+        &self.id
+    }
+    fn kind(&self) -> ExecutorKind {
+        ExecutorKind::Validator
+    }
 
     async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
     where
@@ -237,18 +269,24 @@ impl GraphExecutor for CodeValidatorExecutor {
             .with_task("Refactored Python code validation");
         let result = self.pipeline.validate(validator_input).await;
 
-        let errors: Vec<String> = result.results.iter().flat_map(|r| r.errors.clone()).collect();
+        let errors: Vec<String> = result
+            .results
+            .iter()
+            .flat_map(|r| r.errors.clone())
+            .collect();
 
         if result.passed {
             println!("[Validator] ✓ Validation PASSED");
-            ctx.send_message(input.with_validation(true, vec![])).await?;
+            ctx.send_message(input.with_validation(true, vec![]))
+                .await?;
             ctx.yield_output("Validation: PASSED".into()).await?;
         } else {
             println!("[Validator] ✗ Validation FAILED ({} errors)", errors.len());
             for err in errors.iter().take(3) {
                 println!("  - {}", err.lines().next().unwrap_or(""));
             }
-            ctx.send_message(input.with_validation(false, errors)).await?;
+            ctx.send_message(input.with_validation(false, errors))
+                .await?;
             ctx.yield_output("Validation: FAILED".into()).await?;
         }
         Ok(())
@@ -265,7 +303,9 @@ struct RetryHandlerExecutor {
 
 impl RetryHandlerExecutor {
     fn new() -> Self {
-        Self { id: ExecutorId::new("retry-handler") }
+        Self {
+            id: ExecutorId::new("retry-handler"),
+        }
     }
 }
 
@@ -275,14 +315,21 @@ impl GraphExecutor for RetryHandlerExecutor {
     type Message = RefactorArtifact;
     type Output = String;
 
-    fn id(&self) -> &ExecutorId { &self.id }
-    fn kind(&self) -> ExecutorKind { ExecutorKind::Worker }
+    fn id(&self) -> &ExecutorId {
+        &self.id
+    }
+    fn kind(&self) -> ExecutorKind {
+        ExecutorKind::Worker
+    }
 
     async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
     where
         Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
     {
-        println!("[RetryHandler] Preparing retry with {} errors...", input.errors.len());
+        println!(
+            "[RetryHandler] Preparing retry with {} errors...",
+            input.errors.len()
+        );
         let mut artifact = RefactorArtifact::new(&input.original_code);
         artifact.errors = input.errors;
         artifact.stage = "retry".into();
@@ -302,7 +349,9 @@ struct AssemblerExecutor {
 
 impl AssemblerExecutor {
     fn new() -> Self {
-        Self { id: ExecutorId::new("assembler") }
+        Self {
+            id: ExecutorId::new("assembler"),
+        }
     }
 }
 
@@ -312,8 +361,12 @@ impl GraphExecutor for AssemblerExecutor {
     type Message = RefactorArtifact;
     type Output = String;
 
-    fn id(&self) -> &ExecutorId { &self.id }
-    fn kind(&self) -> ExecutorKind { ExecutorKind::Worker }
+    fn id(&self) -> &ExecutorId {
+        &self.id
+    }
+    fn kind(&self) -> ExecutorKind {
+        ExecutorKind::Worker
+    }
 
     async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
     where
@@ -368,7 +421,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sandbox_validator = SandboxPipelineValidator::new(sandbox)
         .workspace(PathBuf::from("/tmp/refactor-validation-python"))
         .run_tests(true);
-    let pipeline = ValidatorPipeline::new().add(sandbox_validator).into_shared();
+    let pipeline = ValidatorPipeline::new()
+        .add(sandbox_validator)
+        .into_shared();
     println!("✓ Validator: SharedValidatorPipeline (Python/pytest)");
 
     // === Build Workflow Graph ===
@@ -384,12 +439,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add_direct_edge("code-analyzer", "code-generator")
         .add_direct_edge("code-generator", "code-validator")
         .add_conditional_edge(
-            "code-validator", "assembler",
+            "code-validator",
+            "assembler",
             |artifact: &RefactorArtifact| artifact.validation_passed == Some(true),
             "on_success",
         )
         .add_conditional_edge(
-            "code-validator", "retry-handler",
+            "code-validator",
+            "retry-handler",
             |artifact: &RefactorArtifact| artifact.validation_passed == Some(false),
             "on_failure",
         )
@@ -608,7 +665,14 @@ async def test_ttl_expiration():
     println!("  RESULT");
     println!("{}", "=".repeat(70));
 
-    println!("\n  Status: {}", if result.success { "SUCCESS ✓" } else { "FAILED ✗" });
+    println!(
+        "\n  Status: {}",
+        if result.success {
+            "SUCCESS ✓"
+        } else {
+            "FAILED ✗"
+        }
+    );
     println!("  Supersteps: {}", result.superstep_count);
     println!("  Duration: {}ms", duration.as_millis());
 

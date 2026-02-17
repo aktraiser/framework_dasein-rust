@@ -14,10 +14,9 @@
 
 use dasein_agentic_core::distributed::graph::{
     executors::{
-        AssembledCode, AssemblyInput, CodeAssemblerExecutor, CodePart, CompileInput,
-        CompileOutput, CompileValidatorExecutor, GeneratedCode, GeneratorInput,
-        LLMGeneratorExecutor, SubWorkflowInput, SubWorkflowOutput,
-        TestInput, TestOutput, TestValidatorExecutor,
+        AssembledCode, AssemblyInput, CodeAssemblerExecutor, CodePart, CompileInput, CompileOutput,
+        CompileValidatorExecutor, GeneratedCode, GeneratorInput, LLMGeneratorExecutor,
+        SubWorkflowInput, SubWorkflowOutput, TestInput, TestOutput, TestValidatorExecutor,
     },
     ExecutorRegistry, Workflow, WorkflowBuilder, WorkflowConfig,
 };
@@ -44,14 +43,23 @@ fn test_type_safe_structs() {
     println!("    prompt: {:?}", gen_value["prompt"]);
     println!("    language: {:?}", gen_value["language"]);
     println!("    context: {:?}", gen_value["context"]);
-    println!("    previous_errors: {} items", gen_value["previous_errors"].as_array().map(|a| a.len()).unwrap_or(0));
+    println!(
+        "    previous_errors: {} items",
+        gen_value["previous_errors"]
+            .as_array()
+            .map(|a| a.len())
+            .unwrap_or(0)
+    );
 
     // CompileInput
     let compile_input = CompileInput::new("fn main() { println!(\"Hello\"); }", "rust")
         .with_task("Simple hello world");
     let compile_value = compile_input.to_value();
     println!("\n  ✓ CompileInput → Value");
-    println!("    code: {} chars", compile_value["code"].as_str().map(|s| s.len()).unwrap_or(0));
+    println!(
+        "    code: {} chars",
+        compile_value["code"].as_str().map(|s| s.len()).unwrap_or(0)
+    );
     println!("    language: {:?}", compile_value["language"]);
     println!("    task: {:?}", compile_value["task"]);
 
@@ -61,21 +69,37 @@ fn test_type_safe_structs() {
         .with_task("Addition function");
     let test_value = test_input.to_value();
     println!("\n  ✓ TestInput → Value");
-    println!("    code: {} chars", test_value["code"].as_str().map(|s| s.len()).unwrap_or(0));
+    println!(
+        "    code: {} chars",
+        test_value["code"].as_str().map(|s| s.len()).unwrap_or(0)
+    );
     println!("    test_filter: {:?}", test_value["test_filter"]);
 
     // AssemblyInput
     let assembly_input = AssemblyInput::new("rust")
         .add_part(CodePart::new("types", "pub struct Foo { x: i32 }", "rust").with_section("Types"))
-        .add_part(CodePart::new("impl", "impl Foo { pub fn new(x: i32) -> Self { Self { x } } }", "rust").with_section("Implementation"));
+        .add_part(
+            CodePart::new(
+                "impl",
+                "impl Foo { pub fn new(x: i32) -> Self { Self { x } } }",
+                "rust",
+            )
+            .with_section("Implementation"),
+        );
     let assembly_value = assembly_input.to_value();
     println!("\n  ✓ AssemblyInput → Value");
     println!("    language: {:?}", assembly_value["language"]);
-    println!("    parts: {} items", assembly_value["parts"].as_array().map(|a| a.len()).unwrap_or(0));
+    println!(
+        "    parts: {} items",
+        assembly_value["parts"]
+            .as_array()
+            .map(|a| a.len())
+            .unwrap_or(0)
+    );
 
     // SubWorkflowInput
-    let sub_input = SubWorkflowInput::new(serde_json::json!({"task": "nested task"}))
-        .with_task_id("task-123");
+    let sub_input =
+        SubWorkflowInput::new(serde_json::json!({"task": "nested task"})).with_task_id("task-123");
     let sub_value = sub_input.to_value();
     println!("\n  ✓ SubWorkflowInput → Value");
     println!("    input: {:?}", sub_value["input"]);
@@ -101,7 +125,10 @@ fn test_type_safe_structs() {
     };
     println!("\n  ✓ CompileOutput");
     println!("    passed: {}", compile_output.passed);
-    println!("    execution_time_ms: {}", compile_output.execution_time_ms);
+    println!(
+        "    execution_time_ms: {}",
+        compile_output.execution_time_ms
+    );
 
     let test_output = TestOutput {
         code: "fn main() {}".into(),
@@ -167,7 +194,10 @@ fn test_registry_compatibility() {
     registry.register(LLMGeneratorExecutor::new("generator", llm));
     println!("    ✓ LLMGeneratorExecutor (Worker)");
 
-    registry.register(CompileValidatorExecutor::new("compile-validator", sandbox.clone()));
+    registry.register(CompileValidatorExecutor::new(
+        "compile-validator",
+        sandbox.clone(),
+    ));
     println!("    ✓ CompileValidatorExecutor (Validator)");
 
     registry.register(TestValidatorExecutor::new("test-validator", sandbox));
@@ -230,12 +260,24 @@ fn test_workflow_definition() -> Result<(), Box<dyn std::error::Error>> {
     println!("    ID: {}", definition.id.as_str());
     println!("    Name: {:?}", definition.name);
     println!("    Start: {}", definition.start.as_str());
-    println!("    Executors: {:?}", definition.executors.iter().map(|e| e.as_str()).collect::<Vec<_>>());
+    println!(
+        "    Executors: {:?}",
+        definition
+            .executors
+            .iter()
+            .map(|e| e.as_str())
+            .collect::<Vec<_>>()
+    );
     println!("    Edges: {}", definition.edges.len());
 
     println!("\n  Edge Details:");
     for edge in definition.edges.all() {
-        println!("    {} → {:?} ({:?})", edge.name.as_deref().unwrap_or("unnamed"), edge.target, edge.kind);
+        println!(
+            "    {} → {:?} ({:?})",
+            edge.name.as_deref().unwrap_or("unnamed"),
+            edge.target,
+            edge.kind
+        );
     }
 
     println!("\n  ✅ Workflow definition valid!\n");
@@ -259,8 +301,7 @@ async fn test_code_assembler() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut registry: ExecutorRegistry<Value, String> = ExecutorRegistry::new();
     registry.register(
-        CodeAssemblerExecutor::new("assembler")
-            .with_header("// Generated by MAF Executor Demo")
+        CodeAssemblerExecutor::new("assembler").with_header("// Generated by MAF Executor Demo"),
     );
 
     let config = WorkflowConfig::new().with_max_supersteps(5);
@@ -424,7 +465,10 @@ async fn test_llm_pipeline() -> Result<(), Box<dyn std::error::Error>> {
         LLMGeneratorExecutor::new("generator", llm)
             .with_system_prompt("You are an expert Rust developer. Write clean, idiomatic code with tests. Return ONLY valid Rust code, no markdown.")
     );
-    registry.register(CompileValidatorExecutor::new("compile-validator", sandbox.clone()));
+    registry.register(CompileValidatorExecutor::new(
+        "compile-validator",
+        sandbox.clone(),
+    ));
     registry.register(TestValidatorExecutor::new("test-validator", sandbox));
 
     let config = WorkflowConfig::new()

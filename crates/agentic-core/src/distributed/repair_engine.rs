@@ -502,10 +502,7 @@ pub struct RepairSuggestion {
 impl RepairSuggestion {
     /// Generate suggestions from error contexts.
     pub fn from_contexts(contexts: &[ErrorContext]) -> Vec<Self> {
-        contexts
-            .iter()
-            .filter_map(Self::from_context)
-            .collect()
+        contexts.iter().filter_map(Self::from_context).collect()
     }
 
     /// Check if this suggestion can be applied automatically (high confidence).

@@ -13,6 +13,7 @@
 //!
 //! Run with: cargo run --example graph_workflow
 
+use async_trait::async_trait;
 use dasein_agentic_core::distributed::graph::{
     Executor as GraphExecutor, ExecutorContext, ExecutorError, ExecutorId, ExecutorKind,
     ExecutorRegistry, Workflow, WorkflowBuilder, WorkflowConfig,
@@ -22,7 +23,6 @@ use dasein_agentic_core::distributed::{
     SandboxPipelineValidator, ValidatorInput, ValidatorPipeline,
 };
 use dasein_agentic_sandbox::ProcessSandbox;
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -200,7 +200,8 @@ impl GraphExecutor for CodeValidatorExecutor {
         let resources = self.resources.lock().await;
 
         // Validate with pipeline
-        let validator_input = ValidatorInput::new(&input.code, &input.language).with_task(&input.task);
+        let validator_input =
+            ValidatorInput::new(&input.code, &input.language).with_task(&input.task);
         let result = resources.pipeline.validate(validator_input).await;
 
         drop(resources);

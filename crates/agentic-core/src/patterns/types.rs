@@ -71,7 +71,11 @@ pub struct ParticipantResult {
 
 impl ParticipantResult {
     /// Create a successful result.
-    pub fn success(executor_id: impl Into<ExecutorId>, output: serde_json::Value, duration_ms: u64) -> Self {
+    pub fn success(
+        executor_id: impl Into<ExecutorId>,
+        output: serde_json::Value,
+        duration_ms: u64,
+    ) -> Self {
         Self {
             executor_id: executor_id.into(),
             success: true,
@@ -82,7 +86,11 @@ impl ParticipantResult {
     }
 
     /// Create a failed result.
-    pub fn failure(executor_id: impl Into<ExecutorId>, error: impl Into<String>, duration_ms: u64) -> Self {
+    pub fn failure(
+        executor_id: impl Into<ExecutorId>,
+        error: impl Into<String>,
+        duration_ms: u64,
+    ) -> Self {
         Self {
             executor_id: executor_id.into(),
             success: false,
@@ -165,15 +173,11 @@ impl AggregatedResult {
     /// Get all successful outputs as a vector.
     pub fn successful_outputs(&self) -> Vec<&serde_json::Value> {
         match self {
-            Self::All(results) => results
-                .iter()
-                .filter_map(|r| r.output.as_ref())
-                .collect(),
+            Self::All(results) => results.iter().filter_map(|r| r.output.as_ref()).collect(),
             Self::Combined(value) => vec![value],
-            Self::Partial { successes, .. } => successes
-                .iter()
-                .filter_map(|r| r.output.as_ref())
-                .collect(),
+            Self::Partial { successes, .. } => {
+                successes.iter().filter_map(|r| r.output.as_ref()).collect()
+            }
             Self::Custom { output, .. } => vec![output],
         }
     }
@@ -222,7 +226,9 @@ impl AggregatedResult {
 /// });
 /// ```
 pub type AggregatorFn = Box<
-    dyn Fn(Vec<ParticipantResult>) -> Pin<Box<dyn Future<Output = PatternResult<AggregatedResult>> + Send>>
+    dyn Fn(
+            Vec<ParticipantResult>,
+        ) -> Pin<Box<dyn Future<Output = PatternResult<AggregatedResult>> + Send>>
         + Send
         + Sync,
 >;
@@ -237,11 +243,7 @@ mod tests {
 
     #[test]
     fn test_participant_result_success() {
-        let result = ParticipantResult::success(
-            "worker1",
-            serde_json::json!({"answer": 42}),
-            100,
-        );
+        let result = ParticipantResult::success("worker1", serde_json::json!({"answer": 42}), 100);
 
         assert!(result.is_success());
         assert!(!result.is_failure());
@@ -290,7 +292,10 @@ mod tests {
         let err = PatternError::NoParticipants;
         assert_eq!(err.to_string(), "No participants added to pattern");
 
-        let err = PatternError::TooManyFailures { failed: 3, total: 5 };
+        let err = PatternError::TooManyFailures {
+            failed: 3,
+            total: 5,
+        };
         assert_eq!(err.to_string(), "Too many failures: 3 of 5");
     }
 }

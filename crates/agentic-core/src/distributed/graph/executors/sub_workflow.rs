@@ -314,8 +314,8 @@ mod tests {
 
     #[test]
     fn test_sub_workflow_input() {
-        let input = SubWorkflowInput::new(serde_json::json!({"test": "data"}))
-            .with_task_id("task-123");
+        let input =
+            SubWorkflowInput::new(serde_json::json!({"test": "data"})).with_task_id("task-123");
 
         assert_eq!(input.task_id, Some("task-123".into()));
         assert_eq!(input.input["test"], "data");

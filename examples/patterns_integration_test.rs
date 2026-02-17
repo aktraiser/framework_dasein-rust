@@ -16,14 +16,14 @@
 //! cargo run --example patterns_integration_test
 //! ```
 
+use async_trait::async_trait;
 use dasein_agentic_core::distributed::graph::{
     Executor, ExecutorContext, ExecutorError, ExecutorId, ExecutorKind, ExecutorRegistry, Workflow,
     WorkflowConfig,
 };
 use dasein_agentic_core::patterns::{
-    ConcurrentBuilder, GroupChatBuilder, HandoffBuilder, SequentialBuilder, round_robin_selector,
+    round_robin_selector, ConcurrentBuilder, GroupChatBuilder, HandoffBuilder, SequentialBuilder,
 };
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -108,8 +108,9 @@ impl Executor for TransformerExecutor {
         self.call_count.fetch_add(1, Ordering::SeqCst);
 
         // Deserialize input
-        let msg: Message = serde_json::from_value(input)
-            .map_err(|e| ExecutorError::new(self.id.clone(), format!("Deserialize error: {}", e)))?;
+        let msg: Message = serde_json::from_value(input).map_err(|e| {
+            ExecutorError::new(self.id.clone(), format!("Deserialize error: {}", e))
+        })?;
 
         // Transform
         let transformed = msg.transform(self.id.as_str(), &self.prefix);
@@ -171,8 +172,9 @@ impl Executor for AggregatorExecutor {
         self.received_count.fetch_add(1, Ordering::SeqCst);
 
         // Deserialize input
-        let msg: Message = serde_json::from_value(input.clone())
-            .map_err(|e| ExecutorError::new(self.id.clone(), format!("Deserialize error: {}", e)))?;
+        let msg: Message = serde_json::from_value(input.clone()).map_err(|e| {
+            ExecutorError::new(self.id.clone(), format!("Deserialize error: {}", e))
+        })?;
 
         println!(
             "  [{}] Aggregated message with history: {:?}, transforms: {}",

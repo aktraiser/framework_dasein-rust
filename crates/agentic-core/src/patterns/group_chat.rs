@@ -291,8 +291,14 @@ impl<T: Send + Sync + 'static> GroupChatBuilder<T> {
     }
 
     /// Set all participants at once.
-    pub fn participants(mut self, executor_ids: impl IntoIterator<Item = impl Into<ExecutorId>>) -> Self {
-        self.participants = executor_ids.into_iter().map(std::convert::Into::into).collect();
+    pub fn participants(
+        mut self,
+        executor_ids: impl IntoIterator<Item = impl Into<ExecutorId>>,
+    ) -> Self {
+        self.participants = executor_ids
+            .into_iter()
+            .map(std::convert::Into::into)
+            .collect();
         self
     }
 
@@ -416,10 +422,7 @@ mod tests {
 
     #[test]
     fn test_group_chat_state_new() {
-        let state = GroupChatState::new(vec![
-            ExecutorId::new("alice"),
-            ExecutorId::new("bob"),
-        ]);
+        let state = GroupChatState::new(vec![ExecutorId::new("alice"), ExecutorId::new("bob")]);
 
         assert_eq!(state.participants.len(), 2);
         assert_eq!(state.current_round, 0);
@@ -457,12 +460,18 @@ mod tests {
         ]);
 
         // Add a message about research
-        state.conversation.push(ChatMessage::user("We need more data"));
+        state
+            .conversation
+            .push(ChatMessage::user("We need more data"));
         assert_eq!(smart_selector(&state).as_str(), "researcher");
 
         // Add a message about writing
-        state.conversation.push(ChatMessage::assistant("Here's the data"));
-        state.conversation.push(ChatMessage::user("Now write a draft"));
+        state
+            .conversation
+            .push(ChatMessage::assistant("Here's the data"));
+        state
+            .conversation
+            .push(ChatMessage::user("Now write a draft"));
         assert_eq!(smart_selector(&state).as_str(), "writer");
     }
 
@@ -486,10 +495,14 @@ mod tests {
         let termination = keyword_termination("approved");
         let mut state = GroupChatState::new(vec![ExecutorId::new("a")]);
 
-        state.conversation.push(ChatMessage::assistant("Still working on it"));
+        state
+            .conversation
+            .push(ChatMessage::assistant("Still working on it"));
         assert!(!termination(&state));
 
-        state.conversation.push(ChatMessage::assistant("This is APPROVED!"));
+        state
+            .conversation
+            .push(ChatMessage::assistant("This is APPROVED!"));
         assert!(termination(&state));
     }
 

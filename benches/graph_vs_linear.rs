@@ -15,12 +15,12 @@
 //! - Fan-out/Fan-in parallelism gains
 //! - Memory footprint per workflow
 
+use async_trait::async_trait;
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use dasein_agentic_core::distributed::graph::{
     Executor as GraphExecutor, ExecutorContext, ExecutorError, ExecutorId, ExecutorKind,
     ExecutorRegistry, Workflow, WorkflowBuilder, WorkflowConfig,
 };
-use async_trait::async_trait;
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -172,7 +172,10 @@ impl LinearPipeline {
 // ============================================================================
 
 /// Build a graph workflow with N sequential stages
-fn build_sequential_graph(stages: usize, call_count: Arc<AtomicUsize>) -> Workflow<BenchMessage, String> {
+fn build_sequential_graph(
+    stages: usize,
+    call_count: Arc<AtomicUsize>,
+) -> Workflow<BenchMessage, String> {
     let mut builder = WorkflowBuilder::<BenchMessage>::new("bench-sequential")
         .name("Sequential Benchmark")
         .set_start("stage-0")
@@ -269,31 +272,23 @@ fn bench_sequential(c: &mut Criterion) {
         let linear_count = Arc::new(AtomicUsize::new(0));
         let linear = LinearPipeline::new(*stages, linear_count.clone());
 
-        group.bench_with_input(
-            BenchmarkId::new("linear", stages),
-            stages,
-            |b, _| {
-                b.to_async(&rt).iter(|| async {
-                    let result = linear.run(BenchMessage::new(1)).await;
-                    black_box(result)
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("linear", stages), stages, |b, _| {
+            b.to_async(&rt).iter(|| async {
+                let result = linear.run(BenchMessage::new(1)).await;
+                black_box(result)
+            });
+        });
 
         // Graph workflow
         let graph_count = Arc::new(AtomicUsize::new(0));
         let workflow = build_sequential_graph(*stages, graph_count.clone());
 
-        group.bench_with_input(
-            BenchmarkId::new("graph", stages),
-            stages,
-            |b, _| {
-                b.to_async(&rt).iter(|| async {
-                    let result = workflow.run(BenchMessage::new(1)).await;
-                    black_box(result)
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("graph", stages), stages, |b, _| {
+            b.to_async(&rt).iter(|| async {
+                let result = workflow.run(BenchMessage::new(1)).await;
+                black_box(result)
+            });
+        });
     }
 
     group.finish();
@@ -351,16 +346,12 @@ fn bench_superstep_overhead(c: &mut Criterion) {
         let graph_count = Arc::new(AtomicUsize::new(0));
         let workflow = build_sequential_graph(*stages, graph_count.clone());
 
-        group.bench_with_input(
-            BenchmarkId::new("supersteps", stages),
-            stages,
-            |b, _| {
-                b.to_async(&rt).iter(|| async {
-                    let result = workflow.run(BenchMessage::new(1)).await;
-                    black_box(result)
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("supersteps", stages), stages, |b, _| {
+            b.to_async(&rt).iter(|| async {
+                let result = workflow.run(BenchMessage::new(1)).await;
+                black_box(result)
+            });
+        });
     }
 
     group.finish();

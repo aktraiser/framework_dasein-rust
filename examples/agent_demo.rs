@@ -13,6 +13,7 @@
 //!
 //! Run with: cargo run --example agent_demo
 
+use async_trait::async_trait;
 use dasein_agentic_core::distributed::graph::agent::{
     Agent, AgentChunk, AgentError, AgentExt, AgentResponse, AgentThread, ChatAgent, ChatMessage,
     ChatRole, ThreadSummary, Tool, ToolParam,
@@ -20,7 +21,6 @@ use dasein_agentic_core::distributed::graph::agent::{
 use dasein_agentic_llm::{
     FinishReason, LLMAdapter, LLMError, LLMMessage, LLMResponse, StreamChunk, TokenUsage,
 };
-use async_trait::async_trait;
 use futures::{Stream, StreamExt};
 use std::pin::Pin;
 use std::time::Instant;
@@ -110,8 +110,8 @@ impl LLMAdapter for MockLLM {
         let total_chunks = chunks.len();
         let output_tokens = (content.len() / 4) as u32;
 
-        Box::pin(futures::stream::iter(
-            chunks.into_iter().enumerate().map(move |(i, chunk)| {
+        Box::pin(futures::stream::iter(chunks.into_iter().enumerate().map(
+            move |(i, chunk)| {
                 let is_last = i == total_chunks - 1;
                 Ok(StreamChunk {
                     content: chunk,
@@ -131,8 +131,8 @@ impl LLMAdapter for MockLLM {
                         None
                     },
                 })
-            }),
-        ))
+            },
+        )))
     }
 
     async fn health_check(&self) -> Result<bool, LLMError> {
@@ -292,7 +292,10 @@ fn test_tools() {
             "expression",
             ToolParam::string("Mathematical expression to evaluate"),
         )
-        .with_optional_param("precision", ToolParam::integer("Decimal precision (default: 2)"));
+        .with_optional_param(
+            "precision",
+            ToolParam::integer("Decimal precision (default: 2)"),
+        );
 
     println!("\n  ✓ Tool with parameters");
     println!("    name: {}", calculator.name);
@@ -316,11 +319,10 @@ fn test_tools() {
     println!("    type.enum_values: {:?}", type_param.enum_values);
 
     // Tool with array param
-    let batch = Tool::new("batch_process", "Process multiple items")
-        .with_param(
-            "items",
-            ToolParam::array("Items to process", ToolParam::string("Item")),
-        );
+    let batch = Tool::new("batch_process", "Process multiple items").with_param(
+        "items",
+        ToolParam::array("Items to process", ToolParam::string("Item")),
+    );
 
     println!("\n  ✓ Tool with array param");
     println!("    name: {}", batch.name);
@@ -490,8 +492,9 @@ async fn test_streaming() {
     println!("  TEST 6: Streaming with run_stream()");
     println!("{}", "=".repeat(70));
 
-    let llm = MockLLM::new("mock-streaming")
-        .with_responses(vec!["This is a streaming response that will be sent in chunks."]);
+    let llm = MockLLM::new("mock-streaming").with_responses(vec![
+        "This is a streaming response that will be sent in chunks.",
+    ]);
 
     let agent = ChatAgent::new("streamer", llm);
     let mut thread = AgentThread::new();

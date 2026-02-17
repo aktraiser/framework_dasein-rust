@@ -184,7 +184,10 @@ impl AgentChunk {
 
     /// Check if this chunk has content.
     pub fn has_content(&self) -> bool {
-        self.content.as_ref().map(|c| !c.is_empty()).unwrap_or(false)
+        self.content
+            .as_ref()
+            .map(|c| !c.is_empty())
+            .unwrap_or(false)
     }
 
     /// Check if this chunk is an error.
@@ -254,8 +257,7 @@ mod tests {
     #[test]
     fn test_agent_response_with_tool_calls() {
         let call = ToolCall::new("call-1", "calculator", serde_json::json!({"expr": "2+2"}));
-        let response = AgentResponse::new("Let me calculate...")
-            .with_tool_calls(vec![call]);
+        let response = AgentResponse::new("Let me calculate...").with_tool_calls(vec![call]);
 
         assert!(response.has_tool_calls());
         assert_eq!(response.tool_calls.len(), 1);

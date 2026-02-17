@@ -243,7 +243,10 @@ mod tests {
     #[test]
     fn test_tool_with_params() {
         let tool = Tool::new("calculator", "Perform calculations")
-            .with_param("expression", ToolParam::string("Math expression to evaluate"))
+            .with_param(
+                "expression",
+                ToolParam::string("Math expression to evaluate"),
+            )
             .with_optional_param("precision", ToolParam::integer("Decimal precision"));
 
         assert_eq!(tool.parameters.properties.len(), 2);
@@ -266,7 +269,10 @@ mod tests {
     #[test]
     fn test_tool_param_enum() {
         let param = ToolParam::string_enum("Select one", vec!["a", "b", "c"]);
-        assert_eq!(param.enum_values, Some(vec!["a".into(), "b".into(), "c".into()]));
+        assert_eq!(
+            param.enum_values,
+            Some(vec!["a".into(), "b".into(), "c".into()])
+        );
     }
 
     #[test]
@@ -278,8 +284,8 @@ mod tests {
 
     #[test]
     fn test_tool_serialize() {
-        let tool = Tool::new("test", "Test tool")
-            .with_param("query", ToolParam::string("Search query"));
+        let tool =
+            Tool::new("test", "Test tool").with_param("query", ToolParam::string("Search query"));
 
         let json = serde_json::to_string_pretty(&tool).unwrap();
         assert!(json.contains("\"name\": \"test\""));

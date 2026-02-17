@@ -13,12 +13,12 @@
 //!
 //! Run with: cargo run --example graph_persistence_test
 
+use async_trait::async_trait;
 use dasein_agentic_core::distributed::graph::{
     Executor as GraphExecutor, ExecutorContext, ExecutorError, ExecutorId, ExecutorKind,
-    ExecutorRegistry, InMemoryPersistentBackend, PersistentCheckpoint,
-    PersistentCheckpointBackend, TaskId, Workflow, WorkflowBuilder, WorkflowConfig,
+    ExecutorRegistry, InMemoryPersistentBackend, PersistentCheckpoint, PersistentCheckpointBackend,
+    TaskId, Workflow, WorkflowBuilder, WorkflowConfig,
 };
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
@@ -604,9 +604,15 @@ async fn test_batch_migration() -> Result<(), Box<dyn std::error::Error>> {
     println!("Total checkpoints created: {}", all_metadata.len());
 
     if success_count == services.len() {
-        println!("\n  TEST 3 PASSED (all {} services migrated)\n", services.len());
+        println!(
+            "\n  TEST 3 PASSED (all {} services migrated)\n",
+            services.len()
+        );
     } else {
-        println!("\n  TEST 3 FAILED ({} failures)\n", services.len() - success_count);
+        println!(
+            "\n  TEST 3 FAILED ({} failures)\n",
+            services.len() - success_count
+        );
     }
 
     Ok(())

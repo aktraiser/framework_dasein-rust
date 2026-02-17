@@ -16,17 +16,17 @@
 //!
 //! Run with: cargo run --example graph_refactor
 
+use async_trait::async_trait;
 use dasein_agentic_core::distributed::graph::{
     Executor as GraphExecutor, ExecutorContext, ExecutorError, ExecutorId, ExecutorKind,
-    ExecutorRegistry, InMemoryPersistentBackend, PersistentCheckpointBackend, TaskId,
-    Workflow, WorkflowBuilder, WorkflowConfig,
+    ExecutorRegistry, InMemoryPersistentBackend, PersistentCheckpointBackend, TaskId, Workflow,
+    WorkflowBuilder, WorkflowConfig,
 };
 use dasein_agentic_core::distributed::{
     CodeAssembler, Executor as LLMExecutor, SandboxPipelineValidator, SharedValidatorPipeline,
     ValidatorInput, ValidatorPipeline,
 };
 use dasein_agentic_sandbox::ProcessSandbox;
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -72,7 +72,11 @@ impl RefactorArtifact {
     fn with_validation(mut self, passed: bool, errors: Vec<String>) -> Self {
         self.validation_passed = Some(passed);
         self.errors = errors;
-        self.stage = if passed { "validated".into() } else { "failed".into() };
+        self.stage = if passed {
+            "validated".into()
+        } else {
+            "failed".into()
+        };
         self
     }
 }
@@ -146,7 +150,10 @@ Keep the response concise (max 200 words)."#;
             .map_err(|e| ExecutorError::new(self.id.clone(), format!("LLM error: {}", e)))?;
         drop(resources);
 
-        println!("[Analyzer] Analysis: {}", result.content.lines().next().unwrap_or(""));
+        println!(
+            "[Analyzer] Analysis: {}",
+            result.content.lines().next().unwrap_or("")
+        );
 
         let artifact = RefactorArtifact::new(&input);
         ctx.send_message(artifact).await?;
@@ -236,7 +243,8 @@ IMPORTANT:
 
         let artifact = input.with_refactored(&code);
         ctx.send_message(artifact).await?;
-        ctx.yield_output(format!("Generated {} bytes", code.len())).await?;
+        ctx.yield_output(format!("Generated {} bytes", code.len()))
+            .await?;
 
         Ok(())
     }
@@ -349,7 +357,10 @@ impl GraphExecutor for RetryHandlerExecutor {
     where
         Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
     {
-        println!("[RetryHandler] Preparing retry with {} errors...", input.errors.len());
+        println!(
+            "[RetryHandler] Preparing retry with {} errors...",
+            input.errors.len()
+        );
 
         // Keep original code and errors for retry
         let mut artifact = RefactorArtifact::new(&input.original_code);
@@ -782,7 +793,11 @@ mod tests {
 
     println!(
         "\n  Status: {}",
-        if result.success { "SUCCESS ✓" } else { "FAILED ✗" }
+        if result.success {
+            "SUCCESS ✓"
+        } else {
+            "FAILED ✗"
+        }
     );
     println!("  Supersteps: {}", result.superstep_count);
     println!("  Duration: {}ms", duration.as_millis());
@@ -811,7 +826,10 @@ mod tests {
         .unwrap_or_default();
     println!("\n  Checkpoints saved: {}", checkpoints.len());
     if !checkpoints.is_empty() {
-        println!("  Latest checkpoint: superstep {}", checkpoints[0].superstep);
+        println!(
+            "  Latest checkpoint: superstep {}",
+            checkpoints[0].superstep
+        );
     }
 
     println!("\n{}\n", "=".repeat(70));

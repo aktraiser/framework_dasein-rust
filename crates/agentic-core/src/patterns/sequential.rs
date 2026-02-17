@@ -90,7 +90,10 @@ impl<T: Send + Sync + 'static> SequentialBuilder<T> {
     /// Add multiple participants at once.
     ///
     /// They will be appended to the sequence in order.
-    pub fn add_participants(mut self, executor_ids: impl IntoIterator<Item = impl Into<ExecutorId>>) -> Self {
+    pub fn add_participants(
+        mut self,
+        executor_ids: impl IntoIterator<Item = impl Into<ExecutorId>>,
+    ) -> Self {
         for id in executor_ids {
             self.participants.push(id.into());
         }
@@ -98,8 +101,14 @@ impl<T: Send + Sync + 'static> SequentialBuilder<T> {
     }
 
     /// Set all participants at once (replaces existing).
-    pub fn participants(mut self, executor_ids: impl IntoIterator<Item = impl Into<ExecutorId>>) -> Self {
-        self.participants = executor_ids.into_iter().map(std::convert::Into::into).collect();
+    pub fn participants(
+        mut self,
+        executor_ids: impl IntoIterator<Item = impl Into<ExecutorId>>,
+    ) -> Self {
+        self.participants = executor_ids
+            .into_iter()
+            .map(std::convert::Into::into)
+            .collect();
         self
     }
 
@@ -266,11 +275,8 @@ mod tests {
 
     #[test]
     fn test_sequential_convenience_function() {
-        let definition = sequential::<serde_json::Value>(
-            "quick-pipeline",
-            vec!["a", "b", "c"],
-        )
-        .unwrap();
+        let definition =
+            sequential::<serde_json::Value>("quick-pipeline", vec!["a", "b", "c"]).unwrap();
 
         assert_eq!(definition.executors.len(), 3);
         assert_eq!(definition.start.as_str(), "a");

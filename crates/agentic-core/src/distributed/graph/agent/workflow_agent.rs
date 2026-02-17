@@ -200,7 +200,10 @@ where
         // Add response to thread
         thread.add_message(ChatMessage::assistant(&content));
 
-        Ok(AgentResponse::with_messages(content, thread.messages.clone()))
+        Ok(AgentResponse::with_messages(
+            content,
+            thread.messages.clone(),
+        ))
     }
 
     fn run_stream<'a>(

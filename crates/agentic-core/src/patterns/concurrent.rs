@@ -103,7 +103,10 @@ impl<T: Send + Sync + 'static> ConcurrentBuilder<T> {
     }
 
     /// Add multiple participants at once.
-    pub fn add_participants(mut self, executor_ids: impl IntoIterator<Item = impl Into<ExecutorId>>) -> Self {
+    pub fn add_participants(
+        mut self,
+        executor_ids: impl IntoIterator<Item = impl Into<ExecutorId>>,
+    ) -> Self {
         for id in executor_ids {
             self.participants.push(id.into());
         }
@@ -111,8 +114,14 @@ impl<T: Send + Sync + 'static> ConcurrentBuilder<T> {
     }
 
     /// Set all participants at once (replaces existing).
-    pub fn participants(mut self, executor_ids: impl IntoIterator<Item = impl Into<ExecutorId>>) -> Self {
-        self.participants = executor_ids.into_iter().map(std::convert::Into::into).collect();
+    pub fn participants(
+        mut self,
+        executor_ids: impl IntoIterator<Item = impl Into<ExecutorId>>,
+    ) -> Self {
+        self.participants = executor_ids
+            .into_iter()
+            .map(std::convert::Into::into)
+            .collect();
         self
     }
 
@@ -316,11 +325,7 @@ mod tests {
 
     #[test]
     fn test_concurrent_convenience_function() {
-        let definition = concurrent::<serde_json::Value>(
-            "quick",
-            vec!["x", "y", "z"],
-        )
-        .unwrap();
+        let definition = concurrent::<serde_json::Value>("quick", vec!["x", "y", "z"]).unwrap();
 
         assert_eq!(definition.executors.len(), 5); // splitter + 3 + aggregator
     }

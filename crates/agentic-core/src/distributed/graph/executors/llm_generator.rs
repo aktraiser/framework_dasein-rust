@@ -207,8 +207,9 @@ impl LLMGeneratorExecutor {
             return content.to_string();
         }
 
-        let re = regex::Regex::new(r"```(?:rust|python|typescript|javascript|go|java)?\n([\s\S]*?)```")
-            .unwrap();
+        let re =
+            regex::Regex::new(r"```(?:rust|python|typescript|javascript|go|java)?\n([\s\S]*?)```")
+                .unwrap();
 
         if let Some(captures) = re.captures(content) {
             if let Some(code) = captures.get(1) {
