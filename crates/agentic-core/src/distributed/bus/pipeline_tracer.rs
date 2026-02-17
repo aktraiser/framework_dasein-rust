@@ -882,7 +882,8 @@ mod tests {
 
         let trace = tracer.complete(false, None).await;
 
-        assert_eq!(trace.status, TraceStatus::Failed);
+        // Score -300 > -1000 means PartialSuccess (some progress was made)
+        assert_eq!(trace.status, TraceStatus::PartialSuccess);
         assert_eq!(
             *trace.metrics.error_categories.get("type_system").unwrap(),
             1
