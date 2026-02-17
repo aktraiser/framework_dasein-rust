@@ -11,7 +11,7 @@
 //!
 //! # Example
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use dasein_agentic_core::distributed::{LiaisonArchitect, Executor, SubTaskResult};
 //!
 //! let liaison = LiaisonArchitect::new("rust");

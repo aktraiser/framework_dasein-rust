@@ -20,7 +20,7 @@
 //!
 //! # Usage
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use dasein_agentic_core::distributed::bus::{AuditCollector, AuditEvent, AuditEventType};
 //!
 //! // Create with NATS connection

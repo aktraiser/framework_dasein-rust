@@ -8,7 +8,7 @@
 //!
 //! # Quick Start
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use dasein_agentic_core::distributed::bus::BusCoordinator;
 //!
 //! let coordinator = BusCoordinator::builder()

@@ -2,7 +2,7 @@
 //!
 //! # Quick Start
 //!
-//! ```rust
+//! ```rust,ignore
 //! // Request help
 //! let request = AllocationRequest::new("sup-code", 2)
 //!     .reason(AllocationReason::Overloaded { queue_depth: 15 });

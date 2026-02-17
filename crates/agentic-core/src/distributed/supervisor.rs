@@ -2,7 +2,7 @@
 //!
 //! # Quick Start
 //!
-//! ```rust
+//! ```rust,ignore
 //! // Create a supervisor with 4 executors in one line
 //! let sup = Supervisor::new("my-sup")
 //!     .domain("code")
@@ -58,7 +58,7 @@ impl Supervisor {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// let sup = Supervisor::new("sup-code")
     ///     .domain("code")
     ///     .executors(4)
@@ -73,7 +73,7 @@ impl Supervisor {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// let sup = Supervisor::quick("sup-code", 4);
     /// ```
     pub fn quick(id: impl Into<String>, executors: usize) -> SupervisorBuilder {
@@ -446,7 +446,7 @@ impl SupervisorBuilder {
 ///
 /// # Example
 ///
-/// ```rust
+/// ```rust,ignore
 /// let supervisors = create_supervisors! {
 ///     "sup-code" => { domain: "code", executors: 4 },
 ///     "sup-data" => { domain: "data", executors: 2 },

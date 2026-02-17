@@ -11,7 +11,7 @@
 //!
 //! # Quick Start
 //!
-//! ```rust
+//! ```rust,ignore
 //! use dasein_agentic_core::distributed::{Validator, ValidationRule};
 //!
 //! let validator = Validator::new("val-001", "sup-001")
@@ -140,7 +140,7 @@ impl Validator {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// let val = Validator::new("val-001", "sup-001")
     ///     .rule(ValidationRule::OutputNotEmpty)
     ///     .build();

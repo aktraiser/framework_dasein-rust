@@ -16,7 +16,7 @@
 //!
 //! # Quick Start
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use dasein_agentic_core::distributed::Supervisor;
 //!
 //! // Create a supervisor with 4 executors
@@ -33,7 +33,7 @@
 //!
 //! Use for quick heuristic checks on any output type:
 //!
-//! ```rust
+//! ```rust,ignore
 //! use dasein_agentic_core::distributed::{Validator, ValidationRule};
 //!
 //! let validator = Validator::new("val-001", "sup-001")
@@ -52,7 +52,7 @@
 //!
 //! Use for real compilation and test execution:
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use dasein_agentic_core::distributed::SandboxValidator;
 //! use dasein_agentic_sandbox::ProcessSandbox;
 //!

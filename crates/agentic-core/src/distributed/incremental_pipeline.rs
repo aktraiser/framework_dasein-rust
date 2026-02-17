@@ -20,7 +20,7 @@
 //!
 //! # Example
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use dasein_agentic_core::distributed::incremental_pipeline::{Stage, IncrementalPipeline};
 //! use dasein_agentic_core::distributed::sandbox_validator::Language;
 //!

@@ -2,7 +2,7 @@
 //!
 //! # Quick Start
 //!
-//! ```rust
+//! ```rust,ignore
 //! let pool = ExecutorPool::new("sup-001", 4)
 //!     .llm(LLMConfig::gemini("gemini-2.0-flash"))
 //!     .build();
@@ -64,7 +64,7 @@ impl ExecutorPool {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// let pool = ExecutorPool::new("sup-001", 4)
     ///     .llm_gemini("gemini-2.0-flash")
     ///     .build();

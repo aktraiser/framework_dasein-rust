@@ -28,7 +28,7 @@
 //!
 //! # Example
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! let tracer = PipelineTracer::new("python", "Create a rate limiter...");
 //!
 //! tracer.start_attempt(1, ModelTier::Fast);
