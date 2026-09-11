@@ -1,12 +1,12 @@
 //! Filesystem API for sandbox file operations
 
 use axum::{
-    extract::{State, Query},
+    extract::{Query, State},
     http::StatusCode,
     response::IntoResponse,
     Json,
 };
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use gateway_sandbox::FileInfo;
 use serde::{Deserialize, Serialize};
 
@@ -20,12 +20,15 @@ pub async fn upload_file(
 ) -> Result<Json<UploadFileResponse>, ApiError> {
     // Decode base64 content if provided
     let content = if let Some(base64_content) = &request.content_base64 {
-        BASE64.decode(base64_content)
+        BASE64
+            .decode(base64_content)
             .map_err(|e| ApiError::BadRequest(format!("Invalid base64: {}", e)))?
     } else if let Some(text_content) = &request.content {
         text_content.as_bytes().to_vec()
     } else {
-        return Err(ApiError::BadRequest("Either 'content' or 'content_base64' is required".to_string()));
+        return Err(ApiError::BadRequest(
+            "Either 'content' or 'content_base64' is required".to_string(),
+        ));
     };
 
     state
@@ -67,7 +70,8 @@ pub async fn get_file(
         Ok(Json(ListFilesResponse {
             path: path.to_string(),
             files,
-        }).into_response())
+        })
+        .into_response())
     } else {
         // Read file
         let content = state
@@ -82,14 +86,16 @@ pub async fn get_file(
                 StatusCode::OK,
                 [("content-type", "application/octet-stream")],
                 content,
-            ).into_response()
+            )
+                .into_response()
         } else {
             // Return base64 encoded
             Json(ReadFileResponse {
                 path: path.to_string(),
                 content_base64: BASE64.encode(&content),
                 size: content.len() as u64,
-            }).into_response()
+            })
+            .into_response()
         };
 
         Ok(response)
@@ -101,7 +107,9 @@ pub async fn delete_file(
     State(state): State<AppState>,
     Query(params): Query<DeleteFileParams>,
 ) -> Result<Json<DeleteFileResponse>, ApiError> {
-    let path = params.path.as_deref()
+    let path = params
+        .path
+        .as_deref()
         .ok_or_else(|| ApiError::BadRequest("'path' parameter is required".to_string()))?;
 
     let recursive = params.recursive.unwrap_or(false);
@@ -140,7 +148,9 @@ pub async fn stat_file(
     State(state): State<AppState>,
     Query(params): Query<StatFileParams>,
 ) -> Result<Json<FileInfo>, ApiError> {
-    let path = params.path.as_deref()
+    let path = params
+        .path
+        .as_deref()
         .ok_or_else(|| ApiError::BadRequest("'path' parameter is required".to_string()))?;
 
     let info = state
@@ -157,7 +167,9 @@ pub async fn file_exists(
     State(state): State<AppState>,
     Query(params): Query<ExistsParams>,
 ) -> Result<Json<ExistsResponse>, ApiError> {
-    let path = params.path.as_deref()
+    let path = params
+        .path
+        .as_deref()
         .ok_or_else(|| ApiError::BadRequest("'path' parameter is required".to_string()))?;
 
     let exists = state

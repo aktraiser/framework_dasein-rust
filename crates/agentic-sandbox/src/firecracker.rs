@@ -11,13 +11,15 @@
 //! - Root filesystem with toolchain + agent
 
 use async_trait::async_trait;
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
-#[cfg(feature = "firecracker")]
-use tracing::info;
-#[cfg(not(feature = "firecracker"))]
-use tracing::warn;
-use tracing::{debug, instrument};
+use tokio::sync::{watch, Semaphore};
+#[cfg(unix)]
+#[path = "firecracker_runtime.rs"]
+mod runtime;
+use tracing::instrument;
 
 use crate::{
     error::SandboxError,
@@ -41,6 +43,10 @@ pub struct FirecrackerConfig {
     pub timeout: Duration,
     /// Workspace directory for VM files
     pub workspace: PathBuf,
+    /// Combined stdout/stderr cap, at most 1 MiB.
+    pub max_output_bytes: usize,
+    /// Maximum simultaneous microVMs per sandbox instance (shared by clones).
+    pub max_concurrent: usize,
 }
 
 impl Default for FirecrackerConfig {
@@ -52,7 +58,9 @@ impl Default for FirecrackerConfig {
             vcpu_count: 2,
             mem_size_mib: 512,
             timeout: Duration::from_secs(60),
-            workspace: PathBuf::from("/tmp/firecracker"),
+            workspace: PathBuf::from("/tmp/dasein-fc"),
+            max_output_bytes: 1024 * 1024,
+            max_concurrent: 4,
         }
     }
 }
@@ -104,21 +112,25 @@ impl FirecrackerConfig {
 #[derive(Clone)]
 pub struct FirecrackerSandbox {
     config: FirecrackerConfig,
+    active: Arc<Mutex<HashMap<String, watch::Sender<bool>>>>,
+    permits: Arc<Semaphore>,
 }
 
 impl FirecrackerSandbox {
     /// Create a new Firecracker sandbox with default config.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            config: FirecrackerConfig::default(),
-        }
+        Self::with_config(FirecrackerConfig::default())
     }
 
     /// Create with custom config.
     #[must_use]
-    pub const fn with_config(config: FirecrackerConfig) -> Self {
-        Self { config }
+    pub fn with_config(config: FirecrackerConfig) -> Self {
+        Self {
+            permits: Arc::new(Semaphore::new(config.max_concurrent.min(16))),
+            config,
+            active: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 
     /// Builder pattern for configuration.
@@ -133,158 +145,65 @@ impl FirecrackerSandbox {
     ///
     /// Returns an error if Firecracker, KVM, kernel or rootfs is not available.
     pub fn check_prerequisites(&self) -> Result<(), SandboxError> {
-        // Check firecracker binary
-        if !self.config.firecracker_bin.exists() {
-            return Err(SandboxError::NotAvailable(format!(
-                "Firecracker binary not found at {}",
-                self.config.firecracker_bin.display()
-            )));
+        self.validate_config()?;
+        if !cfg!(target_os = "linux") {
+            return Err(SandboxError::NotAvailable("Firecracker requires Linux/KVM; on supported Macs use a Linux VM with nested virtualization".into()));
         }
-
-        // Check KVM
-        if !std::path::Path::new("/dev/kvm").exists() {
-            return Err(SandboxError::NotAvailable(
-                "KVM not available (/dev/kvm not found)".into(),
-            ));
+        for (name, path) in [
+            ("Firecracker", &self.config.firecracker_bin),
+            ("kernel", &self.config.kernel_path),
+            ("rootfs", &self.config.rootfs_path),
+        ] {
+            if !path.is_file() {
+                return Err(SandboxError::NotAvailable(format!(
+                    "{name} file not found: {}",
+                    path.display()
+                )));
+            }
+            std::fs::File::open(path)
+                .map_err(|e| SandboxError::NotAvailable(format!("Cannot read {name}: {e}")))?;
         }
-
-        // Check kernel
-        if !self.config.kernel_path.exists() {
-            return Err(SandboxError::NotAvailable(format!(
-                "Kernel not found at {}",
-                self.config.kernel_path.display()
-            )));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{FileTypeExt, PermissionsExt};
+            if self.config.firecracker_bin.metadata()?.permissions().mode() & 0o111 == 0 {
+                return Err(SandboxError::NotAvailable(
+                    "Firecracker binary is not executable".into(),
+                ));
+            }
+            let kvm = std::path::Path::new("/dev/kvm");
+            if !kvm.metadata().is_ok_and(|m| m.file_type().is_char_device()) {
+                return Err(SandboxError::NotAvailable(
+                    "/dev/kvm is not a character device".into(),
+                ));
+            }
+            std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(kvm)
+                .map_err(|e| {
+                    SandboxError::NotAvailable(format!("KVM read/write access unavailable: {e}"))
+                })?;
+            if !std::path::Path::new("/usr/bin/timeout").is_file() {
+                return Err(SandboxError::NotAvailable(
+                    "Coreutils-compatible /usr/bin/timeout is required for a host-crash deadline"
+                        .into(),
+                ));
+            }
         }
-
-        // Check rootfs
-        if !self.config.rootfs_path.exists() {
-            return Err(SandboxError::NotAvailable(format!(
-                "Rootfs not found at {}",
-                self.config.rootfs_path.display()
-            )));
-        }
-
         Ok(())
     }
-
-    /// Execute code using firepilot.
-    #[cfg(feature = "firecracker")]
-    async fn execute_with_firepilot(&self, _code: &str) -> Result<ExecutionResult, SandboxError> {
-        use firepilot::builder::drive::DriveBuilder;
-        use firepilot::builder::executor::FirecrackerExecutorBuilder;
-        use firepilot::builder::kernel::KernelBuilder;
-        use firepilot::builder::{Builder, Configuration};
-        use firepilot::machine::Machine;
-        use std::path::PathBuf;
-
-        let start = std::time::Instant::now();
-        let vm_id = uuid::Uuid::new_v4().to_string();
-
-        info!("Starting Firecracker microVM: {}", vm_id);
-
-        // Create workspace directory
-        let workspace = self.config.workspace.join(&vm_id);
-        tokio::fs::create_dir_all(&workspace)
-            .await
-            .map_err(|e| SandboxError::ConfigError(format!("Failed to create workspace: {e}")))?;
-
-        // Build kernel configuration
-        let kernel = KernelBuilder::new()
-            .with_kernel_image_path(self.config.kernel_path.to_string_lossy().to_string())
-            .with_boot_args("console=ttyS0 reboot=k panic=1 pci=off".to_string())
-            .try_build()
-            .map_err(|e| SandboxError::ConfigError(format!("Kernel config error: {e:?}")))?;
-
-        // Build rootfs drive
-        let rootfs = DriveBuilder::new()
-            .with_drive_id("rootfs".to_string())
-            .with_path_on_host(PathBuf::from(&self.config.rootfs_path))
-            .as_root_device()
-            .try_build()
-            .map_err(|e| SandboxError::ConfigError(format!("Drive config error: {e:?}")))?;
-
-        // Build executor
-        let executor = FirecrackerExecutorBuilder::new()
-            .with_chroot(workspace.to_string_lossy().to_string())
-            .with_exec_binary(PathBuf::from(&self.config.firecracker_bin))
-            .try_build()
-            .map_err(|e| SandboxError::ConfigError(format!("Executor config error: {e:?}")))?;
-
-        // Build full configuration
-        let config = Configuration::new(vm_id.clone())
-            .with_kernel(kernel)
-            .with_drive(rootfs)
-            .with_executor(executor);
-
-        // Create and start the machine
-        let mut machine = Machine::new();
-
-        machine
-            .create(config)
-            .await
-            .map_err(|e| SandboxError::StartError(format!("Failed to create VM: {e:?}")))?;
-
-        machine
-            .start()
-            .await
-            .map_err(|e| SandboxError::StartError(format!("Failed to start VM: {e:?}")))?;
-
-        debug!("MicroVM started, executing code...");
-
-        // Wait for VM to boot and execute
-        // In a real implementation, we'd communicate with an agent inside the VM
-        tokio::time::sleep(Duration::from_secs(2)).await;
-
-        // For now, simulate execution result
-        let stdout = format!("MicroVM {vm_id} executed command");
-        let stderr = String::new();
-        let exit_code = 0;
-
-        // Cleanup
-        let _ = machine.stop().await;
-        let _ = machine.kill().await;
-        let _ = tokio::fs::remove_dir_all(&workspace).await;
-
-        #[allow(clippy::cast_possible_truncation)]
-        let execution_time_ms = start.elapsed().as_millis() as u64;
-
-        Ok(ExecutionResult {
-            exit_code,
-            stdout,
-            stderr,
-            execution_time_ms,
-            artifacts: vec![],
-        })
-    }
-
-    /// Fallback execution without firepilot (for testing/dev).
-    #[cfg(not(feature = "firecracker"))]
-    async fn execute_fallback(&self, code: &str) -> Result<ExecutionResult, SandboxError> {
-        warn!("Firecracker feature not enabled, using process fallback");
-
-        let start = std::time::Instant::now();
-
-        let output = tokio::time::timeout(
-            self.config.timeout,
-            tokio::process::Command::new("sh")
-                .arg("-c")
-                .arg(code)
-                .output(),
-        )
-        .await
-        .map_err(|_| SandboxError::Timeout)?
-        .map_err(SandboxError::IoError)?;
-
-        #[allow(clippy::cast_possible_truncation)]
-        let execution_time_ms = start.elapsed().as_millis() as u64;
-
-        Ok(ExecutionResult {
-            exit_code: output.status.code().unwrap_or(-1),
-            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-            execution_time_ms,
-            artifacts: vec![],
-        })
+    fn validate_config(&self) -> Result<(), SandboxError> {
+        if !(1..=8).contains(&self.config.vcpu_count)
+            || !(32..=2048).contains(&self.config.mem_size_mib)
+            || self.config.timeout.is_zero()
+            || self.config.timeout > Duration::from_secs(120)
+            || !(1..=1024 * 1024).contains(&self.config.max_output_bytes)
+            || !(1..=16).contains(&self.config.max_concurrent)
+        {
+            return Err(SandboxError::ConfigError("Firecracker limits: 1..8 vCPU, 32..2048 MiB, 0 < timeout <= 120s, 1..1048576 output bytes, 1..16 concurrent VMs".into()));
+        }
+        Ok(())
     }
 }
 
@@ -298,27 +217,37 @@ impl Default for FirecrackerSandbox {
 impl Sandbox for FirecrackerSandbox {
     #[instrument(skip(self, code), fields(sandbox = "firecracker"))]
     async fn execute(&self, code: &str) -> Result<ExecutionResult, SandboxError> {
-        debug!(
-            "Executing in Firecracker sandbox: {}...",
-            &code[..code.len().min(50)]
-        );
-
-        #[cfg(feature = "firecracker")]
-        {
-            self.execute_with_firepilot(code).await
+        self.check_prerequisites()?;
+        if code.len() > 256 * 1024 {
+            return Err(SandboxError::ConfigError("Code exceeds 256 KiB".into()));
         }
-
-        #[cfg(not(feature = "firecracker"))]
+        let _permit = self.permits.try_acquire().map_err(|_| {
+            SandboxError::NotReady("Firecracker concurrency capacity reached".into())
+        })?;
+        #[cfg(unix)]
         {
-            self.execute_fallback(code).await
+            runtime::execute(self, code).await
+        }
+        #[cfg(not(unix))]
+        {
+            Err(SandboxError::NotAvailable(
+                "Firecracker requires Linux".into(),
+            ))
         }
     }
 
     async fn is_ready(&self) -> Result<bool, SandboxError> {
-        self.check_prerequisites().map(|()| true)
+        Ok(self.check_prerequisites().is_ok())
     }
 
     async fn stop(&self) -> Result<(), SandboxError> {
+        let active = self
+            .active
+            .lock()
+            .map_err(|_| SandboxError::StopFailed("VM registry poisoned".into()))?;
+        for signal in active.values() {
+            signal.send_replace(true);
+        }
         Ok(())
     }
 }

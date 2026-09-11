@@ -34,12 +34,11 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use futures::Stream;
+use futures::{Stream, StreamExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 
 use super::builder::WorkflowDefinition;
 use super::context::{SharedStateBackend, WorkflowContext, WorkflowContextBuilder};
@@ -57,7 +56,9 @@ use super::types::{ExecutorError, ExecutorId, GraphError, GraphResult, TaskId, W
 pub struct WorkflowConfig {
     /// Maximum number of supersteps before timeout.
     pub max_supersteps: u32,
-    /// Maximum retries per executor on failure.
+    /// Maximum concurrent executors. Messages to the same executor stay ordered.
+    pub max_concurrent_executors: usize,
+    /// Maximum retries per message after its initial attempt.
     pub max_retries_per_executor: u32,
     /// Enable checkpointing at superstep boundaries.
     pub enable_checkpointing: bool,
@@ -76,6 +77,7 @@ impl Default for WorkflowConfig {
     fn default() -> Self {
         Self {
             max_supersteps: 100,
+            max_concurrent_executors: 16,
             max_retries_per_executor: 3,
             enable_checkpointing: false,
             checkpoint_interval: 5,
@@ -563,21 +565,38 @@ where
 
             // Checkpoint if enabled
             if self.config.enable_checkpointing
-                && superstep > 0
-                && superstep % self.config.checkpoint_interval == 0
+                && (superstep + 1) % self.config.checkpoint_interval.max(1) == 0
             {
                 if let Some(backend) = &self.checkpoint_backend {
-                    let checkpoint = Checkpoint::new(
+                    let mut checkpoint = Checkpoint::new(
                         self.definition.id.clone(),
                         task_id.clone(),
                         superstep,
                         state.clone(),
                     );
-                    backend.save(&checkpoint).await.ok(); // Ignore checkpoint errors
+                    checkpoint.outputs = all_outputs
+                        .iter()
+                        .map(serde_json::to_value)
+                        .collect::<Result<_, _>>()
+                        .map_err(|e| GraphError::SerializationError(e.to_string()))?;
+                    checkpoint.retry_counts = retry_counts.clone();
+                    backend
+                        .save(&checkpoint)
+                        .await
+                        .map_err(|e| GraphError::ExecutorFailed(e.to_string()))?;
                 }
             }
         }
 
+        if state.pending_messages.is_empty() {
+            return Ok(WorkflowResult::success(
+                self.definition.id.clone(),
+                task_id,
+                all_outputs,
+                self.config.max_supersteps,
+                start_time.elapsed().as_millis() as u64,
+            ));
+        }
         // Max supersteps reached
         let duration_ms = start_time.elapsed().as_millis() as u64;
         Ok(WorkflowResult::failure(
@@ -655,7 +674,26 @@ where
         };
 
         // Resume from checkpoint or start fresh
+        let mut all_outputs: Vec<TOutput> = Vec::new();
+        let mut retry_counts: HashMap<ExecutorId, u32> = HashMap::new();
         let (mut state, start_superstep) = if let Some(pc) = checkpoint {
+            if pc.schema_version != 1
+                || pc.checkpoint.workflow_id != self.definition.id
+                || pc.checkpoint.task_id != task_id
+            {
+                return Err(GraphError::ExecutorFailed(
+                    "Checkpoint does not belong to this workflow/task or schema".into(),
+                ));
+            }
+            all_outputs = pc
+                .checkpoint
+                .outputs
+                .iter()
+                .cloned()
+                .map(serde_json::from_value)
+                .collect::<Result<_, _>>()
+                .map_err(|e| GraphError::SerializationError(e.to_string()))?;
+            retry_counts = pc.checkpoint.retry_counts.clone();
             tracing::info!(
                 checkpoint_id = %pc.id(),
                 superstep = pc.superstep(),
@@ -663,15 +701,15 @@ where
                 "Resuming workflow from checkpoint"
             );
 
-            // Restore shared state
-            for (key, value) in &pc.shared_state {
-                self.state_backend
-                    .set(key, value.clone())
-                    .await
-                    .map_err(|e| {
-                        GraphError::ExecutorFailed(format!("Failed to restore shared state: {}", e))
-                    })?;
-            }
+            self.state_backend
+                .restore(
+                    &super::context::state_namespace(&self.definition.id, &task_id),
+                    &pc.shared_state,
+                )
+                .await
+                .map_err(|e| {
+                    GraphError::ExecutorFailed(format!("Failed to restore shared state: {e}"))
+                })?;
 
             (pc.checkpoint.state.clone(), pc.checkpoint.superstep + 1)
         } else {
@@ -688,9 +726,6 @@ where
 
             (state, 0)
         };
-
-        let mut all_outputs: Vec<TOutput> = Vec::new();
-        let mut retry_counts: HashMap<ExecutorId, u32> = HashMap::new();
 
         // Execute supersteps
         for superstep in start_superstep..self.config.max_supersteps {
@@ -741,8 +776,10 @@ where
 
             // Save checkpoint if using persistent backend
             if let Some(backend) = &self.persistent_backend {
-                if superstep > 0 && superstep % self.config.checkpoint_interval == 0 {
-                    let checkpoint = Checkpoint::new(
+                if (superstep + 1) % self.config.checkpoint_interval.max(1) == 0
+                    || state.pending_messages.is_empty()
+                {
+                    let mut checkpoint = Checkpoint::new(
                         self.definition.id.clone(),
                         task_id.clone(),
                         superstep,
@@ -750,20 +787,33 @@ where
                     );
 
                     // Capture shared state
-                    let shared_state = self.capture_shared_state().await;
+                    let shared_state = self.capture_shared_state(&task_id).await?;
+                    checkpoint.outputs = all_outputs
+                        .iter()
+                        .map(serde_json::to_value)
+                        .collect::<Result<_, _>>()
+                        .map_err(|e| GraphError::SerializationError(e.to_string()))?;
+                    checkpoint.retry_counts = retry_counts.clone();
 
                     let persistent = PersistentCheckpoint::from_checkpoint(checkpoint)
                         .with_shared_state(shared_state);
 
-                    if let Err(e) = backend.save_persistent(&persistent).await {
-                        tracing::warn!(error = %e, superstep, "Failed to save checkpoint");
-                    } else {
-                        tracing::debug!(checkpoint_id = %persistent.id(), superstep, "Checkpoint saved");
-                    }
+                    backend.save_persistent(&persistent).await.map_err(|e| {
+                        GraphError::ExecutorFailed(format!("Failed to save checkpoint: {e}"))
+                    })?;
                 }
             }
         }
 
+        if state.pending_messages.is_empty() {
+            return Ok(WorkflowResult::success(
+                self.definition.id.clone(),
+                task_id,
+                all_outputs,
+                self.config.max_supersteps,
+                start_time.elapsed().as_millis() as u64,
+            ));
+        }
         // Max supersteps reached
         let duration_ms = start_time.elapsed().as_millis() as u64;
         Ok(WorkflowResult::failure(
@@ -776,17 +826,20 @@ where
     }
 
     /// Capture current shared state for checkpoint.
-    async fn capture_shared_state(&self) -> HashMap<String, serde_json::Value> {
-        // Note: The SharedStateBackend trait doesn't have a list_all method,
-        // so we can't automatically capture all state.
-        // For production use, you'd need to:
-        // 1. Track keys used by executors
-        // 2. Or extend SharedStateBackend with a keys() method
-        // For now, return empty - users can extend this
-        HashMap::new()
+    async fn capture_shared_state(
+        &self,
+        task_id: &TaskId,
+    ) -> GraphResult<HashMap<String, serde_json::Value>> {
+        self.state_backend
+            .snapshot(&super::context::state_namespace(
+                &self.definition.id,
+                task_id,
+            ))
+            .await
+            .map_err(|e| GraphError::ExecutorFailed(e.to_string()))
     }
 
-    /// Execute a single superstep.
+    /// Execute independent branches concurrently, then route in stable executor order.
     async fn execute_superstep(
         &self,
         superstep: u32,
@@ -794,72 +847,173 @@ where
         task_id: &TaskId,
         retry_counts: &mut HashMap<ExecutorId, u32>,
     ) -> GraphResult<Vec<TOutput>> {
-        let mut all_outputs = Vec::new();
-
-        // Take pending messages for this superstep
-        let messages = std::mem::take(&mut state.pending_messages);
-
-        // Process each executor's messages
-        for (executor_id, executor_messages) in messages {
+        if self.definition.group_chat.is_some() {
+            return self
+                .execute_group_chat_step(superstep, state, task_id, retry_counts)
+                .await;
+        }
+        let mut pending: Vec<_> = std::mem::take(&mut state.pending_messages)
+            .into_iter()
+            .collect();
+        pending.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
+        let jobs = pending.into_iter().map(|(id, inputs)| async move {
             let executor = self
                 .registry
-                .get(&executor_id)
-                .ok_or_else(|| GraphError::ExecutorNotFound(executor_id.clone()))?;
-
-            // Process each message
-            for input_json in executor_messages {
-                let result = self
-                    .execute_single(
-                        executor.clone(),
-                        input_json,
-                        superstep,
-                        task_id,
-                        retry_counts,
-                    )
-                    .await;
-
-                match result {
-                    Ok((messages, outputs)) => {
-                        // Route messages through edges
-                        for message in messages {
-                            let message_json = serde_json::to_value(&message).map_err(|e| {
-                                GraphError::SerializationError(format!(
-                                    "Failed to serialize message: {e}"
-                                ))
-                            })?;
-
-                            let targets = self.definition.edges.route_from(&executor_id, &message);
-
-                            for target_id in targets {
-                                state.enqueue_message(target_id, message_json.clone());
+                .get(&id)
+                .ok_or_else(|| GraphError::ExecutorNotFound(id.clone()))?;
+            let mut routed = Vec::new();
+            let mut outputs = Vec::new();
+            let mut retries = 0;
+            for input in inputs {
+                let mut attempt = 0;
+                loop {
+                    match self
+                        .execute_single(executor.clone(), input.clone(), superstep, task_id)
+                        .await
+                    {
+                        Ok((messages, values)) => {
+                            routed.extend(messages);
+                            outputs.extend(values);
+                            break;
+                        }
+                        Err(e) => {
+                            if !e.retriable || attempt >= self.config.max_retries_per_executor {
+                                return Err(GraphError::ExecutorFailed(format!(
+                                    "Executor {id} failed after {} attempts: {e}",
+                                    attempt + 1
+                                )));
                             }
+                            tokio::time::sleep(self.config.calculate_backoff(attempt)).await;
+                            attempt += 1;
+                            retries += 1;
                         }
-
-                        all_outputs.extend(outputs);
-                    }
-                    Err(e) => {
-                        // Check if we should retry
-                        let count = retry_counts.entry(executor_id.clone()).or_insert(0);
-                        *count += 1;
-
-                        if *count >= self.config.max_retries_per_executor {
-                            return Err(GraphError::MaxRetriesExceeded(executor_id.clone()));
-                        }
-
-                        // TODO: Implement proper retry with backoff
-                        // The backoff config (retry_backoff_base_ms, retry_backoff_max_ms) is available
-                        // but requires re-queueing the original message which we don't have here.
-                        // For now, fail immediately. Graph-level retry (via edges) handles most cases.
-                        return Err(GraphError::ExecutorFailed(format!(
-                            "Executor {} failed: {}",
-                            executor_id, e
-                        )));
                     }
                 }
             }
+            Ok((id, routed, outputs, retries))
+        });
+        // Collect every branch before returning: no detached work on failure.
+        let results: Vec<GraphResult<_>> = futures::stream::iter(jobs)
+            .buffered(self.config.max_concurrent_executors.max(1))
+            .collect()
+            .await;
+        let mut outputs = Vec::new();
+        for result in results {
+            let (id, messages, values, retries) = result?;
+            *retry_counts.entry(id.clone()).or_default() += retries;
+            for message in messages {
+                let value = serde_json::to_value(&message)
+                    .map_err(|e| GraphError::SerializationError(e.to_string()))?;
+                for target in self.definition.edges.route_from(&id, &message) {
+                    state.enqueue_message(target, value.clone());
+                }
+            }
+            outputs.extend(values);
         }
+        Ok(outputs)
+    }
 
-        Ok(all_outputs)
+    async fn execute_group_chat_step(
+        &self,
+        superstep: u32,
+        state: &mut SuperstepState,
+        task_id: &TaskId,
+        retry_counts: &mut HashMap<ExecutorId, u32>,
+    ) -> GraphResult<Vec<TOutput>> {
+        use super::agent::ChatMessage;
+        use crate::patterns::GroupChatState;
+        let policy = self
+            .definition
+            .group_chat
+            .as_ref()
+            .expect("group chat policy checked");
+        let input = state
+            .pending_messages
+            .remove(&self.definition.start)
+            .and_then(|mut inputs| inputs.pop())
+            .ok_or_else(|| GraphError::ValidationError("Missing group chat input".into()))?;
+        let mut chat = state.group_chat.clone().unwrap_or_else(|| {
+            let mut chat = GroupChatState::new(policy.participants.clone());
+            chat.participants.extend(policy.descriptions.clone());
+            chat.conversation
+                .push(ChatMessage::user(chat_content(&input)));
+            chat
+        });
+        if chat.current_round >= policy.max_iterations
+            || policy.terminate.as_ref().is_some_and(|f| f(&chat))
+        {
+            state.group_chat = Some(chat);
+            return Ok(Vec::new());
+        }
+        let speaker = (policy.select)(&chat);
+        if !policy.participants.contains(&speaker) {
+            return Err(GraphError::ValidationError(
+                "Selector returned an unregistered participant".into(),
+            ));
+        }
+        let snapshot = serde_json::to_value(&chat)
+            .map_err(|e| GraphError::SerializationError(e.to_string()))?;
+        self.state_backend
+            .set(
+                &format!(
+                    "{}group_chat",
+                    super::context::state_namespace(&self.definition.id, task_id)
+                ),
+                snapshot,
+            )
+            .await
+            .map_err(|e| GraphError::ExecutorFailed(e.to_string()))?;
+        let executor = self
+            .registry
+            .get(&speaker)
+            .ok_or_else(|| GraphError::ExecutorNotFound(speaker.clone()))?;
+        let mut attempt = 0;
+        let (messages, outputs) = loop {
+            match self
+                .execute_single(executor.clone(), input.clone(), superstep, task_id)
+                .await
+            {
+                Ok(result) => break result,
+                Err(e) => {
+                    if !e.retriable || attempt >= self.config.max_retries_per_executor {
+                        return Err(GraphError::ExecutorFailed(e.to_string()));
+                    }
+                    tokio::time::sleep(self.config.calculate_backoff(attempt)).await;
+                    attempt += 1;
+                    *retry_counts.entry(speaker.clone()).or_default() += 1;
+                }
+            }
+        };
+        let values: Vec<serde_json::Value> = if outputs.is_empty() {
+            messages
+                .iter()
+                .map(serde_json::to_value)
+                .collect::<Result<_, _>>()
+        } else {
+            outputs
+                .iter()
+                .map(serde_json::to_value)
+                .collect::<Result<_, _>>()
+        }
+        .map_err(|e| GraphError::SerializationError(e.to_string()))?;
+        let next_input = values.last().cloned().ok_or_else(|| {
+            GraphError::ExecutorFailed(
+                "Group chat participant produced no message or output".into(),
+            )
+        })?;
+        for value in values {
+            chat.conversation
+                .push(ChatMessage::assistant(chat_content(&value)).with_name(speaker.as_str()));
+        }
+        chat.current_round += 1;
+        chat.last_speaker = Some(speaker);
+        let done = chat.current_round >= policy.max_iterations
+            || policy.terminate.as_ref().is_some_and(|f| f(&chat));
+        state.group_chat = Some(chat);
+        if !done {
+            state.enqueue_message(self.definition.start.clone(), next_input);
+        }
+        Ok(outputs)
     }
 
     /// Execute a single executor.
@@ -869,7 +1023,6 @@ where
         input_json: serde_json::Value,
         superstep: u32,
         task_id: &TaskId,
-        _retry_counts: &HashMap<ExecutorId, u32>,
     ) -> Result<(Vec<TMessage>, Vec<TOutput>), ExecutorError> {
         // Create context for this executor
         let mut ctx: WorkflowContext<TMessage, TOutput> = WorkflowContextBuilder::new(
@@ -910,61 +1063,33 @@ where
     where
         TInput: Serialize + Send + 'static,
     {
-        let (tx, rx) = mpsc::channel(100);
-
-        // Clone what we need for the async task
-        let workflow_id = self.definition.id.clone();
-        let task_id = TaskId::generate();
-
-        // We need to clone the registry references for use in the spawned task
-        // For now, we'll use a simpler approach that processes synchronously
-        let input_json = serde_json::to_value(&input).ok();
-
-        tokio::spawn(async move {
-            let start_time = std::time::Instant::now();
-
-            // Send started event
-            let _ = tx
-                .send(WorkflowStreamEvent::Started {
-                    workflow_id: workflow_id.clone(),
-                    task_id: task_id.clone(),
-                    timestamp: Utc::now(),
-                })
-                .await;
-
-            // Since we can't easily pass the registry into the spawned task,
-            // we'll send a simple completion event.
-            // A full implementation would use a different architecture.
-
-            if input_json.is_none() {
-                let _ = tx
-                    .send(WorkflowStreamEvent::Failed {
-                        error: "Failed to serialize input".into(),
-                        last_superstep: 0,
-                    })
-                    .await;
-                return;
+        // Execute the real workflow. This API streams the final result; it does
+        // not yet expose intermediate executor events.
+        Box::pin(futures::stream::once(async move {
+            match self.run(input).await {
+                Ok(result) if result.success => WorkflowStreamEvent::Completed {
+                    duration_ms: result.duration_ms,
+                    superstep_count: result.superstep_count,
+                    output_count: result.outputs.len(),
+                },
+                Ok(result) => WorkflowStreamEvent::Failed {
+                    error: result.error.unwrap_or_default(),
+                    last_superstep: result.superstep_count,
+                },
+                Err(error) => WorkflowStreamEvent::Failed {
+                    error: error.to_string(),
+                    last_superstep: 0,
+                },
             }
-
-            // For the streaming implementation, we'd need a more sophisticated
-            // approach that either:
-            // 1. Uses an Arc<Workflow> that can be cloned into the task
-            // 2. Passes the registry as an Arc
-            // 3. Uses a message-passing approach
-
-            // For now, emit a simple completion
-            let duration_ms = start_time.elapsed().as_millis() as u64;
-            let _ = tx
-                .send(WorkflowStreamEvent::Completed {
-                    duration_ms,
-                    superstep_count: 0,
-                    output_count: 0,
-                })
-                .await;
-        });
-
-        Box::pin(tokio_stream::wrappers::ReceiverStream::new(rx))
+        }))
     }
+}
+
+fn chat_content(value: &serde_json::Value) -> String {
+    value
+        .as_str()
+        .or_else(|| value.get("content").and_then(serde_json::Value::as_str))
+        .map_or_else(|| value.to_string(), str::to_owned)
 }
 
 // ============================================================================
@@ -1203,7 +1328,7 @@ mod tests {
         registry.register(UppercaseExecutor::new("uppercase"));
 
         let backend = Arc::new(super::super::persistence::InMemoryPersistentBackend::new());
-        let workflow = Workflow::new(definition, registry).with_persistent_backend(backend.clone());
+        let workflow = Workflow::new(definition, registry).with_persistent_backend(backend);
 
         assert!(workflow.persistent_backend.is_some());
     }

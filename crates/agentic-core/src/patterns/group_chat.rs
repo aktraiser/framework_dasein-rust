@@ -1,7 +1,7 @@
 //! Group Chat Pattern - Star topology with orchestrator.
 //!
 //! A group chat has a central orchestrator that selects which participant
-//! speaks next, broadcasts responses to all, and terminates when done.
+//! speaks next, shares conversation history, and terminates when done.
 //!
 //! # Features
 //!
@@ -36,7 +36,7 @@ use super::types::{PatternError, PatternResult};
 // ============================================================================
 
 /// State of the group chat (passed to selection/termination functions).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GroupChatState {
     /// Map of participant IDs to their names/descriptions.
     pub participants: HashMap<ExecutorId, String>,
@@ -87,6 +87,23 @@ pub type SelectionFunc = Box<dyn Fn(&GroupChatState) -> ExecutorId + Send + Sync
 
 /// Function that determines if the conversation should terminate.
 pub type TerminationFunc = Box<dyn Fn(&GroupChatState) -> bool + Send + Sync>;
+
+/// Policy attached to a workflow; mutable conversation state lives in its checkpoint.
+pub struct GroupChatPolicy {
+    pub(crate) participants: Vec<ExecutorId>,
+    pub(crate) descriptions: HashMap<ExecutorId, String>,
+    pub(crate) select: SelectionFunc,
+    pub(crate) terminate: Option<TerminationFunc>,
+    pub(crate) max_iterations: usize,
+}
+impl std::fmt::Debug for GroupChatPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GroupChatPolicy")
+            .field("participants", &self.participants)
+            .field("max_iterations", &self.max_iterations)
+            .finish_non_exhaustive()
+    }
+}
 
 // ============================================================================
 // BUILT-IN SELECTORS
@@ -205,7 +222,7 @@ pub fn any_termination(conditions: Vec<TerminationFunc>) -> TerminationFunc {
 /// Creates a star topology with an orchestrator that:
 /// 1. Selects which participant speaks (via selection_func)
 /// 2. Routes input to the selected participant
-/// 3. Broadcasts the response to all participants
+/// 3. Records responses in task-scoped shared history
 /// 4. Repeats until termination condition is met
 ///
 /// ```text
@@ -360,6 +377,7 @@ impl<T: Send + Sync + 'static> GroupChatBuilder<T> {
     /// Returns an error if:
     /// - No participants were added
     /// - No selection function was set
+    /// - Participant IDs are duplicated or the iteration limit is zero.
     pub fn build(self) -> PatternResult<WorkflowDefinition<T>> {
         // Validate
         if self.participants.is_empty() {
@@ -372,43 +390,43 @@ impl<T: Send + Sync + 'static> GroupChatBuilder<T> {
             ));
         }
 
-        let orchestrator_id = self.orchestrator_id();
-        let collector_id = ExecutorId::new(format!("{}-collector", self.id));
-
-        // Build workflow
-        let mut builder = WorkflowBuilder::<T>::new(&self.id);
-
+        if self.max_iterations == 0 {
+            return Err(PatternError::InvalidConfiguration(
+                "Maximum iterations must be positive".into(),
+            ));
+        }
+        let orchestrator = self.orchestrator_id();
+        if self.participants.contains(&orchestrator)
+            || self
+                .participants
+                .iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len()
+                != self.participants.len()
+        {
+            return Err(PatternError::InvalidConfiguration(
+                "Participant IDs must be unique and distinct from the orchestrator".into(),
+            ));
+        }
+        let mut builder = WorkflowBuilder::<T>::new(&self.id).set_start(orchestrator.clone());
         if let Some(name) = self.name {
             builder = builder.name(name);
         }
-
-        // Start with orchestrator
-        builder = builder.set_start(orchestrator_id.clone());
-
-        // Add orchestrator and collector
-        builder = builder.add_executor_id(orchestrator_id.clone());
-        builder = builder.add_executor_id(collector_id.clone());
-
-        // Add all participants
+        builder = builder.add_fan_out_edge(orchestrator.clone(), self.participants.clone());
         for participant in &self.participants {
-            builder = builder.add_executor_id(participant.clone());
+            builder = builder.add_direct_edge(participant.clone(), orchestrator.clone());
         }
-
-        // Orchestrator → participants (switch edge based on selection)
-        // The orchestrator outputs a message that includes the target participant
-        builder = builder.add_fan_out_edge(orchestrator_id.clone(), self.participants.clone());
-
-        // All participants → collector (fan-in)
-        builder = builder.add_fan_in_edge(self.participants.clone(), collector_id.clone());
-
-        // Collector → orchestrator (loop back for next round)
-        // This creates the iterative loop
-        builder = builder.add_direct_edge(collector_id, orchestrator_id);
-
-        // Build
-        builder
+        let mut definition = builder
             .build()
-            .map_err(|e| PatternError::WorkflowBuildError(e.to_string()))
+            .map_err(|e| PatternError::WorkflowBuildError(e.to_string()))?;
+        definition.group_chat = Some(std::sync::Arc::new(GroupChatPolicy {
+            participants: self.participants,
+            descriptions: self.participant_descriptions,
+            select: self.selection_func.expect("validated above"),
+            terminate: self.termination_func,
+            max_iterations: self.max_iterations,
+        }));
+        Ok(definition)
     }
 }
 
@@ -531,24 +549,12 @@ mod tests {
     }
 
     #[test]
-    fn test_group_chat_builder_build() {
-        let definition = GroupChatBuilder::<serde_json::Value>::new("review")
-            .name("Code Review")
+    fn test_group_chat_builder_attaches_policy() {
+        let result = GroupChatBuilder::<serde_json::Value>::new("review")
             .add_participant("coder")
-            .add_participant("reviewer")
             .with_orchestrator_func(round_robin_selector)
-            .with_max_iterations(10)
             .build()
             .unwrap();
-
-        // Should have: orchestrator, collector, coder, reviewer
-        assert_eq!(definition.executors.len(), 4);
-        assert!(definition.has_executor(&ExecutorId::new("review-orchestrator")));
-        assert!(definition.has_executor(&ExecutorId::new("review-collector")));
-        assert!(definition.has_executor(&ExecutorId::new("coder")));
-        assert!(definition.has_executor(&ExecutorId::new("reviewer")));
-
-        // Start is orchestrator
-        assert_eq!(definition.start.as_str(), "review-orchestrator");
+        assert!(result.group_chat.is_some());
     }
 }

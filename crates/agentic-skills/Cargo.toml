@@ -1,0 +1,58 @@
+[package]
+name = "dasein-agentic-skills"
+description = "Skills registry and routing for AI agents"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/dasein-agentic-skills"
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = []
+
+[dependencies]
+# Async
+tokio = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# UUID
+uuid = { workspace = true }
+
+# Time
+chrono = { workspace = true }
+
+# Internal crates
+dasein-agentic-llm = { workspace = true }
+dasein-agentic-storage = { workspace = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+mockall = { workspace = true }
+
+[lints]
+workspace = true
+
+[[example]]
+name = "google_workspace_skill"
+path = "examples/google_workspace_skill.rs"
+
+[[example]]
+name = "web_search_skill"
+path = "examples/web_search_skill.rs"

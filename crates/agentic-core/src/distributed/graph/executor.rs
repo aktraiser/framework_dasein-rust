@@ -151,6 +151,27 @@ where
         data: serde_json::Value,
     ) -> Result<(), ExecutorError>;
 
+    /// Read task-scoped shared state, including the current `group_chat` history.
+    async fn get_shared_state<T: DeserializeOwned + Send>(
+        &self,
+        _key: &str,
+    ) -> Result<Option<T>, ExecutorError> {
+        Err(ExecutorError::internal(
+            "This executor context has no shared state backend",
+        ))
+    }
+
+    /// Write task-scoped shared state.
+    async fn set_shared_state<T: Serialize + Send + Sync>(
+        &self,
+        _key: &str,
+        _value: T,
+    ) -> Result<(), ExecutorError> {
+        Err(ExecutorError::internal(
+            "This executor context has no shared state backend",
+        ))
+    }
+
     /// Get errors from previous execution attempts.
     fn previous_errors(&self) -> &[ExecutorError];
 

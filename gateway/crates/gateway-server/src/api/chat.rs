@@ -1,20 +1,38 @@
 //! Chat completion API
 
+use crate::state::AppState;
 use axum::{
     extract::State,
     http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
-use gateway_core::llm::{ChatCompletionRequest, ChatCompletionResponse};
+use gateway_core::llm::ChatCompletionRequest;
 use serde::{Deserialize, Serialize};
-use crate::state::AppState;
 
 /// POST /v1/chat/completions
 pub async fn chat_completions(
     State(state): State<AppState>,
     Json(request): Json<ChatCompletionRequest>,
-) -> Result<Json<ChatCompletionResponse>, ApiError> {
+) -> Result<Response, ApiError> {
+    if request.stream.unwrap_or(false) {
+        use axum::response::sse::{Event, KeepAlive, Sse};
+        use futures::StreamExt;
+        let stream = state
+            .runtime_router()
+            .await
+            .map_err(|e| ApiError::Internal(e.to_string()))?
+            .chat_completion_stream(request)
+            .await
+            .map_err(|e| ApiError::Provider(e.to_string()))?;
+        let events = stream.map(|item| Ok::<_, std::convert::Infallible>(match item {
+            Ok(data) => Event::default().data(data),
+            Err(error) => Event::default().event("error").data(serde_json::json!({"error":{"message":error.to_string(),"type":"upstream_error"}}).to_string()),
+        }));
+        return Ok(Sse::new(events)
+            .keep_alive(KeepAlive::default())
+            .into_response());
+    }
     // Get fallback providers for this model
     let fallbacks = state
         .config
@@ -26,12 +44,14 @@ pub async fn chat_completions(
 
     // Route the request
     let response = state
-        .llm_router
+        .runtime_router()
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?
         .chat_completion(request, &fallbacks)
         .await
         .map_err(|e| ApiError::Provider(e.to_string()))?;
 
-    Ok(Json(response))
+    Ok(Json(response).into_response())
 }
 
 /// GET /v1/models
@@ -74,14 +94,20 @@ pub enum ApiError {
     BadRequest(String),
     NotFound(String),
     Internal(String),
+    Unavailable(String),
+    ServiceUnavailable(String),
+    Busy(String),
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, message) = match self {
+            ApiError::Busy(msg) => (StatusCode::TOO_MANY_REQUESTS, msg),
+            ApiError::ServiceUnavailable(msg) => (StatusCode::SERVICE_UNAVAILABLE, msg),
             ApiError::Provider(msg) => (StatusCode::BAD_GATEWAY, msg),
             ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
             ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
+            ApiError::Unavailable(msg) => (StatusCode::NOT_IMPLEMENTED, msg),
             ApiError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
         };
 

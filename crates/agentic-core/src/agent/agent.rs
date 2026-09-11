@@ -494,10 +494,3 @@ impl<L: LLMAdapter, S: Sandbox> Agent<L, S> {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // Tests would go here with mock LLM and sandbox
-}

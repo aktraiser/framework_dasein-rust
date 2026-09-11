@@ -35,6 +35,17 @@ use tokio::sync::RwLock;
 use super::executor::ExecutorContext;
 use super::types::{ExecutorError, ExecutorId, TaskId, WorkflowId};
 
+/// Collision-free shared-state namespace for one workflow invocation.
+pub fn state_namespace(workflow_id: &WorkflowId, task_id: &TaskId) -> String {
+    format!(
+        "{}:{}{}:{}:",
+        workflow_id.as_str().len(),
+        workflow_id,
+        task_id.as_str().len(),
+        task_id
+    )
+}
+
 // ============================================================================
 // WORKFLOW EVENT
 // ============================================================================
@@ -85,6 +96,27 @@ pub trait SharedStateBackend: Send + Sync {
     /// Get a value from shared state.
     async fn get(&self, key: &str) -> Result<Option<serde_json::Value>, ExecutorError>;
 
+    /// Snapshot keys in a workflow namespace. Backends must implement this for recovery.
+    async fn snapshot(
+        &self,
+        _prefix: &str,
+    ) -> Result<HashMap<String, serde_json::Value>, ExecutorError> {
+        Err(ExecutorError::internal(
+            "Shared state backend does not support snapshots",
+        ))
+    }
+
+    /// Replace a workflow namespace with a checkpoint snapshot.
+    async fn restore(
+        &self,
+        _prefix: &str,
+        _values: &HashMap<String, serde_json::Value>,
+    ) -> Result<(), ExecutorError> {
+        Err(ExecutorError::internal(
+            "Shared state backend does not support atomic restore",
+        ))
+    }
+
     /// Delete a value from shared state.
     async fn delete(&self, key: &str) -> Result<(), ExecutorError>;
 }
@@ -105,6 +137,36 @@ impl InMemoryStateBackend {
 
 #[async_trait]
 impl SharedStateBackend for InMemoryStateBackend {
+    async fn restore(
+        &self,
+        prefix: &str,
+        values: &HashMap<String, serde_json::Value>,
+    ) -> Result<(), ExecutorError> {
+        if values.keys().any(|key| !key.starts_with(prefix)) {
+            return Err(ExecutorError::internal(
+                "Checkpoint contains keys outside workflow namespace",
+            ));
+        }
+        let mut state = self.state.write().await;
+        state.retain(|key, _| !key.starts_with(prefix));
+        state.extend(values.clone());
+        Ok(())
+    }
+
+    async fn snapshot(
+        &self,
+        prefix: &str,
+    ) -> Result<HashMap<String, serde_json::Value>, ExecutorError> {
+        Ok(self
+            .state
+            .read()
+            .await
+            .iter()
+            .filter(|(k, _)| k.starts_with(prefix))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect())
+    }
+
     async fn set(&self, key: &str, value: serde_json::Value) -> Result<(), ExecutorError> {
         self.state.write().await.insert(key.to_string(), value);
         Ok(())
@@ -338,7 +400,7 @@ where
         let json = serde_json::to_value(value).map_err(|e| {
             ExecutorError::internal(format!("Failed to serialize shared state: {e}"))
         })?;
-        let full_key = format!("{}:{}", self.workflow_id, key);
+        let full_key = format!("{}{key}", state_namespace(&self.workflow_id, &self.task_id));
         self.state_backend.set(&full_key, json).await
     }
 
@@ -347,7 +409,7 @@ where
         &self,
         key: &str,
     ) -> Result<Option<T>, ExecutorError> {
-        let full_key = format!("{}:{}", self.workflow_id, key);
+        let full_key = format!("{}{key}", state_namespace(&self.workflow_id, &self.task_id));
         match self.state_backend.get(&full_key).await? {
             Some(json) => {
                 let value = serde_json::from_value(json).map_err(|e| {
@@ -361,7 +423,7 @@ where
 
     /// Delete a value from shared state.
     pub async fn delete_shared_state(&self, key: &str) -> Result<(), ExecutorError> {
-        let full_key = format!("{}:{}", self.workflow_id, key);
+        let full_key = format!("{}{key}", state_namespace(&self.workflow_id, &self.task_id));
         self.state_backend.delete(&full_key).await
     }
 }
@@ -394,6 +456,21 @@ where
         let event = WorkflowEvent::new(event_type, self.executor_id.clone(), data);
         self.events.push(event);
         Ok(())
+    }
+
+    async fn get_shared_state<T: DeserializeOwned + Send>(
+        &self,
+        key: &str,
+    ) -> Result<Option<T>, ExecutorError> {
+        WorkflowContext::get_shared_state(self, key).await
+    }
+
+    async fn set_shared_state<T: Serialize + Send + Sync>(
+        &self,
+        key: &str,
+        value: T,
+    ) -> Result<(), ExecutorError> {
+        WorkflowContext::set_shared_state(self, key, value).await
     }
 
     fn previous_errors(&self) -> &[ExecutorError] {

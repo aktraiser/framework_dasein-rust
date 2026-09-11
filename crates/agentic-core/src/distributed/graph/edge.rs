@@ -630,6 +630,7 @@ mod tests {
         assert_eq!(targets.len(), 1);
         assert_eq!(targets[0].as_str(), "fast");
 
+        assert_eq!(edge.route(&Priority::Medium)[0].as_str(), "normal");
         let targets = edge.route(&Priority::Low);
         assert_eq!(targets[0].as_str(), "slow");
     }

@@ -49,7 +49,9 @@ mod types;
 
 // Re-export all patterns
 pub use concurrent::{concurrent, ConcurrentBuilder};
-pub use group_chat::{GroupChatBuilder, GroupChatState, SelectionFunc, TerminationFunc};
+pub use group_chat::{
+    GroupChatBuilder, GroupChatPolicy, GroupChatState, SelectionFunc, TerminationFunc,
+};
 pub use handoff::{handoff, HandoffBuilder, HandoffCapable, HandoffDecision};
 pub use sequential::{sequential, SequentialBuilder};
 pub use types::{AggregatedResult, AggregatorFn, ParticipantResult, PatternError, PatternResult};

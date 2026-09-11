@@ -1,7 +1,9 @@
 //! LLM Provider implementations
 
-pub mod openai;
 pub mod anthropic;
+pub mod openai;
 
-pub use openai::OpenAIProvider;
 pub use anthropic::AnthropicProvider;
+pub use openai::OpenAIProvider;
+
+mod sse;

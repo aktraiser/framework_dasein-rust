@@ -1,0 +1,57 @@
+[package]
+name = "dasein-agentic-chat-platforms"
+description = "Chat platform integrations for agents (Telegram, Discord, Slack)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = []
+telegram = ["teloxide"]
+discord = ["serenity"]
+slack = ["slack-morphism"]
+all = ["telegram", "discord", "slack"]
+
+[dependencies]
+# Async
+tokio = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Time
+chrono = { workspace = true }
+
+# UUID
+uuid = { workspace = true }
+
+# Regex
+regex = { workspace = true }
+
+# Telegram (optional)
+teloxide = { version = "0.13", features = ["macros"], optional = true }
+
+# Discord (optional)
+serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "model", "rustls_backend"], optional = true }
+
+# Slack (optional)
+slack-morphism = { version = "2.5", features = ["hyper"], optional = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+
+[lints]
+workspace = true

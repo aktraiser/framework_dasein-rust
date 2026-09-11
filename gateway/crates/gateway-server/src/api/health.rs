@@ -1,8 +1,8 @@
 //! Health and metrics endpoints
 
+use crate::state::AppState;
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
-use crate::state::AppState;
 
 /// GET /health
 pub async fn health_check(State(state): State<AppState>) -> Json<HealthResponse> {

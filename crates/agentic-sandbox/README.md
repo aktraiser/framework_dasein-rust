@@ -1,4 +1,6 @@
-# agentic-sandbox
+# dasein-agentic-sandbox
+
+See the [qualified local beta profile](../../docs/SDK_STATUS.md) and [launch guide](../../docs/BETA_LOCAL.md).
 
 Sandboxed code execution for the Agentic Framework.
 
@@ -13,13 +15,13 @@ Sandboxed code execution for the Agentic Framework.
 
 ```toml
 [dependencies]
-agentic-sandbox = "0.1"
+dasein-agentic-sandbox = "0.1"
 
 # With Docker support
-agentic-sandbox = { version = "0.1", features = ["docker"] }
+dasein-agentic-sandbox = { version = "0.1", features = ["docker"] }
 
-# With Gateway (Firecracker)
-agentic-sandbox = { version = "0.1", features = ["gateway"] }
+# With Gateway (Python Docker Boxes)
+dasein-agentic-sandbox = { version = "0.1", features = ["gateway"] }
 ```
 
 ## Quick Start
@@ -31,7 +33,7 @@ use dasein_agentic_sandbox::{ProcessSandbox, Sandbox};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sandbox = ProcessSandbox::new();
 
-    let result = sandbox.execute("print('Hello from Python!')").await?;
+    let result = sandbox.execute("python3 -c \"print(42)\"").await?;
 
     println!("Output: {}", result.stdout);
     println!("Exit code: {}", result.exit_code);
@@ -45,15 +47,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | Backend | Feature | Use Case |
 |---------|---------|----------|
 | `ProcessSandbox` | `process` | Development (default) |
-| `DockerSandbox` | `docker` | Production (containers) |
-| `GatewaySandbox` | `gateway` | Production (Firecracker microVMs) |
-| `FirecrackerSandbox` | `firecracker` | Direct Firecracker access |
+| `DockerSandbox` | `docker` | Controlled Docker laboratory |
+| `GatewaySandbox` | `gateway` | Python Docker Boxes via gateway |
+| `FirecrackerSandbox` | `firecracker` | Real microVM per execution; [controlled Linux/KVM beta](../../server/firecracker-guest/README.md) |
 
 ## Security
 
 - `ProcessSandbox`: **Development only** - no isolation
 - `DockerSandbox`: Container isolation
-- `GatewaySandbox`: microVM isolation (recommended for production)
+- `GatewaySandbox`: Backend-dependent; local beta uses ephemeral Docker containers
 
 ## License
 

@@ -9,21 +9,12 @@ use axum::{
 use std::collections::HashSet;
 
 /// Authentication configuration
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct AuthConfig {
     /// Valid API keys
     pub api_keys: HashSet<String>,
     /// Allow unauthenticated requests
     pub allow_anonymous: bool,
-}
-
-impl Default for AuthConfig {
-    fn default() -> Self {
-        Self {
-            api_keys: HashSet::new(),
-            allow_anonymous: true,
-        }
-    }
 }
 
 /// Authentication layer
@@ -37,11 +28,7 @@ impl AuthLayer {
         Self { config }
     }
 
-    pub async fn authenticate(
-        &self,
-        request: Request,
-        next: Next,
-    ) -> Result<Response, StatusCode> {
+    pub async fn authenticate(&self, request: Request, next: Next) -> Result<Response, StatusCode> {
         // Skip auth for health endpoints
         let path = request.uri().path();
         if path == "/health" || path == "/metrics" {
@@ -68,12 +55,52 @@ impl AuthLayer {
     }
 }
 
+#[derive(Clone)]
+pub struct Principal(pub String);
+
 /// Middleware function for authentication
 pub async fn auth_middleware(
-    request: Request,
+    axum::extract::State(state): axum::extract::State<crate::state::AppState>,
+    mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    // Default: allow all requests
-    // In production, inject AuthLayer via state
-    Ok(next.run(request).await)
+    let path = request.uri().path();
+    if path == "/health" || (!path.starts_with("/v1/") && path != "/metrics") {
+        return Ok(next.run(request).await);
+    }
+    let token = request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .filter(|v| !v.is_empty())
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    // The operator token is explicitly configured; no anonymous execution fallback.
+    if state
+        .operator_api_key
+        .as_deref()
+        .is_some_and(|key| key == token)
+    {
+        request
+            .extensions_mut()
+            .insert(Principal("operator".into()));
+        return Ok(next.run(request).await);
+    }
+    if let Some(storage) = &state.storage {
+        if let Ok(key) = storage.validate_api_key(token).await {
+            // Ordinary API keys can use LLM endpoints. VM/files/direct execution
+            // operate on a shared host and are reserved for its operator.
+            if matches!(
+                path,
+                "/v1/chat/completions" | "/v1/embeddings" | "/v1/models"
+            ) || path == "/v1/sandboxes"
+                || path.starts_with("/v1/sandboxes/")
+            {
+                request.extensions_mut().insert(Principal(key.id));
+                return Ok(next.run(request).await);
+            }
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+    Err(StatusCode::UNAUTHORIZED)
 }

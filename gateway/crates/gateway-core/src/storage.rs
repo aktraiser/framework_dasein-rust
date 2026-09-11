@@ -1,4 +1,4 @@
-//! SQLite storage for Gateway admin dashboard
+//! `SQLite` storage for Gateway admin dashboard
 //!
 //! Provides persistence for:
 //! - API keys for client authentication
@@ -50,6 +50,7 @@ pub struct ApiKey {
 pub struct Provider {
     pub id: String,
     pub name: String,
+    #[serde(skip_serializing)]
     pub api_key_encrypted: Option<String>,
     pub api_base: Option<String>,
     pub enabled: bool,
@@ -100,34 +101,62 @@ pub struct UsageStats {
     pub requests_by_model: Vec<(String, i64)>,
 }
 
-/// Storage handle for SQLite operations
+/// Storage handle for `SQLite` operations
 #[derive(Clone)]
 pub struct Storage {
     pool: SqlitePool,
+    credential_cipher: Option<aes_gcm::Aes256Gcm>,
 }
 
 impl Storage {
     /// Create a new storage instance with the given database URL
+    ///
+    /// # Errors
+    /// Returns an error if the database connection or schema migrations fail.
     pub async fn new(database_url: &str) -> StorageResult<Self> {
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
             .connect(database_url)
             .await?;
 
-        let storage = Self { pool };
+        let storage = Self {
+            pool,
+            credential_cipher: None,
+        };
         storage.run_migrations().await?;
         Ok(storage)
     }
 
     /// Create an in-memory storage for testing
+    ///
+    /// # Errors
+    /// Returns an error if the database connection or schema migrations fail.
     pub async fn in_memory() -> StorageResult<Self> {
         Self::new("sqlite::memory:").await
     }
 
+    /// Supply a master key from a secret manager instead of an environment variable.
+    #[must_use]
+    pub fn with_master_key(mut self, key: &[u8; 32]) -> Self {
+        use aes_gcm::KeyInit;
+        self.credential_cipher = Some(aes_gcm::Aes256Gcm::new(key.into()));
+        self
+    }
+
+    /// Decrypt a stored provider credential using this storage instance's key.
+    ///
+    /// # Errors
+    /// Returns an error if the database operation fails, the record is missing, or credential encryption/decryption cannot be completed.
+    pub fn decrypt_provider_key(&self, provider: &Provider) -> StorageResult<Option<String>> {
+        decrypt_provider_key_with_cipher(provider, self.credential_cipher.as_ref())
+    }
+
     /// Run database migrations
+    #[allow(clippy::too_many_lines)] // Keep the initial schema migration together.
     async fn run_migrations(&self) -> StorageResult<()> {
+        sqlx::query("CREATE TABLE IF NOT EXISTS docker_boxes (id TEXT PRIMARY KEY, owner TEXT NOT NULL, policy TEXT NOT NULL)").execute(&self.pool).await?;
         sqlx::query(
-            r#"
+            r"
             CREATE TABLE IF NOT EXISTS api_keys (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -139,13 +168,13 @@ impl Storage {
                 rate_limit_rpm INTEGER,
                 rate_limit_tpm INTEGER
             )
-            "#,
+            ",
         )
         .execute(&self.pool)
         .await?;
 
         sqlx::query(
-            r#"
+            r"
             CREATE TABLE IF NOT EXISTS providers (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -154,13 +183,13 @@ impl Storage {
                 enabled INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             )
-            "#,
+            ",
         )
         .execute(&self.pool)
         .await?;
 
         sqlx::query(
-            r#"
+            r"
             CREATE TABLE IF NOT EXISTS usage_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 api_key_id TEXT,
@@ -172,13 +201,13 @@ impl Storage {
                 duration_ms INTEGER NOT NULL,
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             )
-            "#,
+            ",
         )
         .execute(&self.pool)
         .await?;
 
         sqlx::query(
-            r#"
+            r"
             CREATE TABLE IF NOT EXISTS sandbox_configs (
                 runtime TEXT PRIMARY KEY,
                 enabled INTEGER NOT NULL DEFAULT 1,
@@ -187,36 +216,36 @@ impl Storage {
                 memory_mb INTEGER NOT NULL DEFAULT 512,
                 timeout_seconds INTEGER NOT NULL DEFAULT 300
             )
-            "#,
+            ",
         )
         .execute(&self.pool)
         .await?;
 
         sqlx::query(
-            r#"
+            r"
             CREATE TABLE IF NOT EXISTS admin_sessions (
                 id TEXT PRIMARY KEY,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 expires_at TEXT NOT NULL
             )
-            "#,
+            ",
         )
         .execute(&self.pool)
         .await?;
 
         // Create indexes for better query performance
         sqlx::query(
-            r#"
+            r"
             CREATE INDEX IF NOT EXISTS idx_usage_logs_created_at ON usage_logs(created_at)
-            "#,
+            ",
         )
         .execute(&self.pool)
         .await?;
 
         sqlx::query(
-            r#"
+            r"
             CREATE INDEX IF NOT EXISTS idx_usage_logs_api_key_id ON usage_logs(api_key_id)
-            "#,
+            ",
         )
         .execute(&self.pool)
         .await?;
@@ -224,10 +253,10 @@ impl Storage {
         // Insert default sandbox configs if not present
         for runtime in &["python", "node", "typescript", "rust", "go", "bash"] {
             sqlx::query(
-                r#"
+                r"
                 INSERT OR IGNORE INTO sandbox_configs (runtime, enabled, min_ready, max_total, memory_mb, timeout_seconds)
                 VALUES (?, 1, 2, 10, 512, 300)
-                "#,
+                ",
             )
             .bind(runtime)
             .execute(&self.pool)
@@ -238,6 +267,7 @@ impl Storage {
     }
 
     /// Get the underlying pool
+    #[must_use]
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
     }
@@ -245,11 +275,14 @@ impl Storage {
     // ==================== API Keys ====================
 
     /// Generate a new API key and return it (only shown once)
+    ///
+    /// # Errors
+    /// Returns an error if the database operation or key hashing fails, or the requested key is missing or invalid.
     pub async fn create_api_key(
         &self,
         name: &str,
         rate_limit_rpm: Option<i32>,
-        rate_limit_tpm: Option<i32>,
+        token_limit: Option<i32>,
     ) -> StorageResult<(ApiKey, String)> {
         let id = uuid::Uuid::new_v4().to_string();
         let raw_key = generate_api_key();
@@ -265,14 +298,14 @@ impl Storage {
             last_used_at: None,
             enabled: true,
             rate_limit_rpm,
-            rate_limit_tpm,
+            rate_limit_tpm: token_limit,
         };
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO api_keys (id, name, key_hash, key_prefix, created_at, enabled, rate_limit_rpm, rate_limit_tpm)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            "#,
+            ",
         )
         .bind(&api_key.id)
         .bind(&api_key.name)
@@ -289,13 +322,16 @@ impl Storage {
     }
 
     /// List all API keys (without the actual key)
+    ///
+    /// # Errors
+    /// Returns an error if the database operation or key hashing fails, or the requested key is missing or invalid.
     pub async fn list_api_keys(&self) -> StorageResult<Vec<ApiKey>> {
         let keys = sqlx::query_as::<_, ApiKey>(
-            r#"
+            r"
             SELECT id, name, key_hash, key_prefix, created_at, last_used_at, enabled, rate_limit_rpm, rate_limit_tpm
             FROM api_keys
             ORDER BY created_at DESC
-            "#,
+            ",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -304,13 +340,16 @@ impl Storage {
     }
 
     /// Get an API key by ID
+    ///
+    /// # Errors
+    /// Returns an error if the database operation or key hashing fails, or the requested key is missing or invalid.
     pub async fn get_api_key(&self, id: &str) -> StorageResult<ApiKey> {
         sqlx::query_as::<_, ApiKey>(
-            r#"
+            r"
             SELECT id, name, key_hash, key_prefix, created_at, last_used_at, enabled, rate_limit_rpm, rate_limit_tpm
             FROM api_keys
             WHERE id = ?
-            "#,
+            ",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -319,6 +358,9 @@ impl Storage {
     }
 
     /// Validate an API key and return the key record if valid
+    ///
+    /// # Errors
+    /// Returns an error if the database operation or key hashing fails, or the requested key is missing or invalid.
     pub async fn validate_api_key(&self, raw_key: &str) -> StorageResult<ApiKey> {
         let prefix = if raw_key.len() >= 8 {
             &raw_key[..8]
@@ -328,11 +370,11 @@ impl Storage {
 
         // Find keys with matching prefix (should be very few)
         let candidates = sqlx::query_as::<_, ApiKey>(
-            r#"
+            r"
             SELECT id, name, key_hash, key_prefix, created_at, last_used_at, enabled, rate_limit_rpm, rate_limit_tpm
             FROM api_keys
             WHERE key_prefix = ? AND enabled = 1
-            "#,
+            ",
         )
         .bind(prefix)
         .fetch_all(&self.pool)
@@ -354,6 +396,9 @@ impl Storage {
     }
 
     /// Toggle API key enabled status
+    ///
+    /// # Errors
+    /// Returns an error if the database operation or key hashing fails, or the requested key is missing or invalid.
     pub async fn toggle_api_key(&self, id: &str) -> StorageResult<bool> {
         let result = sqlx::query("UPDATE api_keys SET enabled = NOT enabled WHERE id = ?")
             .bind(id)
@@ -369,6 +414,9 @@ impl Storage {
     }
 
     /// Revoke (delete) an API key
+    ///
+    /// # Errors
+    /// Returns an error if the database operation or key hashing fails, or the requested key is missing or invalid.
     pub async fn revoke_api_key(&self, id: &str) -> StorageResult<()> {
         let result = sqlx::query("DELETE FROM api_keys WHERE id = ?")
             .bind(id)
@@ -385,6 +433,9 @@ impl Storage {
     // ==================== Providers ====================
 
     /// Add a new provider
+    ///
+    /// # Errors
+    /// Returns an error if the database operation fails, the record is missing, or credential encryption/decryption cannot be completed.
     pub async fn create_provider(
         &self,
         name: &str,
@@ -395,17 +446,19 @@ impl Storage {
         let provider = Provider {
             id: id.clone(),
             name: name.to_string(),
-            api_key_encrypted: api_key.map(String::from), // TODO: Encrypt in phase 2
+            api_key_encrypted: api_key
+                .map(|key| seal_provider_key(&id, key, self.credential_cipher.as_ref()))
+                .transpose()?,
             api_base: api_base.map(String::from),
             enabled: true,
             created_at: Utc::now(),
         };
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO providers (id, name, api_key_encrypted, api_base, enabled, created_at)
             VALUES (?, ?, ?, ?, ?, ?)
-            "#,
+            ",
         )
         .bind(&provider.id)
         .bind(&provider.name)
@@ -420,13 +473,16 @@ impl Storage {
     }
 
     /// List all providers
+    ///
+    /// # Errors
+    /// Returns an error if the database operation fails, the record is missing, or credential encryption/decryption cannot be completed.
     pub async fn list_providers(&self) -> StorageResult<Vec<Provider>> {
         let providers = sqlx::query_as::<_, Provider>(
-            r#"
+            r"
             SELECT id, name, api_key_encrypted, api_base, enabled, created_at
             FROM providers
             ORDER BY created_at DESC
-            "#,
+            ",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -435,13 +491,16 @@ impl Storage {
     }
 
     /// Get a provider by ID
+    ///
+    /// # Errors
+    /// Returns an error if the database operation fails, the record is missing, or credential encryption/decryption cannot be completed.
     pub async fn get_provider(&self, id: &str) -> StorageResult<Provider> {
         sqlx::query_as::<_, Provider>(
-            r#"
+            r"
             SELECT id, name, api_key_encrypted, api_base, enabled, created_at
             FROM providers
             WHERE id = ?
-            "#,
+            ",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -450,6 +509,9 @@ impl Storage {
     }
 
     /// Update a provider
+    ///
+    /// # Errors
+    /// Returns an error if the database operation fails, the record is missing, or credential encryption/decryption cannot be completed.
     pub async fn update_provider(
         &self,
         id: &str,
@@ -458,7 +520,10 @@ impl Storage {
     ) -> StorageResult<Provider> {
         let existing = self.get_provider(id).await?;
 
-        let new_api_key = api_key.map(String::from).or(existing.api_key_encrypted);
+        let new_api_key = api_key
+            .map(|key| seal_provider_key(id, key, self.credential_cipher.as_ref()))
+            .transpose()?
+            .or(existing.api_key_encrypted);
         let new_api_base = api_base.map(String::from).or(existing.api_base);
 
         sqlx::query("UPDATE providers SET api_key_encrypted = ?, api_base = ? WHERE id = ?")
@@ -472,6 +537,9 @@ impl Storage {
     }
 
     /// Toggle provider enabled status
+    ///
+    /// # Errors
+    /// Returns an error if the database operation fails, the record is missing, or credential encryption/decryption cannot be completed.
     pub async fn toggle_provider(&self, id: &str) -> StorageResult<bool> {
         let result = sqlx::query("UPDATE providers SET enabled = NOT enabled WHERE id = ?")
             .bind(id)
@@ -487,6 +555,9 @@ impl Storage {
     }
 
     /// Delete a provider
+    ///
+    /// # Errors
+    /// Returns an error if the database operation fails, the record is missing, or credential encryption/decryption cannot be completed.
     pub async fn delete_provider(&self, id: &str) -> StorageResult<()> {
         let result = sqlx::query("DELETE FROM providers WHERE id = ?")
             .bind(id)
@@ -503,6 +574,10 @@ impl Storage {
     // ==================== Usage Logs ====================
 
     /// Log a usage record
+    ///
+    /// # Errors
+    /// Returns a storage error if the database query or connection fails.
+    #[allow(clippy::too_many_arguments)] // Preserve the existing public API.
     pub async fn log_usage(
         &self,
         api_key_id: Option<&str>,
@@ -514,10 +589,10 @@ impl Storage {
         duration_ms: i32,
     ) -> StorageResult<i64> {
         let result = sqlx::query(
-            r#"
+            r"
             INSERT INTO usage_logs (api_key_id, provider, model, input_tokens, output_tokens, cost_usd, duration_ms, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            "#,
+            ",
         )
         .bind(api_key_id)
         .bind(provider)
@@ -534,14 +609,17 @@ impl Storage {
     }
 
     /// Get recent usage logs
+    ///
+    /// # Errors
+    /// Returns a storage error if the database query or connection fails.
     pub async fn get_usage_logs(&self, limit: i32) -> StorageResult<Vec<UsageLog>> {
         let logs = sqlx::query_as::<_, UsageLog>(
-            r#"
+            r"
             SELECT id, api_key_id, provider, model, input_tokens, output_tokens, cost_usd, duration_ms, created_at
             FROM usage_logs
             ORDER BY created_at DESC
             LIMIT ?
-            "#,
+            ",
         )
         .bind(limit)
         .fetch_all(&self.pool)
@@ -551,12 +629,15 @@ impl Storage {
     }
 
     /// Get usage statistics for last N hours
+    ///
+    /// # Errors
+    /// Returns a storage error if the database query or connection fails.
     pub async fn get_usage_stats(&self, hours: i32) -> StorageResult<UsageStats> {
         let since = Utc::now() - chrono::Duration::hours(i64::from(hours));
 
         // Get totals
         let totals: (i64, i64, i64, f64) = sqlx::query_as(
-            r#"
+            r"
             SELECT
                 COUNT(*) as total_requests,
                 COALESCE(SUM(input_tokens), 0) as total_input_tokens,
@@ -564,7 +645,7 @@ impl Storage {
                 COALESCE(SUM(cost_usd), 0.0) as total_cost_usd
             FROM usage_logs
             WHERE created_at >= ?
-            "#,
+            ",
         )
         .bind(since)
         .fetch_one(&self.pool)
@@ -572,13 +653,13 @@ impl Storage {
 
         // Get requests by provider
         let by_provider: Vec<(String, i64)> = sqlx::query_as(
-            r#"
+            r"
             SELECT provider, COUNT(*) as count
             FROM usage_logs
             WHERE created_at >= ?
             GROUP BY provider
             ORDER BY count DESC
-            "#,
+            ",
         )
         .bind(since)
         .fetch_all(&self.pool)
@@ -586,13 +667,13 @@ impl Storage {
 
         // Get requests by model
         let by_model: Vec<(String, i64)> = sqlx::query_as(
-            r#"
+            r"
             SELECT model, COUNT(*) as count
             FROM usage_logs
             WHERE created_at >= ?
             GROUP BY model
             ORDER BY count DESC
-            "#,
+            ",
         )
         .bind(since)
         .fetch_all(&self.pool)
@@ -611,13 +692,16 @@ impl Storage {
     // ==================== Sandbox Configs ====================
 
     /// List all sandbox configurations
+    ///
+    /// # Errors
+    /// Returns a storage error if the database query or connection fails.
     pub async fn list_sandbox_configs(&self) -> StorageResult<Vec<SandboxConfig>> {
         let configs = sqlx::query_as::<_, SandboxConfig>(
-            r#"
+            r"
             SELECT runtime, enabled, min_ready, max_total, memory_mb, timeout_seconds
             FROM sandbox_configs
             ORDER BY runtime
-            "#,
+            ",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -626,13 +710,16 @@ impl Storage {
     }
 
     /// Get a sandbox configuration by runtime
+    ///
+    /// # Errors
+    /// Returns a storage error if the database query or connection fails.
     pub async fn get_sandbox_config(&self, runtime: &str) -> StorageResult<SandboxConfig> {
         sqlx::query_as::<_, SandboxConfig>(
-            r#"
+            r"
             SELECT runtime, enabled, min_ready, max_total, memory_mb, timeout_seconds
             FROM sandbox_configs
             WHERE runtime = ?
-            "#,
+            ",
         )
         .bind(runtime)
         .fetch_optional(&self.pool)
@@ -641,6 +728,9 @@ impl Storage {
     }
 
     /// Update a sandbox configuration
+    ///
+    /// # Errors
+    /// Returns a storage error if the database query or connection fails.
     pub async fn update_sandbox_config(
         &self,
         runtime: &str,
@@ -659,11 +749,11 @@ impl Storage {
         let new_timeout = timeout_seconds.unwrap_or(existing.timeout_seconds);
 
         sqlx::query(
-            r#"
+            r"
             UPDATE sandbox_configs
             SET enabled = ?, min_ready = ?, max_total = ?, memory_mb = ?, timeout_seconds = ?
             WHERE runtime = ?
-            "#,
+            ",
         )
         .bind(new_enabled)
         .bind(new_min_ready)
@@ -680,6 +770,9 @@ impl Storage {
     // ==================== Admin Sessions ====================
 
     /// Create a new admin session
+    ///
+    /// # Errors
+    /// Returns an error if the session database cannot be queried or updated.
     pub async fn create_admin_session(&self) -> StorageResult<AdminSession> {
         let id = uuid::Uuid::new_v4().to_string();
         let created_at = Utc::now();
@@ -692,10 +785,10 @@ impl Storage {
         };
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO admin_sessions (id, created_at, expires_at)
             VALUES (?, ?, ?)
-            "#,
+            ",
         )
         .bind(&session.id)
         .bind(session.created_at)
@@ -707,13 +800,16 @@ impl Storage {
     }
 
     /// Validate an admin session
+    ///
+    /// # Errors
+    /// Returns an error if the session database cannot be queried or updated.
     pub async fn validate_admin_session(&self, session_id: &str) -> StorageResult<bool> {
         let session = sqlx::query_as::<_, AdminSession>(
-            r#"
+            r"
             SELECT id, created_at, expires_at
             FROM admin_sessions
             WHERE id = ? AND expires_at > datetime('now')
-            "#,
+            ",
         )
         .bind(session_id)
         .fetch_optional(&self.pool)
@@ -723,6 +819,9 @@ impl Storage {
     }
 
     /// Delete an admin session (logout)
+    ///
+    /// # Errors
+    /// Returns an error if the session database cannot be queried or updated.
     pub async fn delete_admin_session(&self, session_id: &str) -> StorageResult<()> {
         sqlx::query("DELETE FROM admin_sessions WHERE id = ?")
             .bind(session_id)
@@ -733,6 +832,9 @@ impl Storage {
     }
 
     /// Clean up expired sessions
+    ///
+    /// # Errors
+    /// Returns an error if the session database cannot be queried or updated.
     pub async fn cleanup_expired_sessions(&self) -> StorageResult<u64> {
         let result = sqlx::query("DELETE FROM admin_sessions WHERE expires_at <= datetime('now')")
             .execute(&self.pool)
@@ -771,11 +873,95 @@ fn hash_api_key(key: &str) -> StorageResult<String> {
 
 /// Verify an API key against a hash
 fn verify_api_key(key: &str, hash: &str) -> StorageResult<bool> {
-    let parsed_hash =
-        PasswordHash::new(hash).map_err(|e| StorageError::Hash(e.to_string()))?;
+    let parsed_hash = PasswordHash::new(hash).map_err(|e| StorageError::Hash(e.to_string()))?;
     Ok(Argon2::default()
         .verify_password(key.as_bytes(), &parsed_hash)
         .is_ok())
+}
+
+fn provider_cipher() -> StorageResult<aes_gcm::Aes256Gcm> {
+    use aes_gcm::KeyInit;
+    use base64::Engine;
+    let encoded = std::env::var("GATEWAY_MASTER_KEY").map_err(|_| {
+        StorageError::Hash(
+            "GATEWAY_MASTER_KEY is required to store provider credentials (base64, 32 bytes)"
+                .into(),
+        )
+    })?;
+    let key = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|_| StorageError::Hash("Invalid master key encoding".into()))?;
+    aes_gcm::Aes256Gcm::new_from_slice(&key)
+        .map_err(|_| StorageError::Hash("Master key must contain 32 bytes".into()))
+}
+
+fn seal_provider_key(
+    id: &str,
+    plaintext: &str,
+    cipher: Option<&aes_gcm::Aes256Gcm>,
+) -> StorageResult<String> {
+    use aes_gcm::{
+        aead::{Aead, AeadCore, OsRng, Payload},
+        Aes256Gcm,
+    };
+    use base64::Engine;
+    let cipher = cipher.cloned().map_or_else(provider_cipher, Ok)?;
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let ciphertext = cipher
+        .encrypt(
+            &nonce,
+            Payload {
+                msg: plaintext.as_bytes(),
+                aad: id.as_bytes(),
+            },
+        )
+        .map_err(|_| StorageError::Hash("Credential encryption failed".into()))?;
+    let mut bytes = nonce.to_vec();
+    bytes.extend(ciphertext);
+    Ok(format!(
+        "v1:{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    ))
+}
+
+/// Decrypt a provider credential. Legacy plaintext values are rejected explicitly.
+///
+/// # Errors
+/// Returns an error if the database operation fails, the record is missing, or credential encryption/decryption cannot be completed.
+pub fn decrypt_provider_key(provider: &Provider) -> StorageResult<Option<String>> {
+    decrypt_provider_key_with_cipher(provider, None)
+}
+
+fn decrypt_provider_key_with_cipher(
+    provider: &Provider,
+    cipher: Option<&aes_gcm::Aes256Gcm>,
+) -> StorageResult<Option<String>> {
+    use aes_gcm::aead::{Aead, Payload};
+    use base64::Engine;
+    let Some(value) = &provider.api_key_encrypted else {
+        return Ok(None);
+    };
+    let value = value.strip_prefix("v1:").ok_or_else(|| StorageError::Hash("Legacy plaintext credential: re-enter the provider key with GATEWAY_MASTER_KEY configured".into()))?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(value)
+        .map_err(|_| StorageError::Hash("Invalid encrypted credential".into()))?;
+    if bytes.len() < 28 {
+        return Err(StorageError::Hash("Truncated encrypted credential".into()));
+    }
+    let plaintext = cipher
+        .cloned()
+        .map_or_else(provider_cipher, Ok)?
+        .decrypt(
+            aes_gcm::Nonce::from_slice(&bytes[..12]),
+            Payload {
+                msg: &bytes[12..],
+                aad: provider.id.as_bytes(),
+            },
+        )
+        .map_err(|_| StorageError::Hash("Credential authentication failed".into()))?;
+    String::from_utf8(plaintext)
+        .map(Some)
+        .map_err(|_| StorageError::Hash("Invalid credential encoding".into()))
 }
 
 #[cfg(test)]
@@ -820,7 +1006,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_provider_lifecycle() {
-        let storage = Storage::in_memory().await.unwrap();
+        let storage = Storage::in_memory()
+            .await
+            .unwrap()
+            .with_master_key(&[7; 32]);
 
         // Create provider
         let provider = storage
@@ -828,6 +1017,18 @@ mod tests {
             .await
             .unwrap();
 
+        assert_eq!(
+            storage.decrypt_provider_key(&provider).unwrap().as_deref(),
+            Some("sk-test")
+        );
+        assert!(!provider
+            .api_key_encrypted
+            .as_ref()
+            .unwrap()
+            .contains("sk-test"));
+        let mut tampered = provider.clone();
+        tampered.id = "other-provider".into();
+        assert!(storage.decrypt_provider_key(&tampered).is_err());
         assert_eq!(provider.name, "openai");
         assert!(provider.enabled);
 

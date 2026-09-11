@@ -10,6 +10,9 @@ members = [
     "crates/agentic-bus",
     "crates/agentic-storage",
     "crates/agentic-orchestrator",
+    "crates/agentic-chat-platforms",
+    "crates/agentic-tools",
+    "crates/agentic-skills",
 ]
 
 [workspace.package]
@@ -73,7 +76,7 @@ async-nats = "0.38"
 
 # Storage
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
-qdrant-client = "1.13"
+qdrant-client = { version = "1.13", default-features = false, features = ["serde", "download_snapshots"] }
 
 # Docker
 bollard = "0.18"
@@ -95,6 +98,13 @@ dasein-agentic-mcp = { version = "0.1.0", path = "crates/agentic-mcp" }
 dasein-agentic-bus = { version = "0.1.0", path = "crates/agentic-bus" }
 dasein-agentic-storage = { version = "0.1.0", path = "crates/agentic-storage" }
 dasein-agentic-orchestrator = { version = "0.1.0", path = "crates/agentic-orchestrator" }
+dasein-agentic-chat-platforms = { version = "0.1.0", path = "crates/agentic-chat-platforms" }
+dasein-agentic-tools = { version = "0.1.0", path = "crates/agentic-tools" }
+dasein-agentic-skills = { version = "0.1.0", path = "crates/agentic-skills" }
+
+# Utils
+base64 = "0.22"
+tempfile = "3.14"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -207,12 +217,22 @@ publish = false
 [features]
 default = []
 remote = ["dasein-agentic-sandbox/remote"]
+docker = ["dasein-agentic-sandbox/docker"]
+chat-platforms = ["dasein-agentic-chat-platforms"]
+discord = ["dasein-agentic-chat-platforms", "dasein-agentic-chat-platforms/discord"]
+telegram = ["dasein-agentic-chat-platforms", "dasein-agentic-chat-platforms/telegram"]
+slack = ["dasein-agentic-chat-platforms", "dasein-agentic-chat-platforms/slack"]
 
 [dependencies]
+anyhow = { workspace = true }
 dasein-agentic-llm = { path = "crates/agentic-llm", features = ["all"] }
 dasein-agentic-core = { path = "crates/agentic-core" }
 dasein-agentic-sandbox = { path = "crates/agentic-sandbox" }
 dasein-agentic-mcp = { path = "crates/agentic-mcp" }
+dasein-agentic-chat-platforms = { path = "crates/agentic-chat-platforms", optional = true }
+dasein-agentic-tools = { path = "crates/agentic-tools", features = ["all"] }
+dasein-agentic-skills = { path = "crates/agentic-skills" }
+dasein-agentic-storage = { path = "crates/agentic-storage", features = ["redis", "qdrant"] }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
@@ -221,6 +241,10 @@ serde_json = { workspace = true }
 serde = { workspace = true }
 async-trait = { workspace = true }
 uuid = { workspace = true }
+reqwest = { workspace = true }
+chrono = { workspace = true }
+base64 = "0.22"
+rand = "0.9"
 
 [[example]]
 name = "test_gemini"
@@ -282,6 +306,24 @@ path = "examples/graph_persistence_test.rs"
 name = "ts_state_machine_graph"
 path = "examples/ts_state_machine_graph.rs"
 
+[[example]]
+name = "firecracker_demo"
+path = "examples/firecracker_demo.rs"
+
+[[example]]
+name = "chat_platforms_demo"
+path = "examples/chat_platforms_demo.rs"
+
+[[example]]
+name = "discord_bot_test"
+path = "examples/discord_bot_test.rs"
+required-features = ["discord"]
+
+[[example]]
+name = "discord_bot_llm"
+path = "examples/discord_bot_llm.rs"
+required-features = ["discord"]
+
 # ============================================================================
 # BENCHMARKS
 # ============================================================================
@@ -292,3 +334,8 @@ criterion = { version = "0.5", features = ["async_tokio"] }
 [[bench]]
 name = "graph_vs_linear"
 harness = false
+
+[[example]]
+name = "durable_lab"
+path = "examples/durable_lab.rs"
+required-features = ["docker"]

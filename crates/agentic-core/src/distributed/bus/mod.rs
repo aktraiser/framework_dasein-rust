@@ -23,6 +23,7 @@ mod arbiter;
 mod audit;
 mod coordinator;
 mod deduplicator;
+mod durable_queue;
 mod error_fingerprint;
 mod linter;
 mod log_collector;
@@ -40,6 +41,9 @@ pub use audit::{
 };
 pub use coordinator::{BusCoordinator, BusCoordinatorBuilder, CoordinatorStats};
 pub use deduplicator::{DedupeStrategy, Deduplicator, DeduplicatorConfig};
+pub use durable_queue::{
+    DurableQueue, DurableQueueConfig, DurableWorker, TaskDelivery, TaskOutcome,
+};
 pub use error_fingerprint::{
     AnalysisResult, ErrorCategory, ErrorFingerprint, ErrorFingerprinter, ModelTier,
 };

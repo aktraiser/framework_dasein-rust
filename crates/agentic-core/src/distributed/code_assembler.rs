@@ -353,7 +353,7 @@ mod tests {
         let results = vec![SubTaskResult {
             id: "imports".to_string(),
             name: "Imports".to_string(),
-            code: "".to_string(),
+            code: String::new(),
             success: false,
             error: Some("Failed".to_string()),
         }];

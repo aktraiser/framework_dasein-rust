@@ -320,7 +320,7 @@ mod tests {
         // Second executor reads state (simulates next step in workflow)
         let ctx2: WorkflowContext<(), ()> = WorkflowContext::new(
             wf_id.clone(),
-            TaskId::new("task-2"),
+            TaskId::new("task-1"),
             ExecutorId::new("exe-2"),
             shared_backend.clone(),
         );
@@ -328,6 +328,16 @@ mod tests {
         let counter: Option<i32> = ctx2.get_shared_state("counter").await.unwrap();
         let status: Option<String> = ctx2.get_shared_state("status").await.unwrap();
 
+        let other: WorkflowContext<(), ()> = WorkflowContext::new(
+            wf_id,
+            TaskId::new("other-task"),
+            ExecutorId::new("exe-2"),
+            shared_backend,
+        );
+        assert_eq!(
+            other.get_shared_state::<i32>("counter").await.unwrap(),
+            None
+        );
         assert_eq!(counter, Some(42));
         assert_eq!(status, Some("processing".to_string()));
     }

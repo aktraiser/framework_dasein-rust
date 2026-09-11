@@ -1,163 +1,32 @@
-# Firecracker Server
+# Authenticated Firecracker HTTP adapter
 
-Serveur REST pour exécuter du code dans des microVMs Firecracker.
+This service calls the SDK's real Linux/KVM backend. Prepare the [guest image and KVM host](../firecracker-guest/README.md) first. It refuses to start without a nonempty `API_KEY` or missing backend prerequisites. The legacy `server/agent.py` host-shell service is retired and exits immediately.
 
-## Prérequis (sur le serveur Hetzner)
-
-- Linux avec KVM (`/dev/kvm`)
-- Firecracker installé (`/usr/local/bin/firecracker`)
-- Kernel et rootfs (`/var/lib/firecracker/`)
-
-## Installation
-
-### 1. Sur votre Mac, compilez pour Linux :
-
-```bash
-# Installer la target Linux
-rustup target add x86_64-unknown-linux-gnu
-
-# Compiler (cross-compilation)
-cd server/firecracker-server
-cargo build --release --target x86_64-unknown-linux-gnu
+```sh
+export API_KEY="$(openssl rand -hex 32)"
+export FIRECRACKER_BIN=/path/to/firecracker
+export KERNEL_PATH=/path/to/vmlinux
+export ROOTFS_PATH=/path/to/rootfs.ext4
+export WORKSPACE=/tmp/dasein-fc
+export BIND=127.0.0.1:8080
+cargo run --manifest-path server/firecracker-server/Cargo.toml --locked
 ```
 
-Ou compilez directement sur le serveur :
+Keep the service on loopback for a local lab. For access from a Mac to its Linux VM, use a local SSH tunnel. Public access requires an authenticated TLS deployment and the production host hardening described in the guest guide. `PORT` is supported when `BIND` is omitted; the default listener is `127.0.0.1:8080`.
 
-### 2. Sur le serveur Hetzner :
+Both `GET /health` and `POST /execute` require `X-API-Key`. Health reports prerequisite availability, not a cached guest-boot test. Execution accepts:
 
-```bash
-# Installer Rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source ~/.cargo/env
-
-# Cloner/transférer le code
-scp -r server/firecracker-server root@65.108.230.227:/root/
-
-# Compiler
-cd /root/firecracker-server
-cargo build --release
-
-# Installer
-cp target/release/firecracker-server /usr/local/bin/
-```
-
-## Configuration
-
-Variables d'environnement :
-
-| Variable | Description | Défaut |
-|----------|-------------|--------|
-| `API_KEY` | Clé d'authentification | (aucune) |
-| `PORT` | Port d'écoute | 8080 |
-
-## Lancement
-
-```bash
-# Sans authentification (dev)
-./firecracker-server
-
-# Avec authentification (production)
-API_KEY="votre-clé-secrète" ./firecracker-server
-
-# En arrière-plan
-API_KEY="votre-clé-secrète" nohup ./firecracker-server > /var/log/firecracker-server.log 2>&1 &
-```
-
-## Service systemd (recommandé)
-
-Créez `/etc/systemd/system/firecracker-server.service` :
-
-```ini
-[Unit]
-Description=Firecracker Sandbox Server
-After=network.target
-
-[Service]
-Type=simple
-User=root
-Environment=API_KEY=votre-clé-secrète
-Environment=PORT=8080
-ExecStart=/usr/local/bin/firecracker-server
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Puis :
-
-```bash
-systemctl daemon-reload
-systemctl enable firecracker-server
-systemctl start firecracker-server
-systemctl status firecracker-server
-```
-
-## API
-
-### GET /health
-
-Vérifier l'état du serveur.
-
-```bash
-curl http://65.108.230.227:8080/health
-```
-
-Réponse :
 ```json
-{
-  "status": "healthy",
-  "firecracker_available": true,
-  "kvm_available": true,
-  "version": "0.1.0"
-}
+{"code":"print('hello')","language":"python","timeout_ms":30000}
 ```
 
-### POST /execute
+Supported languages: `python`, `python3`, `sh`, `shell`; omitting language treats code as a guest shell command. Response fields: `success`, `exit_code`, `stdout`, `stderr`, `execution_time_ms`. Files are ephemeral; artifact extraction is not implemented. Limits: 256 KiB source (including the shell wrapper), 2 MiB HTTP body, 4 simultaneous VMs, 512 MiB and 2 vCPUs per VM by default, 1 MiB output, 1–120000 ms total deadline including boot. Unsupported languages and invalid limits return 400; bad credentials 401; capacity 429; unavailable backend 503; timeout 408; other VM failures 502. No automatic request retry occurs in the SDK client by default.
 
-Exécuter du code.
+Use `RemoteSandbox::builder(url).api_key(key).language("python").build()` with the SDK's `remote` feature. `GatewaySandbox` targets the separate gateway API and is not interchangeable with this adapter.
 
-```bash
-curl -X POST http://65.108.230.227:8080/execute \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: votre-clé-secrète" \
-  -d '{"code": "echo Hello World", "timeout_ms": 5000}'
+```sh
+cargo test --manifest-path server/firecracker-server/Cargo.toml --locked
+cargo clippy --manifest-path server/firecracker-server/Cargo.toml --all-targets -- -D warnings
 ```
 
-Réponse :
-```json
-{
-  "success": true,
-  "exit_code": 0,
-  "stdout": "Hello World\n",
-  "stderr": "",
-  "execution_time_ms": 12
-}
-```
-
-## Utilisation depuis le framework
-
-```rust
-use dasein_agentic_sandbox::{RemoteSandbox, Sandbox};
-
-let sandbox = RemoteSandbox::new("http://65.108.230.227:8080")
-    .api_key("votre-clé-secrète")
-    .timeout_ms(30000)
-    .build();
-
-let result = sandbox.execute("echo 'Hello from Firecracker!'").await?;
-println!("Output: {}", result.stdout);
-```
-
-## Sécurité
-
-1. **Toujours utiliser une API_KEY en production**
-2. **Configurer un firewall** pour n'autoriser que votre IP
-3. **Utiliser HTTPS** avec un reverse proxy (nginx/caddy)
-
-```bash
-# Firewall : autoriser uniquement votre IP
-ufw allow from VOTRE_IP to any port 8080
-ufw enable
-```
+The repository's real KVM test is documented in the guest guide. The local qualification also exercised this HTTP adapter with real guest Python, authentication, timeout mapping and abrupt server death. Logs and exact tested asset hashes are recorded in the delivery report; no external server or paid service was provisioned.

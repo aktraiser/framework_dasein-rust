@@ -206,63 +206,61 @@ impl NatsThreadStore {
         agent_id: &AgentId,
         thread_id: &ThreadId,
     ) -> ThreadStoreResult<()> {
-        let store = self.get_index_store().await?;
-        let key = agent_id.as_str();
-
-        // Get existing index
-        let mut thread_ids: Vec<String> = match store.get(key).await {
-            Ok(Some(entry)) => serde_json::from_slice(&entry).unwrap_or_default(),
-            _ => vec![],
-        };
-
-        // Add if not already present
-        let thread_id_str = thread_id.as_str().to_string();
-        if !thread_ids.contains(&thread_id_str) {
-            thread_ids.push(thread_id_str);
-
-            let value = serde_json::to_vec(&thread_ids)?;
-            store
-                .put(key, value.into())
-                .await
-                .map_err(|e| ThreadStoreError::StorageError(e.to_string()))?;
-        }
-
-        Ok(())
+        self.update_index(agent_id, thread_id, true).await
     }
 
-    /// Remove a thread ID from the agent's index.
     async fn remove_from_index(
         &self,
         agent_id: &AgentId,
         thread_id: &ThreadId,
     ) -> ThreadStoreResult<()> {
+        self.update_index(agent_id, thread_id, false).await
+    }
+
+    // Compare-and-swap works across clients and processes; a local mutex would not.
+    async fn update_index(
+        &self,
+        agent_id: &AgentId,
+        thread_id: &ThreadId,
+        add: bool,
+    ) -> ThreadStoreResult<()> {
         let store = self.get_index_store().await?;
-        let key = agent_id.as_str();
-
-        // Get existing index
-        let mut thread_ids: Vec<String> = match store.get(key).await {
-            Ok(Some(entry)) => serde_json::from_slice(&entry).unwrap_or_default(),
-            _ => return Ok(()),
-        };
-
-        // Remove if present
-        let thread_id_str = thread_id.as_str();
-        thread_ids.retain(|id| id != thread_id_str);
-
-        if thread_ids.is_empty() {
-            store
-                .delete(key)
+        for attempt in 0..128 {
+            let entry = store
+                .entry(agent_id.as_str())
                 .await
                 .map_err(|e| ThreadStoreError::StorageError(e.to_string()))?;
-        } else {
-            let value = serde_json::to_vec(&thread_ids)?;
-            store
-                .put(key, value.into())
+            let revision = entry.as_ref().map_or(0, |e| e.revision);
+            let mut ids: Vec<String> = match entry {
+                Some(e) if e.operation == kv::Operation::Put => serde_json::from_slice(&e.value)?,
+                _ => Vec::new(),
+            };
+            if add {
+                if ids.iter().any(|id| id == thread_id.as_str()) {
+                    return Ok(());
+                }
+                ids.push(thread_id.as_str().to_owned());
+            } else {
+                ids.retain(|id| id != thread_id.as_str());
+            }
+            match store
+                .update(
+                    agent_id.as_str(),
+                    serde_json::to_vec(&ids)?.into(),
+                    revision,
+                )
                 .await
-                .map_err(|e| ThreadStoreError::StorageError(e.to_string()))?;
+            {
+                Ok(_) => return Ok(()),
+                Err(e) if e.kind() == kv::UpdateErrorKind::WrongLastRevision => {
+                    tokio::time::sleep(std::time::Duration::from_millis(1 + attempt % 10)).await;
+                }
+                Err(e) => return Err(ThreadStoreError::StorageError(e.to_string())),
+            }
         }
-
-        Ok(())
+        Err(ThreadStoreError::StorageError(
+            "Thread index contention exceeded retry limit".into(),
+        ))
     }
 }
 
@@ -618,9 +616,12 @@ mod tests {
         use crate::distributed::bus::{NatsClient, NatsConfig};
 
         let nats = Arc::new(
-            NatsClient::connect(NatsConfig::new("nats://localhost:4222"))
-                .await
-                .expect("Failed to connect to NATS"),
+            NatsClient::connect(NatsConfig::new(
+                std::env::var("DASEIN_TEST_NATS_URL")
+                    .unwrap_or_else(|_| "nats://127.0.0.1:4222".into()),
+            ))
+            .await
+            .expect("Failed to connect to NATS"),
         );
 
         let store = NatsThreadStore::new(nats).await.unwrap();
@@ -660,9 +661,12 @@ mod tests {
         use crate::distributed::bus::{NatsClient, NatsConfig};
 
         let nats = Arc::new(
-            NatsClient::connect(NatsConfig::new("nats://localhost:4222"))
-                .await
-                .expect("Failed to connect to NATS"),
+            NatsClient::connect(NatsConfig::new(
+                std::env::var("DASEIN_TEST_NATS_URL")
+                    .unwrap_or_else(|_| "nats://127.0.0.1:4222".into()),
+            ))
+            .await
+            .expect("Failed to connect to NATS"),
         );
 
         let store = NatsThreadStore::new(nats).await.unwrap();
@@ -695,9 +699,12 @@ mod tests {
         // First connection: save a thread
         let thread_id = {
             let nats = Arc::new(
-                NatsClient::connect(NatsConfig::new("nats://localhost:4222"))
-                    .await
-                    .expect("Failed to connect to NATS"),
+                NatsClient::connect(NatsConfig::new(
+                    std::env::var("DASEIN_TEST_NATS_URL")
+                        .unwrap_or_else(|_| "nats://127.0.0.1:4222".into()),
+                ))
+                .await
+                .expect("Failed to connect to NATS"),
             );
 
             let store = NatsThreadStore::new(nats).await.unwrap();
@@ -712,9 +719,12 @@ mod tests {
         // Second connection: verify thread still exists
         {
             let nats = Arc::new(
-                NatsClient::connect(NatsConfig::new("nats://localhost:4222"))
-                    .await
-                    .expect("Failed to connect to NATS"),
+                NatsClient::connect(NatsConfig::new(
+                    std::env::var("DASEIN_TEST_NATS_URL")
+                        .unwrap_or_else(|_| "nats://127.0.0.1:4222".into()),
+                ))
+                .await
+                .expect("Failed to connect to NATS"),
             );
 
             let store = NatsThreadStore::new(nats).await.unwrap();
@@ -739,9 +749,12 @@ mod tests {
         use crate::distributed::bus::{NatsClient, NatsConfig};
 
         let nats = Arc::new(
-            NatsClient::connect(NatsConfig::new("nats://localhost:4222"))
-                .await
-                .expect("Failed to connect to NATS"),
+            NatsClient::connect(NatsConfig::new(
+                std::env::var("DASEIN_TEST_NATS_URL")
+                    .unwrap_or_else(|_| "nats://127.0.0.1:4222".into()),
+            ))
+            .await
+            .expect("Failed to connect to NATS"),
         );
 
         let store = NatsThreadStore::new(nats).await.unwrap();

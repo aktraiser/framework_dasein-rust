@@ -15,3 +15,5 @@ pub mod state;
 pub use api::create_router;
 pub use dashboard::create_dashboard_router;
 pub use state::AppState;
+
+pub mod boxes;

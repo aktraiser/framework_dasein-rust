@@ -46,11 +46,12 @@ mod gemini;
 
 pub use error::LLMError;
 pub use traits::{
-    FinishReason, LLMAdapter, LLMMessage, LLMResponse, Role, StreamChunk, TokenUsage,
+    Embedder, FinishReason, LLMAdapter, LLMMessage, LLMResponse, Role, StreamChunk, TokenUsage,
+    Tool, ToolCall,
 };
 
 #[cfg(feature = "openai")]
-pub use openai::OpenAIAdapter;
+pub use openai::{OpenAIAdapter, OpenAIEmbedder};
 
 #[cfg(feature = "ollama")]
 pub use ollama::OllamaAdapter;

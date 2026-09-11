@@ -7,9 +7,9 @@
 //! ## Features
 //!
 //! - `process` (default) - Local process execution (for development)
-//! - `docker` - Docker container isolation (for production)
-//! - `remote` - Remote Firecracker server (legacy API)
-//! - `gateway` - Agentic Gateway integration (recommended for Firecracker)
+//! - `docker` - Ephemeral Docker execution (controlled beta)
+//! - `remote` - Authenticated Firecracker HTTP adapter (local Linux VM or remote host)
+//! - `gateway` - Agentic Gateway integration (Python Docker Boxes in the local beta)
 //!
 //! ## Example
 //!
@@ -27,7 +27,7 @@
 //! }
 //! ```
 //!
-//! ## Gateway Sandbox (recommended for Firecracker)
+//! ## Gateway Sandbox (Python Docker Boxes in the local beta)
 //!
 //! ```rust,ignore
 //! use dasein_agentic_sandbox::{Sandbox, GatewaySandbox};
@@ -39,7 +39,7 @@
 //!         .build()
 //!         .await?;
 //!
-//!     let result = sandbox.execute("print('Hello from Firecracker!')").await?;
+//!     let result = sandbox.execute("print('Hello from a Box!')").await?;
 //!     println!("Output: {}", result.stdout);
 //!
 //!     Ok(())

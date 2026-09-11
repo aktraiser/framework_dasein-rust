@@ -113,7 +113,7 @@ impl Default for RemoteSandboxConfig {
             api_key: None,
             timeout_ms: 30000,
             default_language: None,
-            max_retries: 2,
+            max_retries: 0,
         }
     }
 }
@@ -157,7 +157,7 @@ impl RemoteSandbox {
     pub fn with_config(config: RemoteSandboxConfig) -> Self {
         // HTTP client timeout should be longer than execution timeout
         // to account for network latency and server processing
-        let http_timeout = config.timeout_ms + 30_000; // Add 30s buffer
+        let http_timeout = config.timeout_ms.saturating_add(30_000); // Add 30s buffer
         let client = Client::builder()
             .timeout(Duration::from_millis(http_timeout))
             .build()
@@ -304,14 +304,16 @@ impl Sandbox for RemoteSandbox {
     #[instrument(skip(self, code), fields(sandbox = "remote", url = %self.config.base_url))]
     async fn execute(&self, code: &str) -> Result<ExecutionResult, SandboxError> {
         info!("Executing code on remote Firecracker server");
-        debug!("Code: {}...", &code[..code.len().min(100)]);
+        debug!(code_bytes = code.len(), "Submitting guest code");
 
         self.execute_with_retry(code).await
     }
 
     async fn is_ready(&self) -> Result<bool, SandboxError> {
         match self.health().await {
-            Ok(health) => Ok(health.firecracker_available),
+            Ok(health) => {
+                Ok(health.status == "ok" && health.firecracker_available && health.kvm_available)
+            }
             Err(_) => Ok(false),
         }
     }

@@ -2,8 +2,8 @@
 //!
 //! A high-performance gateway providing:
 //! - OpenAI-compatible LLM API with multi-provider routing
-//! - Firecracker-based code execution sandboxes
-//! - Rate limiting and load balancing
+//! - Python Docker Boxes for controlled laboratory execution
+//! - Bounded Box resources and configured provider routing
 //! - Admin dashboard for management
 
 use anyhow::Result;
@@ -12,7 +12,7 @@ use gateway_core::storage::Storage;
 use gateway_server::{create_router, AppState};
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn, Level};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -30,6 +30,23 @@ async fn main() -> Result<()> {
     // Load configuration
     let config = load_config()?;
     let addr = format!("{}:{}", config.server.host, config.server.port);
+    let origins = config
+        .server
+        .cors_origins
+        .iter()
+        .map(|origin| origin.parse::<axum::http::HeaderValue>())
+        .collect::<Result<Vec<_>, _>>()?;
+    let cors = CorsLayer::new()
+        .allow_origin(origins)
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::DELETE,
+        ])
+        .allow_headers([
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::AUTHORIZATION,
+        ]);
 
     // Initialize database
     let database_url =
@@ -42,7 +59,10 @@ async fn main() -> Result<()> {
             Some(s)
         }
         Err(e) => {
-            warn!("Failed to initialize database: {}. Dashboard will be limited.", e);
+            warn!(
+                "Failed to initialize database: {}. Dashboard will be limited.",
+                e
+            );
             None
         }
     };
@@ -61,15 +81,21 @@ async fn main() -> Result<()> {
         info!("Admin dashboard available at /admin");
     }
 
+    // Recover expired SDK containers left by interrupted gateway processes.
+    tokio::spawn(async {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
+        loop {
+            interval.tick().await;
+            if let Err(error) = dasein_agentic_sandbox::DockerSandbox::reap_expired().await {
+                tracing::debug!(%error, "Docker cleanup unavailable");
+            }
+        }
+    });
+
     // Build router with middleware
     let app = create_router(state)
         .layer(TraceLayer::new_for_http())
-        .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
-        );
+        .layer(cors);
 
     // Start server
     let addr: SocketAddr = addr.parse()?;
@@ -82,11 +108,29 @@ async fn main() -> Result<()> {
 }
 
 fn load_config() -> Result<GatewayConfig> {
-    // Try to load from file or environment
-    // For now, return a default config
+    if let Some(path) = std::env::var_os("GATEWAY_CONFIG") {
+        let mut settings: GatewayConfig = config::Config::builder()
+            .add_source(config::File::from(std::path::PathBuf::from(path)))
+            .build()?
+            .try_deserialize()?;
+        for provider in settings.llm.providers.values_mut().filter(|p| p.enabled) {
+            let variable = provider
+                .api_key
+                .as_deref()
+                .and_then(|value| value.strip_prefix("${"))
+                .and_then(|value| value.strip_suffix('}'));
+            if let Some(variable) = variable {
+                provider.api_key = Some(std::env::var(variable).map_err(|_| {
+                    anyhow::anyhow!("An enabled provider's API key environment variable is missing")
+                })?);
+            }
+        }
+        return Ok(settings);
+    }
+    // Environment-only mode retains dashboard-managed provider configuration.
     Ok(GatewayConfig {
         server: gateway_core::config::ServerConfig {
-            host: std::env::var("GATEWAY_HOST").unwrap_or_else(|_| "0.0.0.0".to_string()),
+            host: std::env::var("GATEWAY_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()),
             port: std::env::var("GATEWAY_PORT")
                 .ok()
                 .and_then(|p| p.parse().ok())

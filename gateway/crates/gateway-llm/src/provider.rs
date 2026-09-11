@@ -30,6 +30,9 @@ pub enum ProviderError {
     Unavailable(String),
 }
 
+pub type CompletionStream =
+    std::pin::Pin<Box<dyn futures::Stream<Item = ProviderResult<String>> + Send>>;
+
 pub type ProviderResult<T> = Result<T, ProviderError>;
 
 /// Provider trait for LLM backends
@@ -43,7 +46,7 @@ pub trait Provider: Send + Sync {
 
     /// Check if provider supports a specific model
     fn supports_model(&self, model: &str) -> bool {
-        self.supported_models().iter().any(|m| *m == model)
+        self.supported_models().contains(&model)
     }
 
     /// Send chat completion request
@@ -70,13 +73,20 @@ pub trait Provider: Send + Sync {
 /// Registry of available providers
 pub struct ProviderRegistry {
     providers: HashMap<String, Arc<dyn Provider>>,
+    model_routes: HashMap<String, String>,
 }
 
 impl ProviderRegistry {
     pub fn new() -> Self {
         Self {
             providers: HashMap::new(),
+            model_routes: HashMap::new(),
         }
+    }
+
+    /// Associate a configured model with its explicitly selected provider.
+    pub fn route_model(&mut self, model: String, provider: String) {
+        self.model_routes.insert(model, provider);
     }
 
     pub fn register(&mut self, provider: Arc<dyn Provider>) {
@@ -88,10 +98,16 @@ impl ProviderRegistry {
     }
 
     pub fn find_for_model(&self, model: &str) -> Option<Arc<dyn Provider>> {
-        self.providers
+        if let Some(provider) = self.model_routes.get(model) {
+            return self.get(provider);
+        }
+        let mut providers: Vec<_> = self
+            .providers
             .values()
-            .find(|p| p.supports_model(model))
-            .cloned()
+            .filter(|p| p.supports_model(model))
+            .collect();
+        providers.sort_by_key(|p| p.name());
+        providers.first().map(|p| Arc::clone(p))
     }
 
     pub fn all(&self) -> impl Iterator<Item = &Arc<dyn Provider>> {

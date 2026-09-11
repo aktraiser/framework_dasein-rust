@@ -68,7 +68,7 @@ impl StateStore for RedisStore {
         debug!(key = %key, ttl_ms = ?ttl_ms, "Setting key");
 
         if let Some(ttl) = ttl_ms {
-            conn.set_ex(key, &serialized, ttl / 1000)
+            conn.pset_ex(key, &serialized, ttl)
                 .await
                 .map_err(|e| StorageError::SetFailed(e.to_string()))
         } else {

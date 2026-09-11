@@ -119,6 +119,12 @@ pub struct ChatMessage {
     pub role: ChatRole,
     /// Content of the message.
     pub content: String,
+    /// Tool result correlation identifier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    /// Tool calls requested by the assistant.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_calls: Vec<dasein_agentic_llm::ToolCall>,
     /// Optional name (for multi-agent scenarios).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -136,6 +142,8 @@ impl ChatMessage {
         Self {
             role,
             content: content.into(),
+            tool_call_id: None,
+            tool_calls: Vec::new(),
             name: None,
             metadata: None,
             created_at: Utc::now(),
@@ -210,8 +218,12 @@ impl From<dasein_agentic_llm::LLMMessage> for ChatMessage {
             dasein_agentic_llm::Role::System => ChatRole::System,
             dasein_agentic_llm::Role::User => ChatRole::User,
             dasein_agentic_llm::Role::Assistant => ChatRole::Assistant,
+            dasein_agentic_llm::Role::Tool => ChatRole::Tool,
         };
-        Self::new(role, msg.content)
+        let mut result = Self::new(role, msg.content);
+        result.tool_call_id = msg.tool_call_id;
+        result.tool_calls = msg.tool_calls;
+        result
     }
 }
 
@@ -220,8 +232,14 @@ impl From<&ChatMessage> for dasein_agentic_llm::LLMMessage {
         match msg.role {
             ChatRole::System => dasein_agentic_llm::LLMMessage::system(&msg.content),
             ChatRole::User => dasein_agentic_llm::LLMMessage::user(&msg.content),
-            ChatRole::Assistant => dasein_agentic_llm::LLMMessage::assistant(&msg.content),
-            ChatRole::Tool => dasein_agentic_llm::LLMMessage::user(&msg.content), // Tool → User for LLM
+            ChatRole::Assistant => dasein_agentic_llm::LLMMessage::assistant_with_tool_calls(
+                &msg.content,
+                msg.tool_calls.clone(),
+            ),
+            ChatRole::Tool => dasein_agentic_llm::LLMMessage::tool_result(
+                msg.tool_call_id.clone().unwrap_or_default(),
+                &msg.content,
+            ),
         }
     }
 }

@@ -39,7 +39,19 @@ use super::types::{AgentId, ChatMessage};
 /// A simple agent that wraps an LLM adapter.
 ///
 /// ChatAgent is stateless - all conversation state is in `AgentThread`.
+type ToolHandler = Arc<
+    dyn Fn(
+            serde_json::Value,
+        ) -> Pin<
+            Box<dyn std::future::Future<Output = Result<serde_json::Value, AgentError>> + Send>,
+        > + Send
+        + Sync,
+>;
+
 pub struct ChatAgent<L: LLMAdapter> {
+    handlers: std::collections::HashMap<String, ToolHandler>,
+    max_tool_rounds: usize,
+
     /// Agent identifier.
     id: AgentId,
 
@@ -70,6 +82,8 @@ impl<L: LLMAdapter> ChatAgent<L> {
             llm: Arc::new(llm),
             system_prompt: None,
             tools: vec![],
+            handlers: std::collections::HashMap::default(),
+            max_tool_rounds: 8,
         }
     }
 
@@ -100,6 +114,27 @@ impl<L: LLMAdapter> ChatAgent<L> {
     /// Add multiple tools.
     pub fn with_tools(mut self, tools: Vec<Tool>) -> Self {
         self.tools.extend(tools);
+        self
+    }
+
+    /// Register a tool and the implementation allowed to execute it.
+    pub fn with_tool_handler<F, Fut>(mut self, tool: Tool, handler: F) -> Self
+    where
+        F: Fn(serde_json::Value) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = Result<serde_json::Value, AgentError>> + Send + 'static,
+    {
+        self.handlers.insert(
+            tool.name.clone(),
+            Arc::new(move |args| Box::pin(handler(args))),
+        );
+        self.tools.retain(|existing| existing.name != tool.name);
+        self.tools.push(tool);
+        self
+    }
+
+    /// Bound model/tool exchanges per invocation.
+    pub fn with_max_tool_rounds(mut self, rounds: usize) -> Self {
+        self.max_tool_rounds = rounds;
         self
     }
 
@@ -163,26 +198,90 @@ impl<L: LLMAdapter + 'static> Agent for ChatAgent<L> {
         // Add new messages to thread
         thread.add_messages(messages);
 
-        // Build LLM messages
-        let llm_messages = self.build_llm_messages(thread);
-
-        // Call LLM
-        let response = self
-            .llm
-            .generate(&llm_messages)
-            .await
-            .map_err(AgentError::from)?;
-
-        // Add assistant response to thread
-        thread.add_response(&response.content, Some(response.tokens_used.total));
-
-        // Build response
-        Ok(
-            AgentResponse::with_messages(response.content, thread.messages.clone())
-                .with_tokens(response.tokens_used.total)
-                .with_model(response.model)
-                .with_truncated(response.finish_reason == dasein_agentic_llm::FinishReason::Length),
-        )
+        let tools: Vec<dasein_agentic_llm::Tool> = self
+            .tools
+            .iter()
+            .filter(|t| t.enabled)
+            .map(|t| {
+                Ok(dasein_agentic_llm::Tool {
+                    name: t.name.clone(),
+                    description: t.description.clone(),
+                    parameters: serde_json::to_value(&t.parameters)?,
+                })
+            })
+            .collect::<Result<_, AgentError>>()?;
+        if !tools.is_empty() && !self.llm.supports_tools() {
+            return Err(AgentError::tool(
+                "configuration",
+                "LLM adapter does not support tools",
+            ));
+        }
+        for tool in &tools {
+            if !self.handlers.contains_key(&tool.name) {
+                return Err(AgentError::tool(
+                    &tool.name,
+                    "No execution handler registered",
+                ));
+            }
+        }
+        let mut total_tokens: u32 = 0;
+        for round in 0..=self.max_tool_rounds {
+            let llm_messages = self.build_llm_messages(thread);
+            let response = if tools.is_empty() {
+                self.llm.generate(&llm_messages).await
+            } else {
+                self.llm.generate_with_tools(&llm_messages, &tools).await
+            }?;
+            total_tokens = total_tokens.saturating_add(response.tokens_used.total);
+            if response.tool_calls.is_empty() {
+                thread.add_response(&response.content, Some(response.tokens_used.total));
+                return Ok(
+                    AgentResponse::with_messages(response.content, thread.messages.clone())
+                        .with_tokens(total_tokens)
+                        .with_model(response.model)
+                        .with_truncated(
+                            response.finish_reason == dasein_agentic_llm::FinishReason::Length,
+                        ),
+                );
+            }
+            if round == self.max_tool_rounds {
+                return Err(AgentError::tool("limit", "Maximum tool rounds reached"));
+            }
+            // Validate the complete batch before allowing any side effects.
+            for call in &response.tool_calls {
+                if !tools.iter().any(|t| t.name == call.name)
+                    || !call.arguments.is_object()
+                    || call.id.is_empty()
+                {
+                    return Err(AgentError::tool(
+                        &call.name,
+                        "Unregistered tool or invalid call",
+                    ));
+                }
+            }
+            thread.add_message(
+                LLMMessage::assistant_with_tool_calls(
+                    response.content,
+                    response.tool_calls.clone(),
+                )
+                .into(),
+            );
+            for call in response.tool_calls {
+                let handler = &self.handlers[&call.name];
+                let value = match tokio::time::timeout(
+                    std::time::Duration::from_secs(30),
+                    handler(call.arguments),
+                )
+                .await
+                {
+                    Ok(Ok(value)) => value,
+                    Ok(Err(error)) => serde_json::json!({"error": error.to_string()}),
+                    Err(_) => serde_json::json!({"error": "Tool timed out"}),
+                };
+                thread.add_message(LLMMessage::tool_result(call.id, value.to_string()).into());
+            }
+        }
+        Err(AgentError::internal("Tool loop exhausted"))
     }
 
     fn run_stream<'a>(
@@ -191,6 +290,13 @@ impl<L: LLMAdapter + 'static> Agent for ChatAgent<L> {
         thread: &'a mut AgentThread,
     ) -> Pin<Box<dyn Stream<Item = AgentChunk> + Send + 'a>> {
         Box::pin(async_stream::stream! {
+            if self.tools.iter().any(|t| t.enabled) {
+                match self.run(messages, thread).await {
+                    Ok(response) => yield AgentChunk { content: Some(response.content), done: true, tokens_used: response.tokens_used, model: response.model, tool_calls: vec![], error: None },
+                    Err(error) => yield AgentChunk::error(error.to_string()),
+                }
+                return;
+            }
             // Add new messages to thread
             for msg in messages {
                 thread.add_message(msg);
@@ -253,6 +359,109 @@ impl<L: LLMAdapter + 'static> Agent for ChatAgent<L> {
 
 #[cfg(test)]
 mod tests {
+    struct ToolLLM;
+    #[async_trait::async_trait]
+    impl dasein_agentic_llm::LLMAdapter for ToolLLM {
+        fn provider(&self) -> &str {
+            "mock"
+        }
+        fn model(&self) -> &str {
+            "mock"
+        }
+        fn supports_tools(&self) -> bool {
+            true
+        }
+        async fn generate(&self, _: &[LLMMessage]) -> Result<LLMResponse, LLMError> {
+            panic!("tools were not forwarded")
+        }
+        async fn generate_with_tools(
+            &self,
+            messages: &[LLMMessage],
+            tools: &[dasein_agentic_llm::Tool],
+        ) -> Result<LLMResponse, LLMError> {
+            assert_eq!(tools.len(), 1);
+            let returned = messages.last().unwrap().role == dasein_agentic_llm::Role::Tool;
+            if returned {
+                assert_eq!(
+                    messages.last().unwrap().tool_call_id.as_deref(),
+                    Some("call1")
+                );
+                assert_eq!(messages.last().unwrap().content, "42");
+                assert_eq!(messages[messages.len() - 2].tool_calls[0].id, "call1");
+            }
+            Ok(LLMResponse {
+                content: if returned {
+                    "answer: 42".into()
+                } else {
+                    String::new()
+                },
+                tokens_used: TokenUsage {
+                    prompt: 1,
+                    completion: 1,
+                    total: 2,
+                },
+                finish_reason: FinishReason::Stop,
+                model: "mock".into(),
+                tool_calls: if returned {
+                    vec![]
+                } else {
+                    vec![dasein_agentic_llm::ToolCall::new(
+                        "call1",
+                        "lookup",
+                        serde_json::json!({}),
+                    )]
+                },
+            })
+        }
+        fn generate_stream(
+            &self,
+            _: &[LLMMessage],
+        ) -> Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send + '_>> {
+            Box::pin(futures::stream::empty())
+        }
+        async fn health_check(&self) -> Result<bool, LLMError> {
+            Ok(true)
+        }
+    }
+
+    #[tokio::test]
+    async fn executes_tool_and_preserves_history() {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let observed = calls.clone();
+        let agent = ChatAgent::new("tools", ToolLLM).with_tool_handler(
+            Tool::new("lookup", "Find answer"),
+            move |_| {
+                observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                async { Ok(serde_json::json!(42)) }
+            },
+        );
+        let mut thread = AgentThread::new();
+        let response = agent
+            .run(vec![ChatMessage::user("find")], &mut thread)
+            .await
+            .unwrap();
+        assert_eq!(response.content, "answer: 42");
+        assert_eq!(response.tokens_used, Some(4));
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        let restored: AgentThread =
+            serde_json::from_str(&serde_json::to_string(&thread).unwrap()).unwrap();
+        assert_eq!(restored.messages[1].tool_calls[0].id, "call1");
+        assert_eq!(restored.messages[2].tool_call_id.as_deref(), Some("call1"));
+    }
+
+    #[tokio::test]
+    async fn tool_limit_prevents_side_effects() {
+        let agent = ChatAgent::new("tools", ToolLLM)
+            .with_max_tool_rounds(0)
+            .with_tool_handler(Tool::new("lookup", "Find answer"), |_| async {
+                panic!("tool ran beyond limit")
+            });
+        assert!(agent
+            .run(vec![ChatMessage::user("find")], &mut AgentThread::new())
+            .await
+            .is_err());
+    }
+
     use super::*;
     use dasein_agentic_llm::{FinishReason, LLMError, LLMResponse, StreamChunk, TokenUsage};
 
@@ -289,6 +498,7 @@ mod tests {
                 },
                 finish_reason: FinishReason::Stop,
                 model: "mock-model".into(),
+                tool_calls: vec![],
             })
         }
 

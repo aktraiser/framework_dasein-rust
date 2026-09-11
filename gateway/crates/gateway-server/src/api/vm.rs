@@ -11,10 +11,11 @@ use crate::state::AppState;
 
 /// POST /v1/vm/start - Start the Firecracker VM
 pub async fn start_vm(State(state): State<AppState>) -> Result<Json<VmActionResponse>, ApiError> {
-    let orchestrator = state
-        .orchestrator
-        .as_ref()
-        .ok_or_else(|| ApiError::BadRequest("VM orchestrator not configured. Set FIRECRACKER_SSH_PASSWORD.".to_string()))?;
+    let orchestrator = state.orchestrator.as_ref().ok_or_else(|| {
+        ApiError::BadRequest(
+            "VM orchestrator not configured. Set FIRECRACKER_SSH_PASSWORD.".to_string(),
+        )
+    })?;
 
     // Connect if not already connected
     orchestrator

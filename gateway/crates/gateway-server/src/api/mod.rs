@@ -7,14 +7,19 @@ pub mod health;
 pub mod sandbox;
 pub mod vm;
 
-use axum::{response::Html, routing::{get, post}, Router};
+use axum::{
+    response::Html,
+    routing::{get, post},
+    Router,
+};
 
 use crate::dashboard::create_dashboard_router;
 use crate::state::AppState;
 
 /// GET /
 async fn index() -> Html<&'static str> {
-    Html(r#"<!DOCTYPE html>
+    Html(
+        r#"<!DOCTYPE html>
 <html>
 <head>
     <title>Agentic Gateway</title>
@@ -72,7 +77,8 @@ async fn index() -> Html<&'static str> {
   -H "Content-Type: application/json" \
   -d '{"model": "gpt-4o", "messages": [{"role": "user", "content": "Hello!"}]}'</code></pre>
 </body>
-</html>"#)
+</html>"#,
+    )
 }
 
 /// Create the main API router
@@ -116,5 +122,6 @@ pub fn create_router(state: AppState) -> Router {
         .route("/metrics", get(health::metrics))
         // Merge dashboard routes
         .merge(dashboard_router)
+        .layer(axum::middleware::from_fn_with_state(state.clone(), crate::middleware::auth::auth_middleware))
         .with_state(state)
 }

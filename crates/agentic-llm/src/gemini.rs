@@ -9,7 +9,10 @@ use tracing::{debug, instrument};
 
 use crate::{
     error::LLMError,
-    traits::{FinishReason, LLMAdapter, LLMMessage, LLMResponse, Role, StreamChunk, TokenUsage},
+    traits::{
+        FinishReason, LLMAdapter, LLMMessage, LLMResponse, Role, StreamChunk, TokenUsage, Tool,
+        ToolCall,
+    },
 };
 
 const GEMINI_API_BASE: &str = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -88,8 +91,8 @@ impl GeminiAdapter {
             .map(|m| GeminiContent {
                 role: match m.role {
                     Role::Assistant => "model".to_string(),
-                    // System filtered above, but fallback to user if encountered
-                    Role::User | Role::System => "user".to_string(),
+                    // System filtered above, Tool acts as user
+                    Role::User | Role::System | Role::Tool => "user".to_string(),
                 },
                 parts: vec![GeminiPart {
                     text: m.content.clone(),
@@ -173,6 +176,78 @@ struct GeminiErrorDetail {
     message: String,
 }
 
+// ============================================================================
+// TOOL CALLING SUPPORT
+// ============================================================================
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GeminiRequestWithTools {
+    contents: Vec<GeminiContent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    system_instruction: Option<GeminiSystemInstruction>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    generation_config: Option<GeminiGenerationConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<GeminiToolDeclaration>>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GeminiToolDeclaration {
+    function_declarations: Vec<GeminiFunctionDeclaration>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GeminiFunctionDeclaration {
+    name: String,
+    description: String,
+    parameters: serde_json::Value,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GeminiPartWithFunction {
+    #[serde(default)]
+    text: Option<String>,
+    #[serde(default)]
+    function_call: Option<GeminiFunctionCall>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GeminiFunctionCall {
+    name: String,
+    args: serde_json::Value,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
+struct GeminiContentWithFunction {
+    role: String,
+    parts: Vec<GeminiPartWithFunction>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GeminiResponseWithFunction {
+    candidates: Vec<GeminiCandidateWithFunction>,
+    #[serde(default)]
+    usage_metadata: Option<GeminiUsageMetadata>,
+    #[serde(default)]
+    model_version: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GeminiCandidateWithFunction {
+    content: GeminiContentWithFunction,
+    #[serde(default)]
+    finish_reason: Option<String>,
+}
+
 #[async_trait]
 impl LLMAdapter for GeminiAdapter {
     fn provider(&self) -> &'static str {
@@ -254,6 +329,7 @@ impl LLMAdapter for GeminiAdapter {
             model: api_response
                 .model_version
                 .unwrap_or_else(|| self.model.clone()),
+            tool_calls: vec![],
         })
     }
 
@@ -379,6 +455,116 @@ impl LLMAdapter for GeminiAdapter {
             .map_err(|e| LLMError::ConnectionError(e.to_string()))?;
 
         Ok(response.status().is_success())
+    }
+
+    fn supports_tools(&self) -> bool {
+        true
+    }
+
+    #[instrument(skip(self, messages, tools), fields(provider = "gemini", model = %self.model))]
+    async fn generate_with_tools(
+        &self,
+        messages: &[LLMMessage],
+        tools: &[Tool],
+    ) -> Result<LLMResponse, LLMError> {
+        if tools.is_empty() {
+            return self.generate(messages).await;
+        }
+
+        debug!("Generating with {} tools", tools.len());
+
+        let (system_instruction, contents) = Self::convert_messages(messages);
+
+        // Convert tools to Gemini format
+        let gemini_tools = vec![GeminiToolDeclaration {
+            function_declarations: tools
+                .iter()
+                .map(|t| GeminiFunctionDeclaration {
+                    name: t.name.clone(),
+                    description: t.description.clone(),
+                    parameters: t.parameters.clone(),
+                })
+                .collect(),
+        }];
+
+        let request = GeminiRequestWithTools {
+            contents,
+            system_instruction,
+            generation_config: Some(GeminiGenerationConfig {
+                temperature: Some(self.temperature),
+                max_output_tokens: self.max_tokens,
+            }),
+            tools: Some(gemini_tools),
+        };
+
+        let response = self
+            .client
+            .post(self.api_url(false))
+            .header("content-type", "application/json")
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| LLMError::ConnectionError(e.to_string()))?;
+
+        if !response.status().is_success() {
+            let error: GeminiError = response
+                .json()
+                .await
+                .map_err(|e| LLMError::InvalidResponse(e.to_string()))?;
+            return Err(LLMError::ApiError(error.error.message));
+        }
+
+        let api_response: GeminiResponseWithFunction = response
+            .json()
+            .await
+            .map_err(|e| LLMError::InvalidResponse(e.to_string()))?;
+
+        let candidate = api_response
+            .candidates
+            .first()
+            .ok_or(LLMError::EmptyResponse)?;
+
+        // Extract text content and tool calls
+        let mut content = String::new();
+        let mut tool_calls = Vec::new();
+
+        for (i, part) in candidate.content.parts.iter().enumerate() {
+            if let Some(text) = &part.text {
+                content.push_str(text);
+            }
+            if let Some(fc) = &part.function_call {
+                tool_calls.push(ToolCall::new(
+                    format!("call_{}", i),
+                    fc.name.clone(),
+                    fc.args.clone(),
+                ));
+            }
+        }
+
+        let finish_reason = match candidate.finish_reason.as_deref() {
+            Some("MAX_TOKENS") => FinishReason::Length,
+            _ => FinishReason::Stop,
+        };
+
+        let usage = api_response.usage_metadata.unwrap_or(GeminiUsageMetadata {
+            prompt_token_count: 0,
+            candidates_token_count: 0,
+            total_token_count: 0,
+        });
+
+        Ok(LLMResponse {
+            content,
+            tokens_used: TokenUsage {
+                prompt: usage.prompt_token_count,
+                completion: usage.candidates_token_count,
+                total: usage.total_token_count,
+            },
+            finish_reason,
+            model: api_response
+                .model_version
+                .unwrap_or_else(|| self.model.clone()),
+            tool_calls,
+        })
     }
 }
 

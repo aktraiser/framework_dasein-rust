@@ -95,12 +95,18 @@ impl Provider for OpenAIProvider {
 
     async fn chat_completion_stream(
         &self,
-        _request: ChatCompletionRequest,
+        mut request: ChatCompletionRequest,
     ) -> ProviderResult<Pin<Box<dyn futures::Stream<Item = ProviderResult<String>> + Send>>> {
-        // Streaming implementation would use SSE
-        Err(ProviderError::Unavailable(
-            "Streaming not yet implemented".to_string(),
-        ))
+        request.stream = Some(true);
+        let response = self
+            .client
+            .post(format!("{}/chat/completions", self.api_base))
+            .bearer_auth(&self.api_key)
+            .json(&request)
+            .timeout(std::time::Duration::from_secs(120))
+            .send()
+            .await?;
+        super::sse::openai_stream(response).await
     }
 
     #[instrument(skip(self, request), fields(model = %request.model))]

@@ -356,14 +356,24 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires NATS server"]
     async fn test_connect() {
-        let client = NatsClient::connect_default().await.unwrap();
+        let client = NatsClient::connect(NatsConfig::new(
+            std::env::var("DASEIN_TEST_NATS_URL")
+                .unwrap_or_else(|_| "nats://127.0.0.1:4222".into()),
+        ))
+        .await
+        .unwrap();
         assert!(client.is_connected());
     }
 
     #[tokio::test]
     #[ignore = "requires NATS server"]
     async fn test_publish_subscribe() {
-        let client = NatsClient::connect_default().await.unwrap();
+        let client = NatsClient::connect(NatsConfig::new(
+            std::env::var("DASEIN_TEST_NATS_URL")
+                .unwrap_or_else(|_| "nats://127.0.0.1:4222".into()),
+        ))
+        .await
+        .unwrap();
 
         let mut sub = client.subscribe("test.subject").await.unwrap();
 
@@ -381,7 +391,12 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires NATS server"]
     async fn test_jetstream_stream() {
-        let client = NatsClient::connect_default().await.unwrap();
+        let client = NatsClient::connect(NatsConfig::new(
+            std::env::var("DASEIN_TEST_NATS_URL")
+                .unwrap_or_else(|_| "nats://127.0.0.1:4222".into()),
+        ))
+        .await
+        .unwrap();
 
         let config = StreamConfig::new("TEST_STREAM")
             .subjects(vec!["test.>".to_string()])

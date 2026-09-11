@@ -1,0 +1,7 @@
+# GATEWAY_CONFIG=beta-local.toml; credentials stay in environment or encrypted DB.
+[server]
+host = "127.0.0.1"
+port = 8080
+cors_origins = []
+[llm]
+[sandbox]

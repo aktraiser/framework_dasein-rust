@@ -1,75 +1,67 @@
-//! Sandbox API
+use crate::middleware::auth::Principal;
+// Sandbox API
 
+use crate::api::chat::ApiError;
+use crate::state::AppState;
 use axum::{
     extract::{Path, State},
-    Json,
+    Extension, Json,
 };
 use gateway_core::sandbox::{
-    CreateSandboxRequest, CreateSandboxResponse, ExecuteRequest, ExecuteResponse, Runtime, SandboxId,
+    CreateSandboxRequest, CreateSandboxResponse, ExecuteRequest, ExecuteResponse, Runtime,
     SandboxStatus,
 };
 use serde::{Deserialize, Serialize};
-use crate::api::chat::ApiError;
-use crate::state::AppState;
 
 /// POST /v1/sandboxes
 pub async fn create_sandbox(
     State(state): State<AppState>,
+    Extension(owner): Extension<Principal>,
     Json(request): Json<CreateSandboxRequest>,
 ) -> Result<Json<CreateSandboxResponse>, ApiError> {
-    let sandbox_id = state
-        .sandbox_pool
-        .acquire(request)
-        .await
-        .map_err(|e| ApiError::Internal(e.to_string()))?;
-
-    Ok(Json(CreateSandboxResponse {
-        sandbox_id,
-        status: SandboxStatus::Ready,
-    }))
+    let storage = state
+        .storage
+        .as_ref()
+        .ok_or_else(|| ApiError::ServiceUnavailable("Box storage is not configured".into()))?;
+    Ok(Json(state.boxes.create(storage, &owner.0, request).await?))
 }
 
-/// GET /v1/sandboxes/:id
 pub async fn get_sandbox(
     State(state): State<AppState>,
+    Extension(owner): Extension<Principal>,
     Path(id): Path<String>,
 ) -> Result<Json<SandboxInfo>, ApiError> {
-    let stats = state.sandbox_pool.stats().await;
-
-    // Check if remote backend is ready
-    let backend_ready = state.code_executor.is_ready().await;
-
+    let storage = state
+        .storage
+        .as_ref()
+        .ok_or_else(|| ApiError::ServiceUnavailable("Box storage is not configured".into()))?;
+    let (status, backend_ready) = state.boxes.info(storage, &owner.0, &id).await?;
+    let running = usize::from(status == SandboxStatus::Running);
     Ok(Json(SandboxInfo {
         id,
-        status: SandboxStatus::Ready,
+        status,
         backend_ready,
         pool_stats: PoolStatsResponse {
-            available: stats.available,
-            in_use: stats.in_use,
-            max_total: stats.max_total,
+            available: usize::from(backend_ready) - running.min(usize::from(backend_ready)),
+            in_use: running,
+            max_total: 1,
         },
     }))
 }
 
-/// POST /v1/sandboxes/:id/execute
 pub async fn execute_code(
     State(state): State<AppState>,
-    Path(_id): Path<String>,
+    Extension(owner): Extension<Principal>,
+    Path(id): Path<String>,
     Json(request): Json<ExecuteRequest>,
 ) -> Result<Json<ExecuteResponse>, ApiError> {
-    // Execute code using the code executor (remote or local)
-    let response = state
-        .code_executor
-        .execute(
-            request.runtime.clone(),
-            request.code,
-            vec![],
-            request.timeout_seconds,
-        )
-        .await
-        .map_err(|e| ApiError::Internal(e.to_string()))?;
-
-    Ok(Json(response))
+    let storage = state
+        .storage
+        .as_ref()
+        .ok_or_else(|| ApiError::ServiceUnavailable("Box storage is not configured".into()))?;
+    Ok(Json(
+        state.boxes.execute(storage, &owner.0, &id, request).await?,
+    ))
 }
 
 /// POST /v1/execute - Direct code execution without sandbox management
@@ -94,17 +86,14 @@ pub async fn execute_direct(
 /// DELETE /v1/sandboxes/:id
 pub async fn delete_sandbox(
     State(state): State<AppState>,
+    Extension(owner): Extension<Principal>,
     Path(id): Path<String>,
 ) -> Result<Json<DeleteResponse>, ApiError> {
-    let sandbox_id = SandboxId::default(); // Would parse from id
-    let _ = id;
-
-    state
-        .sandbox_pool
-        .release(&sandbox_id)
-        .await
-        .map_err(|e| ApiError::Internal(e.to_string()))?;
-
+    let storage = state
+        .storage
+        .as_ref()
+        .ok_or_else(|| ApiError::ServiceUnavailable("Box storage is not configured".into()))?;
+    state.boxes.delete(storage, &owner.0, &id).await?;
     Ok(Json(DeleteResponse { deleted: true }))
 }
 

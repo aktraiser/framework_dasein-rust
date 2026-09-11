@@ -3,7 +3,7 @@
 use crate::provider::{Provider, ProviderError, ProviderResult};
 use async_trait::async_trait;
 use gateway_core::llm::{
-    ChatCompletionRequest, ChatCompletionResponse, ChatChoice, ChatMessage, ChatRole,
+    ChatChoice, ChatCompletionRequest, ChatCompletionResponse, ChatMessage, ChatRole,
     EmbeddingRequest, EmbeddingResponse, Usage,
 };
 use reqwest::Client;

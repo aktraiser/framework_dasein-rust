@@ -1,7 +1,9 @@
 //! Request routing with load balancing and failover
 
 use crate::provider::{Provider, ProviderError, ProviderRegistry, ProviderResult};
-use gateway_core::llm::{ChatCompletionRequest, ChatCompletionResponse};
+use gateway_core::llm::{
+    ChatCompletionRequest, ChatCompletionResponse, EmbeddingRequest, EmbeddingResponse,
+};
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -54,6 +56,11 @@ impl Router {
         request: ChatCompletionRequest,
         fallbacks: &[String],
     ) -> ProviderResult<ChatCompletionResponse> {
+        if !matches!(self.config.strategy, RoutingStrategy::Failover) {
+            return Err(ProviderError::Unavailable(
+                "Only failover routing is implemented".into(),
+            ));
+        }
         let model = &request.model;
 
         // Find primary provider for this model
@@ -96,6 +103,32 @@ impl Router {
         Err(ProviderError::Unavailable(
             "All providers failed".to_string(),
         ))
+    }
+
+    /// Embeddings use the configured model provider.
+    pub async fn embeddings(&self, request: EmbeddingRequest) -> ProviderResult<EmbeddingResponse> {
+        let provider = self
+            .registry
+            .find_for_model(&request.model)
+            .ok_or_else(|| ProviderError::ModelNotSupported(request.model.clone()))?;
+        provider.embeddings(request).await
+    }
+
+    /// Open a stream; never replay an already opened response.
+    pub async fn chat_completion_stream(
+        &self,
+        request: ChatCompletionRequest,
+    ) -> ProviderResult<crate::provider::CompletionStream> {
+        if !matches!(self.config.strategy, RoutingStrategy::Failover) {
+            return Err(ProviderError::Unavailable(
+                "Only failover routing is implemented".into(),
+            ));
+        }
+        let provider = self
+            .registry
+            .find_for_model(&request.model)
+            .ok_or_else(|| ProviderError::ModelNotSupported(request.model.clone()))?;
+        provider.chat_completion_stream(request).await
     }
 
     async fn try_provider(

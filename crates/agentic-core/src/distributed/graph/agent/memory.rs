@@ -996,9 +996,12 @@ mod tests {
         use crate::distributed::bus::{NatsClient, NatsConfig};
 
         let nats = Arc::new(
-            NatsClient::connect(NatsConfig::new("nats://localhost:4222"))
-                .await
-                .expect("Failed to connect to NATS"),
+            NatsClient::connect(NatsConfig::new(
+                std::env::var("DASEIN_TEST_NATS_URL")
+                    .unwrap_or_else(|_| "nats://127.0.0.1:4222".into()),
+            ))
+            .await
+            .expect("Failed to connect to NATS"),
         );
 
         let provider = NatsMemoryProvider::new(nats, "TEST_MEMORIES")
@@ -1047,9 +1050,12 @@ mod tests {
         use crate::distributed::bus::{NatsClient, NatsConfig};
 
         let nats = Arc::new(
-            NatsClient::connect(NatsConfig::new("nats://localhost:4222"))
-                .await
-                .expect("Failed to connect to NATS"),
+            NatsClient::connect(NatsConfig::new(
+                std::env::var("DASEIN_TEST_NATS_URL")
+                    .unwrap_or_else(|_| "nats://127.0.0.1:4222".into()),
+            ))
+            .await
+            .expect("Failed to connect to NATS"),
         );
 
         let provider = NatsMemoryProvider::new(nats, "TEST_MEMORIES_MAX")
@@ -1088,9 +1094,12 @@ mod tests {
         use crate::distributed::bus::{NatsClient, NatsConfig};
 
         let nats = Arc::new(
-            NatsClient::connect(NatsConfig::new("nats://localhost:4222"))
-                .await
-                .expect("Failed to connect to NATS"),
+            NatsClient::connect(NatsConfig::new(
+                std::env::var("DASEIN_TEST_NATS_URL")
+                    .unwrap_or_else(|_| "nats://127.0.0.1:4222".into()),
+            ))
+            .await
+            .expect("Failed to connect to NATS"),
         );
 
         let provider = NatsMemoryProvider::new(nats, "TEST_MEMORIES_INVOKE")
@@ -1151,9 +1160,12 @@ mod tests {
         // First connection: store memory
         {
             let nats = Arc::new(
-                NatsClient::connect(NatsConfig::new("nats://localhost:4222"))
-                    .await
-                    .expect("Failed to connect to NATS"),
+                NatsClient::connect(NatsConfig::new(
+                    std::env::var("DASEIN_TEST_NATS_URL")
+                        .unwrap_or_else(|_| "nats://127.0.0.1:4222".into()),
+                ))
+                .await
+                .expect("Failed to connect to NATS"),
             );
 
             let provider = NatsMemoryProvider::new(nats, "TEST_MEMORIES_PERSIST")
@@ -1173,9 +1185,12 @@ mod tests {
         // Second connection: verify memory still exists
         {
             let nats = Arc::new(
-                NatsClient::connect(NatsConfig::new("nats://localhost:4222"))
-                    .await
-                    .expect("Failed to connect to NATS"),
+                NatsClient::connect(NatsConfig::new(
+                    std::env::var("DASEIN_TEST_NATS_URL")
+                        .unwrap_or_else(|_| "nats://127.0.0.1:4222".into()),
+                ))
+                .await
+                .expect("Failed to connect to NATS"),
             );
 
             let provider = NatsMemoryProvider::new(nats, "TEST_MEMORIES_PERSIST")

@@ -2,12 +2,12 @@
 //!
 //! Connects to a remote Firecracker VM running fc-agent
 
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use gateway_core::sandbox::{ExecuteResponse, Runtime};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use thiserror::Error;
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use tracing::{debug, info, instrument};
 
 #[derive(Debug, Error)]
@@ -50,7 +50,7 @@ impl Default for RemoteSandboxConfig {
     fn default() -> Self {
         Self {
             base_url: std::env::var("FIRECRACKER_REMOTE_URL")
-                .unwrap_or_else(|_| "http://65.108.230.227:8080".to_string()),
+                .unwrap_or_else(|_| "http://127.0.0.1:8080".to_string()),
             api_key: std::env::var("FIRECRACKER_API_KEY").ok(),
             default_timeout_ms: 30000,
             connect_timeout_secs: 10,
@@ -314,12 +314,13 @@ RUST_EOF
     /// Write a file to the sandbox
     #[instrument(skip(self, content), fields(path = %path, content_len = content.len()))]
     pub async fn write_file(&self, path: &str, content: &[u8]) -> RemoteResult<()> {
+        let shell_path = quote_path(path)?;
         let encoded = BASE64.encode(content);
 
         // Create parent directory and write file
         let code = format!(
             "mkdir -p \"$(dirname '{}')\" && echo '{}' | base64 -d > '{}'",
-            path, encoded, path
+            shell_path, encoded, shell_path
         );
 
         let result = self.execute(&code, None).await?;
@@ -343,7 +344,8 @@ RUST_EOF
     /// Read a file from the sandbox
     #[instrument(skip(self), fields(path = %path))]
     pub async fn read_file(&self, path: &str) -> RemoteResult<Vec<u8>> {
-        let code = format!("base64 '{}'", path);
+        let shell_path = quote_path(path)?;
+        let code = format!("base64 '{}'", shell_path);
 
         let result = self.execute(&code, None).await?;
 
@@ -355,8 +357,9 @@ RUST_EOF
         }
 
         // Decode base64 content
-        let decoded = BASE64.decode(result.stdout.trim())
-            .map_err(|e| RemoteSandboxError::ExecutionFailed(format!("Base64 decode error: {}", e)))?;
+        let decoded = BASE64.decode(result.stdout.trim()).map_err(|e| {
+            RemoteSandboxError::ExecutionFailed(format!("Base64 decode error: {}", e))
+        })?;
 
         debug!(path = %path, size = decoded.len(), "File read successfully");
         Ok(decoded)
@@ -372,10 +375,11 @@ RUST_EOF
     /// Delete a file or directory
     #[instrument(skip(self), fields(path = %path))]
     pub async fn delete(&self, path: &str, recursive: bool) -> RemoteResult<()> {
+        let shell_path = quote_path(path)?;
         let code = if recursive {
-            format!("rm -rf '{}'", path)
+            format!("rm -rf -- '{}'", shell_path)
         } else {
-            format!("rm -f '{}'", path)
+            format!("rm -f -- '{}'", shell_path)
         };
 
         let result = self.execute(&code, None).await?;
@@ -394,11 +398,12 @@ RUST_EOF
     /// List files in a directory
     #[instrument(skip(self), fields(path = %path))]
     pub async fn list_files(&self, path: &str) -> RemoteResult<Vec<FileInfo>> {
+        let shell_path = quote_path(path)?;
         // Use ls with specific format for easy parsing
         // Format: type permissions size mtime name
         let code = format!(
             "ls -la '{}' 2>/dev/null | tail -n +2 | awk '{{print $1, $5, $6, $7, $8, $9}}'",
-            path
+            shell_path
         );
 
         let result = self.execute(&code, None).await?;
@@ -410,7 +415,8 @@ RUST_EOF
             )));
         }
 
-        let files: Vec<FileInfo> = result.stdout
+        let files: Vec<FileInfo> = result
+            .stdout
             .lines()
             .filter(|line| !line.is_empty())
             .filter_map(|line| {
@@ -445,7 +451,11 @@ RUST_EOF
     /// Check if a file or directory exists
     #[instrument(skip(self), fields(path = %path))]
     pub async fn exists(&self, path: &str) -> RemoteResult<bool> {
-        let code = format!("test -e '{}' && echo 'exists' || echo 'not_found'", path);
+        let shell_path = quote_path(path)?;
+        let code = format!(
+            "test -e '{}' && echo 'exists' || echo 'not_found'",
+            shell_path
+        );
 
         let result = self.execute(&code, None).await?;
         Ok(result.stdout.trim() == "exists")
@@ -454,7 +464,8 @@ RUST_EOF
     /// Create a directory
     #[instrument(skip(self), fields(path = %path))]
     pub async fn mkdir(&self, path: &str) -> RemoteResult<()> {
-        let code = format!("mkdir -p '{}'", path);
+        let shell_path = quote_path(path)?;
+        let code = format!("mkdir -p -- '{}'", shell_path);
 
         let result = self.execute(&code, None).await?;
 
@@ -472,9 +483,10 @@ RUST_EOF
     /// Get file information
     #[instrument(skip(self), fields(path = %path))]
     pub async fn stat(&self, path: &str) -> RemoteResult<FileInfo> {
+        let shell_path = quote_path(path)?;
         let code = format!(
             "stat -c '%F %s %n' '{}' 2>/dev/null || stat -f '%HT %z %N' '{}'",
-            path, path
+            shell_path, shell_path
         );
 
         let result = self.execute(&code, None).await?;
@@ -502,7 +514,9 @@ RUST_EOF
                 size,
             })
         } else {
-            Err(RemoteSandboxError::ExecutionFailed("Failed to parse stat output".to_string()))
+            Err(RemoteSandboxError::ExecutionFailed(
+                "Failed to parse stat output".to_string(),
+            ))
         }
     }
 }
@@ -548,8 +562,32 @@ impl RemoteSandboxBuilder {
     }
 }
 
+// These are operator-only paths inside the remote guest, not a tenant boundary.
+fn quote_path(path: &str) -> RemoteResult<String> {
+    if !path.starts_with('/')
+        || path.contains('\0')
+        || std::path::Path::new(path)
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        || path == "/"
+    {
+        return Err(RemoteSandboxError::ExecutionFailed(
+            "Expected a non-root absolute path without parent traversal".into(),
+        ));
+    }
+    Ok(path.replace('\'', "'\"'\"'"))
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn paths_are_quoted_and_traversal_is_rejected() {
+        assert_eq!(super::quote_path("/tmp/a'b").unwrap(), "/tmp/a'\"'\"'b");
+        for path in ["/", "relative", "/tmp/../etc", "/tmp/a\0b"] {
+            assert!(super::quote_path(path).is_err());
+        }
+    }
+
     use super::*;
 
     #[test]

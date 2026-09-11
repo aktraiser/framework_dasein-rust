@@ -3,8 +3,8 @@
 //! Run with:
 //!   cargo run --example test_remote
 
-use gateway_sandbox::remote::{RemoteSandbox, RemoteSandboxConfig};
 use gateway_core::sandbox::Runtime;
+use gateway_sandbox::remote::{RemoteSandbox, RemoteSandboxConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -26,29 +26,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test shell command
     println!("=== Shell Command ===");
-    let result = sandbox.execute("echo 'Hello from Firecracker!'", None).await?;
+    let result = sandbox
+        .execute("echo 'Hello from Firecracker!'", None)
+        .await?;
     println!("Exit code: {}", result.exit_code);
     println!("Stdout: {}", result.stdout.trim());
     println!();
 
     // Test Python
     println!("=== Python ===");
-    let result = sandbox.execute_runtime(
-        &Runtime::Python,
-        "print('Hello from Python!')\nprint(2 + 2)",
-        None
-    ).await?;
+    let result = sandbox
+        .execute_runtime(
+            &Runtime::Python,
+            "print('Hello from Python!')\nprint(2 + 2)",
+            None,
+        )
+        .await?;
     println!("Exit code: {}", result.exit_code);
     println!("Stdout: {}", result.stdout.trim());
     println!();
 
     // Test Node.js
     println!("=== Node.js ===");
-    let result = sandbox.execute_runtime(
-        &Runtime::Node,
-        "console.log('Hello from Node.js!');\nconsole.log(2 + 2);",
-        None
-    ).await?;
+    let result = sandbox
+        .execute_runtime(
+            &Runtime::Node,
+            "console.log('Hello from Node.js!');\nconsole.log(2 + 2);",
+            None,
+        )
+        .await?;
     println!("Exit code: {}", result.exit_code);
     println!("Stdout: {}", result.stdout.trim());
     println!();

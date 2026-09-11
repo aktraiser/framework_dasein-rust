@@ -3,9 +3,12 @@
 use async_openai::{
     config::OpenAIConfig,
     types::{
-        ChatCompletionRequestAssistantMessage, ChatCompletionRequestAssistantMessageContent,
-        ChatCompletionRequestMessage, ChatCompletionRequestSystemMessage,
-        ChatCompletionRequestUserMessage, CreateChatCompletionRequest,
+        ChatCompletionMessageToolCall, ChatCompletionRequestAssistantMessage,
+        ChatCompletionRequestAssistantMessageContent, ChatCompletionRequestMessage,
+        ChatCompletionRequestSystemMessage, ChatCompletionRequestToolMessage,
+        ChatCompletionRequestUserMessage, ChatCompletionTool, ChatCompletionToolType,
+        CreateChatCompletionRequest, CreateEmbeddingRequestArgs, EmbeddingInput, FunctionCall,
+        FunctionObject,
     },
     Client,
 };
@@ -16,7 +19,10 @@ use tracing::{debug, instrument};
 
 use crate::{
     error::LLMError,
-    traits::{FinishReason, LLMAdapter, LLMMessage, LLMResponse, Role, StreamChunk, TokenUsage},
+    traits::{
+        Embedder, FinishReason, LLMAdapter, LLMMessage, LLMResponse, Role, StreamChunk, TokenUsage,
+        Tool, ToolCall,
+    },
 };
 
 /// `OpenAI` adapter for GPT models.
@@ -43,6 +49,13 @@ impl OpenAIAdapter {
             temperature: 0.7,
             max_tokens: None,
         }
+    }
+
+    /// Set an OpenAI-compatible base URL, including its API version prefix.
+    #[must_use]
+    pub fn with_api_base(mut self, api_base: impl Into<String>) -> Self {
+        self.client = Client::with_config(self.client.config().clone().with_api_base(api_base));
+        self
     }
 
     /// Set the temperature for generation.
@@ -81,7 +94,30 @@ impl OpenAIAdapter {
                         content: Some(ChatCompletionRequestAssistantMessageContent::Text(
                             msg.content.clone(),
                         )),
+                        tool_calls: if msg.tool_calls.is_empty() {
+                            None
+                        } else {
+                            Some(
+                                msg.tool_calls
+                                    .iter()
+                                    .map(|t| ChatCompletionMessageToolCall {
+                                        id: t.id.clone(),
+                                        r#type: ChatCompletionToolType::Function,
+                                        function: FunctionCall {
+                                            name: t.name.clone(),
+                                            arguments: t.arguments.to_string(),
+                                        },
+                                    })
+                                    .collect(),
+                            )
+                        },
                         ..Default::default()
+                    })
+                }
+                Role::Tool => {
+                    ChatCompletionRequestMessage::Tool(ChatCompletionRequestToolMessage {
+                        content: msg.content.clone().into(),
+                        tool_call_id: msg.tool_call_id.clone().unwrap_or_default(),
                     })
                 }
             })
@@ -101,6 +137,18 @@ impl LLMAdapter for OpenAIAdapter {
 
     #[instrument(skip(self, messages), fields(provider = "openai", model = %self.model))]
     async fn generate(&self, messages: &[LLMMessage]) -> Result<LLMResponse, LLMError> {
+        self.generate_with_tools(messages, &[]).await
+    }
+
+    fn supports_tools(&self) -> bool {
+        true
+    }
+
+    async fn generate_with_tools(
+        &self,
+        messages: &[LLMMessage],
+        tools: &[Tool],
+    ) -> Result<LLMResponse, LLMError> {
         debug!("Generating completion with {} messages", messages.len());
 
         let request = CreateChatCompletionRequest {
@@ -108,6 +156,24 @@ impl LLMAdapter for OpenAIAdapter {
             messages: Self::convert_messages(messages),
             temperature: Some(self.temperature),
             max_completion_tokens: self.max_tokens,
+            tools: if tools.is_empty() {
+                None
+            } else {
+                Some(
+                    tools
+                        .iter()
+                        .map(|t| ChatCompletionTool {
+                            r#type: ChatCompletionToolType::Function,
+                            function: FunctionObject {
+                                name: t.name.clone(),
+                                description: Some(t.description.clone()),
+                                parameters: Some(t.parameters.clone()),
+                                strict: None,
+                            },
+                        })
+                        .collect(),
+                )
+            },
             ..Default::default()
         };
 
@@ -133,9 +199,22 @@ impl LLMAdapter for OpenAIAdapter {
             },
             finish_reason: match choice.finish_reason {
                 Some(async_openai::types::FinishReason::Length) => FinishReason::Length,
+                Some(async_openai::types::FinishReason::ToolCalls) => FinishReason::ToolCalls,
                 _ => FinishReason::Stop,
             },
             model: response.model,
+            tool_calls: choice
+                .message
+                .tool_calls
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .map(|t| {
+                    let arguments = serde_json::from_str(&t.function.arguments)
+                        .map_err(|e| LLMError::ApiError(format!("Invalid tool arguments: {e}")))?;
+                    Ok(ToolCall::new(&t.id, &t.function.name, arguments))
+                })
+                .collect::<Result<_, LLMError>>()?,
         })
     }
 
@@ -191,6 +270,122 @@ impl LLMAdapter for OpenAIAdapter {
     }
 }
 
+// ============================================================================
+// EMBEDDINGS
+// ============================================================================
+
+/// OpenAI embedder for text-embedding models.
+///
+/// Converts text to dense vector representations using OpenAI's embedding models.
+/// These vectors can be used for semantic search, skill routing, and similarity matching.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use dasein_agentic_llm::OpenAIEmbedder;
+///
+/// let embedder = OpenAIEmbedder::new("sk-...");
+/// let vector = embedder.embed("Find emails about meetings").await?;
+/// ```
+pub struct OpenAIEmbedder {
+    client: Client<OpenAIConfig>,
+    model: String,
+}
+
+impl OpenAIEmbedder {
+    /// Create a new OpenAI embedder with the default model (text-embedding-3-small).
+    #[must_use]
+    pub fn new(api_key: impl Into<String>) -> Self {
+        Self::with_model(api_key, "text-embedding-3-small")
+    }
+
+    /// Create a new OpenAI embedder with a specific model.
+    ///
+    /// # Arguments
+    ///
+    /// * `api_key` - OpenAI API key
+    /// * `model` - Model to use (e.g., "text-embedding-3-small", "text-embedding-3-large")
+    #[must_use]
+    pub fn with_model(api_key: impl Into<String>, model: impl Into<String>) -> Self {
+        let config = OpenAIConfig::new().with_api_key(api_key);
+        Self {
+            client: Client::with_config(config),
+            model: model.into(),
+        }
+    }
+
+    /// Get the embedding dimension for the current model.
+    fn get_dimension(&self) -> usize {
+        match self.model.as_str() {
+            "text-embedding-3-large" => 3072,
+            "text-embedding-3-small" => 1536,
+            "text-embedding-ada-002" => 1536,
+            _ => 1536, // Default
+        }
+    }
+}
+
+#[async_trait]
+impl Embedder for OpenAIEmbedder {
+    fn provider(&self) -> &str {
+        "openai"
+    }
+
+    fn model(&self) -> &str {
+        &self.model
+    }
+
+    fn dimension(&self) -> usize {
+        self.get_dimension()
+    }
+
+    #[instrument(skip(self, text), fields(provider = "openai", model = %self.model))]
+    async fn embed(&self, text: &str) -> Result<Vec<f32>, LLMError> {
+        debug!("Generating embedding for text of {} chars", text.len());
+
+        let request = CreateEmbeddingRequestArgs::default()
+            .model(&self.model)
+            .input(EmbeddingInput::String(text.to_string()))
+            .build()
+            .map_err(|e| LLMError::ConfigError(e.to_string()))?;
+
+        let response = self
+            .client
+            .embeddings()
+            .create(request)
+            .await
+            .map_err(|e| LLMError::ApiError(e.to_string()))?;
+
+        response
+            .data
+            .first()
+            .map(|e| e.embedding.clone())
+            .ok_or(LLMError::EmptyResponse)
+    }
+
+    #[instrument(skip(self, texts), fields(provider = "openai", model = %self.model, batch_size = texts.len()))]
+    async fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, LLMError> {
+        debug!("Generating embeddings for {} texts", texts.len());
+
+        let input: Vec<String> = texts.iter().map(|s| (*s).to_string()).collect();
+
+        let request = CreateEmbeddingRequestArgs::default()
+            .model(&self.model)
+            .input(EmbeddingInput::StringArray(input))
+            .build()
+            .map_err(|e| LLMError::ConfigError(e.to_string()))?;
+
+        let response = self
+            .client
+            .embeddings()
+            .create(request)
+            .await
+            .map_err(|e| LLMError::ApiError(e.to_string()))?;
+
+        Ok(response.data.into_iter().map(|e| e.embedding).collect())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,5 +399,66 @@ mod tests {
 
         let converted = OpenAIAdapter::convert_messages(&messages);
         assert_eq!(converted.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod audit_regressions {
+    #[tokio::test]
+    async fn tools_are_sent_and_parsed_over_http() {
+        use super::*;
+        use wiremock::{
+            matchers::{body_partial_json, method, path},
+            Mock, MockServer, ResponseTemplate,
+        };
+        let server = MockServer::start().await;
+        Mock::given(method("POST")).and(path("/v1/chat/completions"))
+            .and(body_partial_json(serde_json::json!({"tools":[{"type":"function", "function":{"name":"lookup","parameters":{"type":"object"}}}]})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id":"test", "object":"chat.completion", "created":0, "model":"mock-model",
+                "choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call1","type":"function","function":{"name":"lookup","arguments":"{}"}}]},"finish_reason":"tool_calls"}],
+                "usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}
+            }))).expect(1).mount(&server).await;
+        let adapter = OpenAIAdapter::new("fake-local-test-key", "mock-model")
+            .with_api_base(format!("{}/v1", server.uri()));
+        let response = adapter
+            .generate_with_tools(
+                &[LLMMessage::user("lookup")],
+                &[Tool::new("lookup", "lookup")],
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.tool_calls[0].id, "call1");
+        assert_eq!(response.tool_calls[0].arguments, serde_json::json!({}));
+        assert_eq!(response.finish_reason, FinishReason::ToolCalls);
+        server.verify().await;
+    }
+
+    use super::*;
+    #[test]
+    fn audit_tool_result_survives_conversion() {
+        let messages = vec![
+            LLMMessage::user("question"),
+            LLMMessage::tool_result("call1", "42"),
+        ];
+        let converted = OpenAIAdapter::convert_messages(&messages);
+        assert_eq!(converted.len(), 2, "tool result silently dropped");
+    }
+    #[test]
+    fn audit_assistant_tool_call_survives_conversion() {
+        let messages = vec![LLMMessage::assistant_with_tool_calls(
+            "",
+            vec![crate::traits::ToolCall::new(
+                "call1",
+                "lookup",
+                serde_json::json!({}),
+            )],
+        )];
+        let converted = OpenAIAdapter::convert_messages(&messages);
+        let json = serde_json::to_value(&converted[0]).unwrap();
+        assert_eq!(
+            json["tool_calls"][0]["id"], "call1",
+            "assistant tool call silently dropped"
+        );
     }
 }

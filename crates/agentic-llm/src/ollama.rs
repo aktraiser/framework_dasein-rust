@@ -92,6 +92,7 @@ impl From<&LLMMessage> for OllamaMessage {
                 Role::System => "system".to_string(),
                 Role::User => "user".to_string(),
                 Role::Assistant => "assistant".to_string(),
+                Role::Tool => "user".to_string(), // Ollama doesn't support tool role
             },
             content: msg.content.clone(),
         }
@@ -153,6 +154,7 @@ impl LLMAdapter for OllamaAdapter {
             },
             finish_reason: FinishReason::Stop,
             model: self.model.clone(),
+            tool_calls: vec![],
         })
     }
 

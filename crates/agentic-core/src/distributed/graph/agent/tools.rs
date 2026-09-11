@@ -85,7 +85,7 @@ impl Tool {
 // ============================================================================
 
 /// Parameters schema for a tool (JSON Schema subset).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolParameters {
     /// Type is always "object" for function parameters.
     #[serde(rename = "type", default = "default_object")]
@@ -102,6 +102,16 @@ pub struct ToolParameters {
 
 fn default_object() -> String {
     "object".to_string()
+}
+
+impl Default for ToolParameters {
+    fn default() -> Self {
+        Self {
+            param_type: default_object(),
+            properties: std::collections::HashMap::default(),
+            required: Vec::new(),
+        }
+    }
 }
 
 impl ToolParameters {

@@ -1,3 +1,5 @@
+> **Local beta profile:** [launch the Docker/NATS laboratory](docs/BETA_LOCAL.md). Read [validated capabilities and release gates](docs/SDK_STATUS.md); [Firecracker has a qualified local KVM profile](server/firecracker-guest/README.md).
+
 <p align="center">
   <h1 align="center">Dasein Agentic SDK</h1>
   <p align="center">
@@ -17,7 +19,7 @@ A high-performance framework for building **multi-agent AI systems** in Rust. Co
 ## Why Dasein?
 
 - **Multi-LLM** - OpenAI, Anthropic, Gemini, Ollama (local models)
-- **Safe Execution** - Sandboxed code execution with process isolation
+- **Code Execution** - Ephemeral Docker containers with resource limits; trusted local development with ProcessSandbox
 - **Distributed** - NATS-based message bus for scaling
 - **Type-Safe** - Full Rust type safety, zero runtime overhead
 - **Async-First** - Built on Tokio for maximum concurrency

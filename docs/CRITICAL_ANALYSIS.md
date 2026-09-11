@@ -1,3 +1,5 @@
+> Historical strategy document. All Rust/Python performance numbers and scaling claims below are unmeasured hypotheses, not SDK guarantees. See [current capability status](SDK_STATUS.md).
+
 # Analyse Critique - Architecture Agentic-RS
 
 > Framework spécialisé pour réseaux d'agents IA distribués à grande échelle

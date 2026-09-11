@@ -8,9 +8,9 @@
 
 pub mod provider;
 pub mod providers;
-pub mod router;
 pub mod rate_limit;
+pub mod router;
 
 pub use provider::{Provider, ProviderRegistry};
-pub use providers::{OpenAIProvider, AnthropicProvider};
+pub use providers::{AnthropicProvider, OpenAIProvider};
 pub use router::Router;

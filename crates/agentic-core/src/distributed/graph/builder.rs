@@ -30,6 +30,8 @@ use super::types::{ExecutorId, GraphError, GraphResult, WorkflowId};
 /// This is the output of WorkflowBuilder and can be used to run the workflow.
 #[derive(Debug)]
 pub struct WorkflowDefinition<T: Send + Sync + 'static> {
+    /// Optional group-chat routing policy.
+    pub group_chat: Option<std::sync::Arc<crate::patterns::GroupChatPolicy>>,
     /// Unique workflow identifier.
     pub id: WorkflowId,
     /// Human-readable name.
@@ -352,6 +354,7 @@ impl<T: Send + Sync + 'static> WorkflowBuilder<T> {
         }
 
         Ok(WorkflowDefinition {
+            group_chat: None,
             id: self.id,
             name: self.name,
             start,

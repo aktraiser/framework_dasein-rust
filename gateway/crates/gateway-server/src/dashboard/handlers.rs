@@ -3,8 +3,7 @@
 use axum::{
     extract::{Path, State},
     response::{Html, IntoResponse, Redirect, Response},
-    Form,
-    Extension,
+    Extension, Form,
 };
 use serde::Deserialize;
 use tower_cookies::{Cookie, Cookies};
@@ -196,7 +195,11 @@ pub async fn add_provider(
 ) -> impl IntoResponse {
     let message = if let Some(ref storage) = state.storage {
         match storage
-            .create_provider(&form.name, form.api_key.as_deref(), form.api_base.as_deref())
+            .create_provider(
+                &form.name,
+                form.api_key.as_deref(),
+                form.api_base.as_deref(),
+            )
             .await
         {
             Ok(_) => Some("Provider added successfully".to_string()),
@@ -223,10 +226,7 @@ pub async fn add_provider(
 }
 
 /// POST /admin/providers/{id}/toggle - Toggle provider
-pub async fn toggle_provider(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Response {
+pub async fn toggle_provider(State(state): State<AppState>, Path(id): Path<String>) -> Response {
     if let Some(ref storage) = state.storage {
         let _ = storage.toggle_provider(&id).await;
         if let Ok(provider) = storage.get_provider(&id).await {
@@ -313,10 +313,7 @@ pub async fn generate_key(
 }
 
 /// POST /admin/keys/{id}/toggle - Toggle API key
-pub async fn toggle_key(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Response {
+pub async fn toggle_key(State(state): State<AppState>, Path(id): Path<String>) -> Response {
     if let Some(ref storage) = state.storage {
         let _ = storage.toggle_api_key(&id).await;
         if let Ok(key) = storage.get_api_key(&id).await {
@@ -339,7 +336,7 @@ pub async fn revoke_key(
 
 // ==================== Sandboxes (Remote VM) ====================
 
-use super::templates::{VmStatusDisplay, RuntimeInfo, TestResult};
+use super::templates::{RuntimeInfo, TestResult, VmStatusDisplay};
 use gateway_core::sandbox::Runtime;
 
 /// GET /admin/sandboxes - VM Status and Control
@@ -351,11 +348,15 @@ pub async fn sandboxes(State(state): State<AppState>) -> impl IntoResponse {
     // Get VM status if orchestrator is enabled
     let vm_status = if let Some(ref orchestrator) = state.orchestrator {
         if orchestrator.connect().await.is_ok() {
-            orchestrator.status().await.map(|s| VmStatusDisplay {
-                firecracker_running: s.firecracker_running,
-                agent_healthy: s.agent_healthy,
-                server_uptime: s.server_uptime,
-            }).unwrap_or_default()
+            orchestrator
+                .status()
+                .await
+                .map(|s| VmStatusDisplay {
+                    firecracker_running: s.firecracker_running,
+                    agent_healthy: s.agent_healthy,
+                    server_uptime: s.server_uptime,
+                })
+                .unwrap_or_default()
         } else {
             VmStatusDisplay::default()
         }
@@ -371,12 +372,30 @@ pub async fn sandboxes(State(state): State<AppState>) -> impl IntoResponse {
 
     // Available runtimes
     let runtimes = vec![
-        RuntimeInfo { name: "python".to_string(), version: "3.10".to_string() },
-        RuntimeInfo { name: "node".to_string(), version: "20.x".to_string() },
-        RuntimeInfo { name: "go".to_string(), version: "1.21".to_string() },
-        RuntimeInfo { name: "rust".to_string(), version: "1.93".to_string() },
-        RuntimeInfo { name: "bash".to_string(), version: "5.x".to_string() },
-        RuntimeInfo { name: "typescript".to_string(), version: "via Node".to_string() },
+        RuntimeInfo {
+            name: "python".to_string(),
+            version: "3.10".to_string(),
+        },
+        RuntimeInfo {
+            name: "node".to_string(),
+            version: "20.x".to_string(),
+        },
+        RuntimeInfo {
+            name: "go".to_string(),
+            version: "1.21".to_string(),
+        },
+        RuntimeInfo {
+            name: "rust".to_string(),
+            version: "1.93".to_string(),
+        },
+        RuntimeInfo {
+            name: "bash".to_string(),
+            version: "5.x".to_string(),
+        },
+        RuntimeInfo {
+            name: "typescript".to_string(),
+            version: "via Node".to_string(),
+        },
     ];
 
     SandboxesTemplate {
@@ -458,7 +477,11 @@ pub async fn test_code(
     );
 
     // Execute code
-    let test_result = match state.code_executor.execute(runtime.clone(), form.code, vec![], Some(30)).await {
+    let test_result = match state
+        .code_executor
+        .execute(runtime.clone(), form.code, vec![], Some(30))
+        .await
+    {
         Ok(result) => Some(TestResult {
             stdout: result.stdout,
             stderr: result.stderr,
@@ -476,11 +499,15 @@ pub async fn test_code(
     // Get VM status
     let vm_status = if let Some(ref orchestrator) = state.orchestrator {
         if orchestrator.connect().await.is_ok() {
-            orchestrator.status().await.map(|s| VmStatusDisplay {
-                firecracker_running: s.firecracker_running,
-                agent_healthy: s.agent_healthy,
-                server_uptime: s.server_uptime,
-            }).unwrap_or_default()
+            orchestrator
+                .status()
+                .await
+                .map(|s| VmStatusDisplay {
+                    firecracker_running: s.firecracker_running,
+                    agent_healthy: s.agent_healthy,
+                    server_uptime: s.server_uptime,
+                })
+                .unwrap_or_default()
         } else {
             VmStatusDisplay::default()
         }
@@ -494,12 +521,30 @@ pub async fn test_code(
     };
 
     let runtimes = vec![
-        RuntimeInfo { name: "python".to_string(), version: "3.10".to_string() },
-        RuntimeInfo { name: "node".to_string(), version: "20.x".to_string() },
-        RuntimeInfo { name: "go".to_string(), version: "1.21".to_string() },
-        RuntimeInfo { name: "rust".to_string(), version: "1.93".to_string() },
-        RuntimeInfo { name: "bash".to_string(), version: "5.x".to_string() },
-        RuntimeInfo { name: "typescript".to_string(), version: "via Node".to_string() },
+        RuntimeInfo {
+            name: "python".to_string(),
+            version: "3.10".to_string(),
+        },
+        RuntimeInfo {
+            name: "node".to_string(),
+            version: "20.x".to_string(),
+        },
+        RuntimeInfo {
+            name: "go".to_string(),
+            version: "1.21".to_string(),
+        },
+        RuntimeInfo {
+            name: "rust".to_string(),
+            version: "1.93".to_string(),
+        },
+        RuntimeInfo {
+            name: "bash".to_string(),
+            version: "5.x".to_string(),
+        },
+        RuntimeInfo {
+            name: "typescript".to_string(),
+            version: "via Node".to_string(),
+        },
     ];
 
     SandboxesTemplate {

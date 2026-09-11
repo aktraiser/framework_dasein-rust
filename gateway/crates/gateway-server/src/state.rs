@@ -2,22 +2,19 @@
 
 use gateway_core::config::GatewayConfig;
 use gateway_core::storage::Storage;
-use gateway_llm::{ProviderRegistry, Router, router::RouterConfig};
+use gateway_llm::{router::RouterConfig, ProviderRegistry, Router};
 use gateway_sandbox::{
-    pool::PoolConfig,
-    CodeExecutor,
-    ExecutionBackend,
-    RemoteSandboxConfig,
-    SandboxPool,
-    FirecrackerOrchestrator,
-    OrchestratorConfig,
+    pool::PoolConfig, CodeExecutor, ExecutionBackend, FirecrackerOrchestrator, OrchestratorConfig,
+    RemoteSandboxConfig, SandboxPool,
 };
 use std::sync::Arc;
 
 /// Shared application state
 #[derive(Clone)]
 pub struct AppState {
+    pub boxes: Arc<crate::boxes::Boxes>,
     pub config: Arc<GatewayConfig>,
+    pub operator_api_key: Option<String>,
     pub llm_router: Arc<Router>,
     pub sandbox_pool: Arc<SandboxPool>,
     pub code_executor: Arc<CodeExecutor>,
@@ -28,8 +25,7 @@ pub struct AppState {
 impl AppState {
     pub fn new(config: GatewayConfig) -> Self {
         // Initialize LLM router
-        let registry = Arc::new(ProviderRegistry::new());
-        let llm_router = Arc::new(Router::new(registry, RouterConfig::default()));
+        let llm_router = Self::configured_router(&config);
 
         // Initialize sandbox pool
         let firecracker_config = gateway_sandbox::firecracker::FirecrackerConfig {
@@ -75,13 +71,19 @@ impl AppState {
         // Initialize orchestrator if SSH credentials are configured
         let orchestrator = if std::env::var("FIRECRACKER_SSH_PASSWORD").is_ok() {
             tracing::info!("Firecracker orchestrator enabled (SSH management)");
-            Some(Arc::new(FirecrackerOrchestrator::new(OrchestratorConfig::default())))
+            Some(Arc::new(FirecrackerOrchestrator::new(
+                OrchestratorConfig::default(),
+            )))
         } else {
             tracing::info!("Firecracker orchestrator disabled (no SSH password configured)");
             None
         };
 
         Self {
+            boxes: Arc::new(crate::boxes::Boxes::default()),
+            operator_api_key: std::env::var("GATEWAY_API_KEY")
+                .ok()
+                .filter(|k| !k.is_empty()),
             config: Arc::new(config),
             llm_router,
             sandbox_pool,
@@ -89,6 +91,64 @@ impl AppState {
             orchestrator,
             storage: None,
         }
+    }
+
+    fn configured_router(config: &GatewayConfig) -> Arc<Router> {
+        let mut registry = ProviderRegistry::new();
+        for (name, provider) in &config.llm.providers {
+            if !provider.enabled {
+                continue;
+            }
+            let Some(key) = provider.api_key.as_ref().filter(|k| !k.is_empty()) else {
+                continue;
+            };
+            match name.as_str() {
+                "openai" => {
+                    let mut p = gateway_llm::providers::openai::OpenAIProvider::new(key);
+                    if let Some(base) = &provider.api_base {
+                        p = p.with_base_url(base);
+                    }
+                    registry.register(Arc::new(p));
+                }
+                "anthropic" => {
+                    let mut p = gateway_llm::providers::anthropic::AnthropicProvider::new(key);
+                    if let Some(base) = &provider.api_base {
+                        p = p.with_base_url(base);
+                    }
+                    registry.register(Arc::new(p));
+                }
+                _ => tracing::warn!(provider = %name, "Unsupported provider configuration"),
+            }
+        }
+        for (model, route) in &config.llm.models {
+            registry.route_model(model.clone(), route.provider.clone());
+        }
+        let registry = Arc::new(registry);
+        Arc::new(Router::new(registry, RouterConfig::default()))
+    }
+
+    /// Resolve current persisted provider settings for each request.
+    pub async fn runtime_router(&self) -> Result<Arc<Router>, gateway_core::storage::StorageError> {
+        let Some(storage) = &self.storage else {
+            return Ok(self.llm_router.clone());
+        };
+        let mut config = (*self.config).clone();
+        for provider in storage.list_providers().await? {
+            let key = if provider.enabled {
+                storage.decrypt_provider_key(&provider)?
+            } else {
+                None
+            };
+            config.llm.providers.insert(
+                provider.name.clone(),
+                gateway_core::config::ProviderConfig {
+                    api_key: key,
+                    api_base: provider.api_base,
+                    enabled: provider.enabled,
+                },
+            );
+        }
+        Ok(Self::configured_router(&config))
     }
 
     /// Set the storage backend

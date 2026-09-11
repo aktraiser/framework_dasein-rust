@@ -6,7 +6,8 @@
 //! - Deduplicator: Prevent duplicate processing
 //! - LogCollector: Centralized logging
 //!
-//! All backed by real NATS JetStream for persistence and distribution.
+//! Events use NATS; sequencer/arbiter/deduplication state is process-local.
+//! Use `durable_queue()` for restart-safe task distribution.
 //!
 //! # Quick Start
 //!
@@ -21,7 +22,7 @@
 //! ```
 
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::info;
 
 use super::arbiter::{Arbiter, ArbiterConfig, Proposal, ScoredProposal};
 use super::deduplicator::{Deduplicator, DeduplicatorConfig};
@@ -140,6 +141,15 @@ impl BusCoordinator {
         self.nats.clone()
     }
 
+    /// Open the durable FIFO queue for restart-safe workers and dependencies.
+    pub async fn durable_queue(
+        &self,
+        namespace: &str,
+        config: super::DurableQueueConfig,
+    ) -> Result<super::DurableQueue, BusError> {
+        super::DurableQueue::new(self.nats.clone(), namespace, config).await
+    }
+
     /// Create required JetStream streams.
     async fn create_streams(&self) -> Result<(), BusError> {
         info!("Creating JetStream streams...");
@@ -196,15 +206,8 @@ impl BusCoordinator {
 
     /// Publish a task to NATS.
     pub async fn publish_task(&self, task: Task) -> Result<(), BusError> {
-        // Check for duplicates first
-        let task_json = serde_json::to_string(&task.payload)
-            .map_err(|e| BusError::SerializationFailed(e.to_string()))?;
-
-        if self.deduplicator.check_and_mark(&task_json).await {
-            debug!("Task deduplicated: {}", task.id);
-            return Ok(());
-        }
-
+        // The legacy observer API allows replay. Use DurableQueue for durable
+        // ID reservation, dependencies and worker acknowledgements.
         // Build subject based on priority
         let subject = format!(
             "{}.{}.{}",
@@ -214,7 +217,11 @@ impl BusCoordinator {
         );
 
         // Publish to NATS JetStream
-        self.nats.publish_jetstream(&subject, &task).await?;
+        self.nats
+            .publish_jetstream(&subject, &task)
+            .await?
+            .await
+            .map_err(|e| BusError::PublishFailed(e.to_string()))?;
 
         // Also track in local sequencer for stats
         self.sequencer.publish(task.clone()).await?;
@@ -556,9 +563,12 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires NATS server"]
     async fn test_coordinator_connect() {
-        let coordinator = BusCoordinator::connect("nats://localhost:4222")
-            .await
-            .unwrap();
+        let coordinator = BusCoordinator::connect(
+            &std::env::var("DASEIN_TEST_NATS_URL")
+                .unwrap_or_else(|_| "nats://127.0.0.1:4222".into()),
+        )
+        .await
+        .unwrap();
 
         assert!(coordinator.is_connected());
     }
@@ -567,7 +577,10 @@ mod tests {
     #[ignore = "requires NATS server"]
     async fn test_coordinator_start() {
         let coordinator = BusCoordinator::builder()
-            .nats_url("nats://localhost:4222")
+            .nats_url(
+                std::env::var("DASEIN_TEST_NATS_URL")
+                    .unwrap_or_else(|_| "nats://127.0.0.1:4222".into()),
+            )
             .build_and_start()
             .await
             .unwrap();
@@ -582,7 +595,10 @@ mod tests {
     #[ignore = "requires NATS server"]
     async fn test_publish_task() {
         let coordinator = BusCoordinator::builder()
-            .nats_url("nats://localhost:4222")
+            .nats_url(
+                std::env::var("DASEIN_TEST_NATS_URL")
+                    .unwrap_or_else(|_| "nats://127.0.0.1:4222".into()),
+            )
             .build_and_start()
             .await
             .unwrap();
@@ -600,7 +616,10 @@ mod tests {
     #[ignore = "requires NATS server"]
     async fn test_logging() {
         let coordinator = BusCoordinator::builder()
-            .nats_url("nats://localhost:4222")
+            .nats_url(
+                std::env::var("DASEIN_TEST_NATS_URL")
+                    .unwrap_or_else(|_| "nats://127.0.0.1:4222".into()),
+            )
             .build_and_start()
             .await
             .unwrap();

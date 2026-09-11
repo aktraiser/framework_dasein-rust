@@ -46,6 +46,9 @@ use super::types::{ExecutorError, ExecutorId, TaskId, WorkflowId};
 /// State for a single superstep execution.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SuperstepState {
+    /// Conversation state, persisted together with pending work.
+    #[serde(default)]
+    pub group_chat: Option<crate::patterns::GroupChatState>,
     /// Messages pending for each executor.
     pub pending_messages: HashMap<ExecutorId, Vec<serde_json::Value>>,
     /// Executors that have completed in the current superstep.
@@ -58,6 +61,7 @@ impl SuperstepState {
     /// Create a new empty superstep state.
     pub fn new() -> Self {
         Self {
+            group_chat: None,
             pending_messages: HashMap::new(),
             completed_executors: Vec::new(),
             failed_executors: HashMap::new(),

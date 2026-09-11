@@ -78,12 +78,13 @@ struct CreateSandboxRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     memory_mb: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    timeout_ms: Option<u64>,
+    timeout_seconds: Option<u32>,
 }
 
 /// Response from creating a sandbox.
 #[derive(Debug, Clone, Deserialize)]
 struct CreateSandboxResponse {
+    #[serde(rename = "sandbox_id", alias = "id")]
     id: String,
     #[allow(dead_code)]
     status: String,
@@ -92,9 +93,10 @@ struct CreateSandboxResponse {
 /// Request to execute code in a sandbox.
 #[derive(Debug, Clone, Serialize)]
 struct ExecuteCodeRequest {
+    runtime: String,
     code: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    timeout_ms: Option<u64>,
+    timeout_seconds: Option<u32>,
 }
 
 /// Response from code execution.
@@ -139,7 +141,7 @@ pub struct GatewaySandboxConfig {
     pub memory_mb: Option<u32>,
     /// Request timeout in milliseconds
     pub timeout_ms: u64,
-    /// Number of retries on failure
+    /// Opt-in retries on failure; a lost response can otherwise execute code twice.
     pub max_retries: u32,
 }
 
@@ -151,7 +153,7 @@ impl Default for GatewaySandboxConfig {
             runtime: Runtime::Python,
             memory_mb: None,
             timeout_ms: 30000,
-            max_retries: 2,
+            max_retries: 0,
         }
     }
 }
@@ -257,7 +259,10 @@ impl GatewaySandbox {
         let request_body = CreateSandboxRequest {
             runtime: self.config.runtime.to_string(),
             memory_mb: self.config.memory_mb,
-            timeout_ms: Some(self.config.timeout_ms),
+            timeout_seconds: Some(
+                u32::try_from(self.config.timeout_ms.div_ceil(1000))
+                    .map_err(|_| SandboxError::ConfigError("Timeout is too large".into()))?,
+            ),
         };
 
         let mut request = self.client.post(&url).json(&request_body);
@@ -369,8 +374,12 @@ impl GatewaySandbox {
         );
 
         let request_body = ExecuteCodeRequest {
+            runtime: self.config.runtime.to_string(),
             code: code.to_string(),
-            timeout_ms: Some(self.config.timeout_ms),
+            timeout_seconds: Some(
+                u32::try_from(self.config.timeout_ms.div_ceil(1000))
+                    .map_err(|_| SandboxError::ConfigError("Timeout is too large".into()))?,
+            ),
         };
 
         let mut request = self.client.post(&url).json(&request_body);
@@ -541,7 +550,7 @@ impl GatewaySandboxBuilder {
         self
     }
 
-    /// Set max retries.
+    /// Set opt-in retries. Only use for code whose side effects are idempotent.
     #[must_use]
     pub const fn max_retries(mut self, n: u32) -> Self {
         self.config.max_retries = n;

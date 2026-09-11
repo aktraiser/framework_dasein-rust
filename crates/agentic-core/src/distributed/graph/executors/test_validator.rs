@@ -371,7 +371,7 @@ mod tests {
         };
 
         assert!(output.is_passed());
-        assert_eq!(output.pass_rate(), 100.0);
+        assert!((output.pass_rate() - 100.0).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -389,7 +389,7 @@ mod tests {
         };
 
         assert!(!output.is_passed());
-        assert_eq!(output.pass_rate(), 80.0);
+        assert!((output.pass_rate() - 80.0).abs() < f64::EPSILON);
     }
 
     #[test]

@@ -2,10 +2,8 @@
 
 use crate::firecracker::FirecrackerResult;
 use crate::pool::SandboxPool;
-use crate::remote::{RemoteSandbox, RemoteSandboxConfig, FileInfo};
-use gateway_core::sandbox::{
-    CreateSandboxRequest, ExecuteResponse, Runtime, SandboxId,
-};
+use crate::remote::{FileInfo, RemoteSandbox, RemoteSandboxConfig};
+use gateway_core::sandbox::{ExecuteResponse, Runtime};
 use std::sync::Arc;
 use tracing::{info, instrument, warn};
 
@@ -43,18 +41,16 @@ impl CodeExecutor {
 
     pub fn with_backend(pool: Arc<SandboxPool>, backend: ExecutionBackend) -> Self {
         let remote = match &backend {
-            ExecutionBackend::Remote(config) => {
-                match RemoteSandbox::new(config.clone()) {
-                    Ok(r) => {
-                        info!(base_url = %config.base_url, "Using remote Firecracker backend");
-                        Some(r)
-                    }
-                    Err(e) => {
-                        warn!("Failed to create remote sandbox client: {}", e);
-                        None
-                    }
+            ExecutionBackend::Remote(config) => match RemoteSandbox::new(config.clone()) {
+                Ok(r) => {
+                    info!(base_url = %config.base_url, "Using remote Firecracker backend");
+                    Some(r)
                 }
-            }
+                Err(e) => {
+                    warn!("Failed to create remote sandbox client: {}", e);
+                    None
+                }
+            },
             ExecutionBackend::Local => None,
         };
 
@@ -70,11 +66,21 @@ impl CodeExecutor {
         Self::with_backend(pool, ExecutionBackend::Remote(config))
     }
 
-    /// Check if the execution backend is ready
+    /// Configured execution backend.
+    pub fn backend(&self) -> &ExecutionBackend {
+        &self.backend
+    }
+
+    /// Configured pool for future local guest execution.
+    pub fn pool(&self) -> &Arc<SandboxPool> {
+        &self.pool
+    }
+
+    /// Check if the execution backend is ready.
     pub async fn is_ready(&self) -> bool {
         match &self.remote {
             Some(remote) => remote.is_ready().await.unwrap_or(false),
-            None => true, // Local always "ready" (placeholder)
+            None => false, // Local guest execution protocol is not implemented.
         }
     }
 
@@ -87,57 +93,24 @@ impl CodeExecutor {
         packages: Vec<String>,
         timeout_seconds: Option<u32>,
     ) -> FirecrackerResult<ExecuteResponse> {
-        // If remote backend is available, use it directly
-        if let Some(ref remote) = self.remote {
-            let timeout_ms = timeout_seconds.map(|s| s as u64 * 1000);
-
-            match remote.execute_runtime(&runtime, &code, timeout_ms).await {
-                Ok(response) => return Ok(response),
-                Err(e) => {
-                    warn!("Remote execution failed: {}, falling back to local", e);
-                    // Fall through to local execution
-                }
-            }
+        if !packages.is_empty() {
+            return Err(crate::firecracker::FirecrackerError::ApiError(
+                "Package installation is not implemented for remote execution".into(),
+            ));
         }
-
-        // Local execution (with pool)
-        let sandbox_id = self
-            .pool
-            .acquire(CreateSandboxRequest {
-                runtime: runtime.clone(),
-                packages,
-                timeout_seconds,
-                memory_mb: None,
-            })
-            .await?;
-
-        info!(sandbox_id = %sandbox_id.as_str(), "Executing code locally");
-
-        let result = self.execute_in_sandbox(&sandbox_id, code, timeout_seconds).await;
-
-        self.pool.release(&sandbox_id).await?;
-
-        result
-    }
-
-    async fn execute_in_sandbox(
-        &self,
-        _sandbox_id: &SandboxId,
-        code: String,
-        _timeout_seconds: Option<u32>,
-    ) -> FirecrackerResult<ExecuteResponse> {
-        // Local placeholder - would use Firecracker API over Unix socket
-        let start = std::time::Instant::now();
-
-        let response = ExecuteResponse {
-            stdout: format!("[Local placeholder] Would execute {} bytes of code", code.len()),
-            stderr: String::new(),
-            exit_code: 0,
-            duration_ms: start.elapsed().as_millis() as u64,
-            error: Some("Local execution not implemented - configure FIRECRACKER_REMOTE_URL".to_string()),
-        };
-
-        Ok(response)
+        let remote =
+            self.remote.as_ref().ok_or_else(|| {
+                crate::firecracker::FirecrackerError::ApiError(
+            "Local guest execution is not implemented; configure a validated remote backend".into())
+            })?;
+        remote
+            .execute_runtime(
+                &runtime,
+                &code,
+                timeout_seconds.map(|s| u64::from(s) * 1000),
+            )
+            .await
+            .map_err(|e| crate::firecracker::FirecrackerError::ApiError(e.to_string()))
     }
 
     /// Execute code without pooling (one-shot)
@@ -151,14 +124,19 @@ impl CodeExecutor {
     }
 
     /// Execute raw shell command on remote
-    pub async fn execute_raw(&self, code: &str, timeout_ms: Option<u64>) -> FirecrackerResult<ExecuteResponse> {
+    pub async fn execute_raw(
+        &self,
+        code: &str,
+        timeout_ms: Option<u64>,
+    ) -> FirecrackerResult<ExecuteResponse> {
         if let Some(ref remote) = self.remote {
-            remote.execute(code, timeout_ms).await.map_err(|e| {
-                crate::firecracker::FirecrackerError::ApiError(e.to_string())
-            })
+            remote
+                .execute(code, timeout_ms)
+                .await
+                .map_err(|e| crate::firecracker::FirecrackerError::ApiError(e.to_string()))
         } else {
             Err(crate::firecracker::FirecrackerError::ApiError(
-                "Remote backend not configured".to_string()
+                "Remote backend not configured".to_string(),
             ))
         }
     }
@@ -168,12 +146,13 @@ impl CodeExecutor {
     /// Write a file to the sandbox
     pub async fn write_file(&self, path: &str, content: &[u8]) -> FirecrackerResult<()> {
         if let Some(ref remote) = self.remote {
-            remote.write_file(path, content).await.map_err(|e| {
-                crate::firecracker::FirecrackerError::ApiError(e.to_string())
-            })
+            remote
+                .write_file(path, content)
+                .await
+                .map_err(|e| crate::firecracker::FirecrackerError::ApiError(e.to_string()))
         } else {
             Err(crate::firecracker::FirecrackerError::ApiError(
-                "Remote backend not configured".to_string()
+                "Remote backend not configured".to_string(),
             ))
         }
     }
@@ -186,12 +165,13 @@ impl CodeExecutor {
     /// Read a file from the sandbox
     pub async fn read_file(&self, path: &str) -> FirecrackerResult<Vec<u8>> {
         if let Some(ref remote) = self.remote {
-            remote.read_file(path).await.map_err(|e| {
-                crate::firecracker::FirecrackerError::ApiError(e.to_string())
-            })
+            remote
+                .read_file(path)
+                .await
+                .map_err(|e| crate::firecracker::FirecrackerError::ApiError(e.to_string()))
         } else {
             Err(crate::firecracker::FirecrackerError::ApiError(
-                "Remote backend not configured".to_string()
+                "Remote backend not configured".to_string(),
             ))
         }
     }
@@ -199,12 +179,13 @@ impl CodeExecutor {
     /// Read a file as text
     pub async fn read_file_text(&self, path: &str) -> FirecrackerResult<String> {
         if let Some(ref remote) = self.remote {
-            remote.read_file_text(path).await.map_err(|e| {
-                crate::firecracker::FirecrackerError::ApiError(e.to_string())
-            })
+            remote
+                .read_file_text(path)
+                .await
+                .map_err(|e| crate::firecracker::FirecrackerError::ApiError(e.to_string()))
         } else {
             Err(crate::firecracker::FirecrackerError::ApiError(
-                "Remote backend not configured".to_string()
+                "Remote backend not configured".to_string(),
             ))
         }
     }
@@ -212,12 +193,13 @@ impl CodeExecutor {
     /// List files in a directory
     pub async fn list_files(&self, path: &str) -> FirecrackerResult<Vec<FileInfo>> {
         if let Some(ref remote) = self.remote {
-            remote.list_files(path).await.map_err(|e| {
-                crate::firecracker::FirecrackerError::ApiError(e.to_string())
-            })
+            remote
+                .list_files(path)
+                .await
+                .map_err(|e| crate::firecracker::FirecrackerError::ApiError(e.to_string()))
         } else {
             Err(crate::firecracker::FirecrackerError::ApiError(
-                "Remote backend not configured".to_string()
+                "Remote backend not configured".to_string(),
             ))
         }
     }
@@ -225,12 +207,13 @@ impl CodeExecutor {
     /// Delete a file or directory
     pub async fn delete_file(&self, path: &str, recursive: bool) -> FirecrackerResult<()> {
         if let Some(ref remote) = self.remote {
-            remote.delete(path, recursive).await.map_err(|e| {
-                crate::firecracker::FirecrackerError::ApiError(e.to_string())
-            })
+            remote
+                .delete(path, recursive)
+                .await
+                .map_err(|e| crate::firecracker::FirecrackerError::ApiError(e.to_string()))
         } else {
             Err(crate::firecracker::FirecrackerError::ApiError(
-                "Remote backend not configured".to_string()
+                "Remote backend not configured".to_string(),
             ))
         }
     }
@@ -238,12 +221,13 @@ impl CodeExecutor {
     /// Check if a file exists
     pub async fn file_exists(&self, path: &str) -> FirecrackerResult<bool> {
         if let Some(ref remote) = self.remote {
-            remote.exists(path).await.map_err(|e| {
-                crate::firecracker::FirecrackerError::ApiError(e.to_string())
-            })
+            remote
+                .exists(path)
+                .await
+                .map_err(|e| crate::firecracker::FirecrackerError::ApiError(e.to_string()))
         } else {
             Err(crate::firecracker::FirecrackerError::ApiError(
-                "Remote backend not configured".to_string()
+                "Remote backend not configured".to_string(),
             ))
         }
     }
@@ -251,12 +235,13 @@ impl CodeExecutor {
     /// Create a directory
     pub async fn mkdir(&self, path: &str) -> FirecrackerResult<()> {
         if let Some(ref remote) = self.remote {
-            remote.mkdir(path).await.map_err(|e| {
-                crate::firecracker::FirecrackerError::ApiError(e.to_string())
-            })
+            remote
+                .mkdir(path)
+                .await
+                .map_err(|e| crate::firecracker::FirecrackerError::ApiError(e.to_string()))
         } else {
             Err(crate::firecracker::FirecrackerError::ApiError(
-                "Remote backend not configured".to_string()
+                "Remote backend not configured".to_string(),
             ))
         }
     }
@@ -264,12 +249,13 @@ impl CodeExecutor {
     /// Get file information
     pub async fn stat(&self, path: &str) -> FirecrackerResult<FileInfo> {
         if let Some(ref remote) = self.remote {
-            remote.stat(path).await.map_err(|e| {
-                crate::firecracker::FirecrackerError::ApiError(e.to_string())
-            })
+            remote
+                .stat(path)
+                .await
+                .map_err(|e| crate::firecracker::FirecrackerError::ApiError(e.to_string()))
         } else {
             Err(crate::firecracker::FirecrackerError::ApiError(
-                "Remote backend not configured".to_string()
+                "Remote backend not configured".to_string(),
             ))
         }
     }
@@ -314,5 +300,26 @@ impl ExecutionBuilder {
         executor
             .execute(self.runtime, self.code, self.packages, self.timeout)
             .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[tokio::test]
+    async fn local_execution_cannot_return_fake_success() {
+        let pool = std::sync::Arc::new(crate::pool::SandboxPool::new(
+            Default::default(),
+            Default::default(),
+        ));
+        let executor = super::CodeExecutor::new(pool);
+        assert!(!executor.is_ready().await);
+        assert!(executor
+            .execute_oneshot(
+                gateway_core::sandbox::Runtime::Python,
+                "print(1)".into(),
+                None
+            )
+            .await
+            .is_err());
     }
 }

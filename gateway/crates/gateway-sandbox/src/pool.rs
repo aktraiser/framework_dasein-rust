@@ -1,6 +1,8 @@
 //! Sandbox pooling for fast allocation
 
-use crate::firecracker::{FirecrackerConfig, FirecrackerInstance, FirecrackerManager, FirecrackerResult};
+use crate::firecracker::{
+    FirecrackerConfig, FirecrackerInstance, FirecrackerManager, FirecrackerResult,
+};
 use gateway_core::sandbox::{CreateSandboxRequest, Runtime, SandboxId, SandboxStatus};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -140,10 +142,7 @@ impl SandboxPool {
                 // Return to pool
                 debug!(sandbox_id = %id.as_str(), "Returning sandbox to pool");
                 let mut available = self.available.write().await;
-                available
-                    .entry(runtime)
-                    .or_default()
-                    .push(instance);
+                available.entry(runtime).or_default().push(instance);
             } else {
                 // Destroy
                 debug!(sandbox_id = %id.as_str(), "Destroying sandbox");

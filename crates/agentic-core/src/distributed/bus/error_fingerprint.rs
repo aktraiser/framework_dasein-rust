@@ -897,8 +897,6 @@ mod tests {
 
     #[test]
     fn test_extract_error_code() {
-        let fp = ErrorFingerprinter::new();
-
         assert_eq!(
             ErrorFingerprinter::extract_error_code("error[E0382]: use of moved value"),
             Some("E0382".to_string())

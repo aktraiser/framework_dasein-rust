@@ -6,8 +6,8 @@ use async_trait::async_trait;
 use russh::*;
 use russh_keys::key::PublicKey;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use thiserror::Error;
+use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 #[derive(Debug, Error)]
@@ -62,10 +62,8 @@ impl Default for OrchestratorConfig {
                 .ok()
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(22),
-            username: std::env::var("FIRECRACKER_SSH_USER")
-                .unwrap_or_else(|_| "root".to_string()),
-            password: std::env::var("FIRECRACKER_SSH_PASSWORD")
-                .unwrap_or_default(),
+            username: std::env::var("FIRECRACKER_SSH_USER").unwrap_or_else(|_| "root".to_string()),
+            password: std::env::var("FIRECRACKER_SSH_PASSWORD").unwrap_or_default(),
             agent_internal_url: "http://172.16.0.2:8080".to_string(),
             agent_external_url: std::env::var("FIRECRACKER_REMOTE_URL")
                 .unwrap_or_else(|_| "http://65.108.230.227:8080".to_string()),
@@ -139,7 +137,9 @@ impl FirecrackerOrchestrator {
             .map_err(|e| OrchestratorError::AuthFailed(e.to_string()))?;
 
         if !auth_result {
-            return Err(OrchestratorError::AuthFailed("Password rejected".to_string()));
+            return Err(OrchestratorError::AuthFailed(
+                "Password rejected".to_string(),
+            ));
         }
 
         info!("SSH connection established");
@@ -153,7 +153,8 @@ impl FirecrackerOrchestrator {
     /// Execute a command on the remote server
     pub async fn exec(&self, command: &str) -> OrchestratorResult<(i32, String, String)> {
         let guard = self.session.lock().await;
-        let session = guard.as_ref()
+        let session = guard
+            .as_ref()
             .ok_or_else(|| OrchestratorError::ConnectionFailed("Not connected".to_string()))?;
 
         debug!(command = %command, "Executing remote command");
@@ -198,10 +199,14 @@ impl FirecrackerOrchestrator {
     /// Check if Firecracker VM is running and fc-agent is healthy
     pub async fn is_vm_healthy(&self) -> bool {
         // Check via SSH if fc-agent responds
-        match self.exec(&format!("curl -s --connect-timeout 2 {}/health", self.config.agent_internal_url)).await {
-            Ok((0, stdout, _)) => {
-                stdout.contains("healthy")
-            }
+        match self
+            .exec(&format!(
+                "curl -s --connect-timeout 2 {}/health",
+                self.config.agent_internal_url
+            ))
+            .await
+        {
+            Ok((0, stdout, _)) => stdout.contains("healthy"),
             _ => false,
         }
     }
@@ -285,17 +290,24 @@ impl FirecrackerOrchestrator {
                 return Ok(());
             }
 
-            debug!(attempt = attempt, max = self.config.startup_max_attempts, "VM not ready yet");
+            debug!(
+                attempt = attempt,
+                max = self.config.startup_max_attempts,
+                "VM not ready yet"
+            );
         }
 
-        Err(OrchestratorError::StartupTimeout(self.config.startup_max_attempts))
+        Err(OrchestratorError::StartupTimeout(
+            self.config.startup_max_attempts,
+        ))
     }
 
     /// Stop Firecracker VM
     pub async fn stop_vm(&self) -> OrchestratorResult<()> {
         info!("Stopping Firecracker VM");
 
-        self.exec("pkill -9 firecracker 2>/dev/null || true").await?;
+        self.exec("pkill -9 firecracker 2>/dev/null || true")
+            .await?;
         self.exec("rm -f /tmp/firecracker.socket").await?;
 
         info!("Firecracker VM stopped");

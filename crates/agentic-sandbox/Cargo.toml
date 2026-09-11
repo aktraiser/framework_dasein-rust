@@ -17,7 +17,7 @@ categories.workspace = true
 default = ["process"]
 process = []
 docker = ["bollard"]
-firecracker = ["firepilot"]
+firecracker = [] # Compatibility feature; the built-in launcher uses the Firecracker CLI.
 remote = ["reqwest"]
 gateway = ["reqwest"]  # Recommended for Firecracker via Agentic Gateway
 
@@ -40,14 +40,14 @@ tracing = { workspace = true }
 # Docker
 bollard = { workspace = true, optional = true }
 
-# Firecracker
-firepilot = { workspace = true, optional = true }
-
 # HTTP client (for remote sandbox)
 reqwest = { workspace = true, optional = true }
 
 # Utils
 uuid = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.31", features = ["signal", "process", "user"] }
 
 [dev-dependencies]
 tokio-test = { workspace = true }

@@ -62,20 +62,32 @@ impl Sandbox for ProcessSandbox {
     #[instrument(skip(self, code), fields(sandbox = "process"))]
     async fn execute(&self, code: &str) -> Result<ExecutionResult, SandboxError> {
         warn!("ProcessSandbox provides NO security isolation!");
-        debug!("Executing code: {}...", &code[..code.len().min(100)]);
+        debug!(
+            "Executing code: {}...",
+            code.chars().take(100).collect::<String>()
+        );
 
         let start = std::time::Instant::now();
 
         let shell_arg = if cfg!(windows) { "/C" } else { "-c" };
 
+        let mut command = Command::new(&self.shell);
+        command
+            .arg(shell_arg)
+            .arg(code)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        #[cfg(unix)]
+        command.process_group(0);
+        let child = command.spawn().map_err(SandboxError::IoError)?;
+        // The guard also runs if the caller cancels this future. Kill the whole
+        // group, including children that inherited stdout and background jobs.
+        #[cfg(unix)]
+        let _group = ProcessGroup(child.id().and_then(|id| i32::try_from(id).ok()));
         let output = tokio::time::timeout(
             std::time::Duration::from_millis(self.timeout_ms),
-            Command::new(&self.shell)
-                .arg(shell_arg)
-                .arg(code)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .output(),
+            child.wait_with_output(),
         )
         .await
         .map_err(|_| SandboxError::Timeout)?
@@ -99,6 +111,20 @@ impl Sandbox for ProcessSandbox {
 
     async fn stop(&self) -> Result<(), SandboxError> {
         Ok(()) // Nothing to clean up
+    }
+}
+
+#[cfg(unix)]
+struct ProcessGroup(Option<i32>);
+#[cfg(unix)]
+impl Drop for ProcessGroup {
+    fn drop(&mut self) {
+        if let Some(pid) = self.0 {
+            let _ = nix::sys::signal::killpg(
+                nix::unistd::Pid::from_raw(pid),
+                nix::sys::signal::Signal::SIGKILL,
+            );
+        }
     }
 }
 

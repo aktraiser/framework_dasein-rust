@@ -180,7 +180,7 @@ impl AuditEvent {
     pub fn pipeline_started(trace_id: &str, seq: u64, task: &str) -> Self {
         let task_hash = format!("{:x}", md5::compute(task.as_bytes()));
         let task_preview = if task.len() > 100 {
-            format!("{}...", &task[..100])
+            format!("{}...", task.chars().take(100).collect::<String>())
         } else {
             task.to_string()
         };
@@ -439,7 +439,10 @@ impl AuditCollector {
         // Publish to JetStream for persistence (if connected)
         if let Some(ref nats) = self.nats {
             let subject = format!("{}.{}", AUDIT_SUBJECT, event.trace_id);
-            nats.publish_jetstream(&subject, &event).await?;
+            nats.publish_jetstream(&subject, &event)
+                .await?
+                .await
+                .map_err(|e| BusError::PublishFailed(e.to_string()))?;
         }
 
         // Always cache locally
@@ -469,31 +472,59 @@ impl AuditCollector {
             BusError::ConnectionFailed("NATS not connected (in-memory mode)".to_string())
         })?;
 
-        let consumer = nats
-            .create_consumer(
-                AUDIT_STREAM,
-                &format!("audit-query-{}", trace_id),
-                Some(&format!("{}.{}", AUDIT_SUBJECT, trace_id)),
-            )
-            .await?;
-
-        let mut events = Vec::new();
-        let mut messages = consumer
-            .messages()
+        if trace_id.is_empty()
+            || trace_id
+                .chars()
+                .any(|c| c.is_whitespace() || matches!(c, '.' | '*' | '>'))
+        {
+            return Err(BusError::SubscribeFailed(
+                "Invalid trace subject token".into(),
+            ));
+        }
+        let js = nats
+            .jetstream()
+            .ok_or_else(|| BusError::ConnectionFailed("JetStream disabled".into()))?;
+        let stream = js
+            .get_stream(AUDIT_STREAM)
             .await
             .map_err(|e| BusError::SubscribeFailed(e.to_string()))?;
-
-        use futures::StreamExt;
-        while let Ok(Some(msg)) =
-            tokio::time::timeout(Duration::from_millis(100), messages.next()).await
-        {
-            if let Ok(msg) = msg {
-                if let Ok(event) = serde_json::from_slice::<AuditEvent>(&msg.payload) {
-                    events.push(event);
-                }
-                let _ = msg.ack().await;
+        let consumer = stream
+            .create_consumer(async_nats::jetstream::consumer::pull::Config {
+                filter_subject: format!("{AUDIT_SUBJECT}.{trace_id}"),
+                ack_policy: async_nats::jetstream::consumer::AckPolicy::None,
+                inactive_threshold: Duration::from_secs(30),
+                ..Default::default()
+            })
+            .await
+            .map_err(|e| BusError::SubscribeFailed(e.to_string()))?;
+        let count = consumer.cached_info().num_pending;
+        let name = consumer.cached_info().name.clone();
+        // Read the snapshot present when this ephemeral consumer was created.
+        // No durable cursor is shared with subsequent history readers.
+        let read = async {
+            let mut events = Vec::new();
+            let mut messages = consumer
+                .messages()
+                .await
+                .map_err(|e| BusError::SubscribeFailed(e.to_string()))?;
+            use futures::StreamExt;
+            for _ in 0..count {
+                let msg = tokio::time::timeout(Duration::from_secs(10), messages.next())
+                    .await
+                    .map_err(|_| BusError::SubscribeFailed("Audit history read timed out".into()))?
+                    .ok_or_else(|| BusError::SubscribeFailed("Audit history ended early".into()))?
+                    .map_err(|e| BusError::SubscribeFailed(e.to_string()))?;
+                events.push(
+                    serde_json::from_slice::<AuditEvent>(&msg.payload)
+                        .map_err(|e| BusError::SubscribeFailed(e.to_string()))?,
+                );
             }
+            Ok::<_, BusError>(events)
         }
+        .await;
+        let cleanup = stream.delete_consumer(&name).await;
+        let mut events = read?;
+        cleanup.map_err(|e| BusError::SubscribeFailed(e.to_string()))?;
 
         events.sort_by_key(|e| e.sequence);
         Ok(events)

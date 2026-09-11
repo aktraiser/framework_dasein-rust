@@ -215,11 +215,12 @@ impl PersistentCheckpointBackend for InMemoryPersistentBackend {
         task_id: &TaskId,
     ) -> Result<Option<PersistentCheckpoint>, ExecutorError> {
         let store = self.checkpoints.read().await;
-        let prefix = format!("{}-{}", workflow_id.as_str(), task_id.as_str());
 
         let latest = store
             .values()
-            .filter(|c| c.id().starts_with(&prefix))
+            .filter(|c| {
+                &c.checkpoint.workflow_id == workflow_id && &c.checkpoint.task_id == task_id
+            })
             .max_by_key(|c| c.superstep());
 
         Ok(latest.cloned())
@@ -262,12 +263,13 @@ impl PersistentCheckpointBackend for InMemoryPersistentBackend {
         keep_count: usize,
     ) -> Result<usize, ExecutorError> {
         let mut store = self.checkpoints.write().await;
-        let prefix = format!("{}-{}", workflow_id.as_str(), task_id.as_str());
 
         // Get all matching checkpoints sorted by superstep descending
         let mut matching: Vec<_> = store
             .iter()
-            .filter(|(id, _)| id.starts_with(&prefix))
+            .filter(|(_, c)| {
+                &c.checkpoint.workflow_id == workflow_id && &c.checkpoint.task_id == task_id
+            })
             .map(|(id, c)| (id.clone(), c.superstep()))
             .collect();
 
@@ -294,12 +296,13 @@ impl PersistentCheckpointBackend for InMemoryPersistentBackend {
         task_id: &TaskId,
     ) -> Result<usize, ExecutorError> {
         let mut store = self.checkpoints.write().await;
-        let prefix = format!("{}-{}", workflow_id.as_str(), task_id.as_str());
 
         let to_remove: Vec<_> = store
-            .keys()
-            .filter(|id| id.starts_with(&prefix))
-            .cloned()
+            .iter()
+            .filter(|(_, c)| {
+                &c.checkpoint.workflow_id == workflow_id && &c.checkpoint.task_id == task_id
+            })
+            .map(|(id, _)| id.clone())
             .collect();
 
         let count = to_remove.len();

@@ -32,8 +32,13 @@ uuid = { version = "1.11", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 
 # Firecracker
-firepilot = "1.2"
+dasein-agentic-sandbox = { path = "../../crates/agentic-sandbox", default-features = false }
 
 [[bin]]
 name = "firecracker-server"
 path = "src/main.rs"
+
+[workspace]
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

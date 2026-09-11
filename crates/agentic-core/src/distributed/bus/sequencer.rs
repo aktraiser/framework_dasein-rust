@@ -1,4 +1,4 @@
-//! Sequencer - Task ordering and prioritization via NATS JetStream.
+//! In-memory task ordering and prioritization. Tasks are not durable.
 //!
 //! The Sequencer provides:
 //! - Priority-based ordering (Critical > High > Normal > Low)
@@ -40,8 +40,9 @@ impl Default for SequencerConfig {
 /// Sequencer for task ordering and prioritization.
 pub struct Sequencer {
     config: SequencerConfig,
-    // In a real implementation, this would be async_nats::Client
-    // For now we use a mock in-memory queue
+    // Serialize multi-collection operations to avoid races and lock inversion.
+    operation: tokio::sync::Mutex<()>,
+    last_delivery: tokio::sync::Mutex<Option<tokio::time::Instant>>,
     pending_tasks: Arc<RwLock<Vec<Task>>>,
     completed_tasks: Arc<RwLock<HashSet<String>>>,
     blocked_tasks: Arc<RwLock<HashMap<String, Task>>>,
@@ -57,6 +58,8 @@ impl Sequencer {
     pub fn with_config(config: SequencerConfig) -> Self {
         Self {
             config,
+            operation: tokio::sync::Mutex::new(()),
+            last_delivery: tokio::sync::Mutex::new(None),
             pending_tasks: Arc::new(RwLock::new(Vec::new())),
             completed_tasks: Arc::new(RwLock::new(HashSet::new())),
             blocked_tasks: Arc::new(RwLock::new(HashMap::new())),
@@ -65,8 +68,24 @@ impl Sequencer {
 
     /// Publish a task to the queue.
     pub async fn publish(&self, task: Task) -> Result<(), BusError> {
-        // Check if we're at capacity
-        let pending_count = self.pending_tasks.read().await.len();
+        let _operation = self.operation.lock().await;
+        if self.completed_tasks.read().await.contains(&task.id)
+            || self.blocked_tasks.read().await.contains_key(&task.id)
+            || self
+                .pending_tasks
+                .read()
+                .await
+                .iter()
+                .any(|t| t.id == task.id)
+        {
+            return Err(BusError::PublishFailed(format!(
+                "Duplicate task: {}",
+                task.id
+            )));
+        }
+        // Check total accepted work, including blocked tasks
+        let pending_count =
+            self.pending_tasks.read().await.len() + self.blocked_tasks.read().await.len();
         if pending_count >= self.config.max_pending {
             return Err(BusError::PublishFailed(format!(
                 "Queue full: {} pending tasks",
@@ -97,10 +116,21 @@ impl Sequencer {
 
     /// Get the next task from the queue.
     pub async fn next(&self) -> Option<Task> {
+        let _operation = self.operation.lock().await;
+        let mut last = self.last_delivery.lock().await;
+        if let Some(rate) = self.config.rate_limit_per_sec {
+            if rate == 0
+                || last
+                    .is_some_and(|t| t.elapsed() < Duration::from_secs_f64(1.0 / f64::from(rate)))
+            {
+                return None;
+            }
+        }
         let mut pending = self.pending_tasks.write().await;
         if pending.is_empty() {
             return None;
         }
+        *last = Some(tokio::time::Instant::now());
         Some(pending.remove(0))
     }
 
@@ -124,6 +154,7 @@ impl Sequencer {
 
     /// Mark a task as completed.
     pub async fn complete(&self, task_id: &str) -> Result<(), BusError> {
+        let _operation = self.operation.lock().await;
         let mut completed = self.completed_tasks.write().await;
         completed.insert(task_id.to_string());
 
@@ -152,6 +183,7 @@ impl Sequencer {
 
     /// Get queue statistics.
     pub async fn stats(&self) -> SequencerStats {
+        let _operation = self.operation.lock().await;
         let pending = self.pending_tasks.read().await;
         let completed = self.completed_tasks.read().await;
         let blocked = self.blocked_tasks.read().await;

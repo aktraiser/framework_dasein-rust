@@ -9,7 +9,10 @@ use tracing::{debug, instrument};
 
 use crate::{
     error::LLMError,
-    traits::{FinishReason, LLMAdapter, LLMMessage, LLMResponse, Role, StreamChunk, TokenUsage},
+    traits::{
+        FinishReason, LLMAdapter, LLMMessage, LLMResponse, Role, StreamChunk, TokenUsage, Tool,
+        ToolCall,
+    },
 };
 
 const ANTHROPIC_API_URL: &str = "https://api.anthropic.com/v1/messages";
@@ -148,13 +151,76 @@ struct AnthropicErrorDetail {
     message: String,
 }
 
+// ============================================================================
+// TOOL CALLING SUPPORT
+// ============================================================================
+
+#[derive(Serialize)]
+struct AnthropicRequestWithTools {
+    model: String,
+    messages: Vec<AnthropicMessageWithContent>,
+    max_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    system: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<AnthropicTool>>,
+}
+
+#[derive(Serialize)]
+struct AnthropicTool {
+    name: String,
+    description: String,
+    input_schema: serde_json::Value,
+}
+
+#[derive(Serialize, Deserialize)]
+struct AnthropicMessageWithContent {
+    role: String,
+    content: AnthropicContentType,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+enum AnthropicContentType {
+    Text(String),
+    Blocks(Vec<AnthropicContentBlock>),
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type")]
+enum AnthropicContentBlock {
+    #[serde(rename = "text")]
+    Text { text: String },
+    #[serde(rename = "tool_use")]
+    ToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
+    #[serde(rename = "tool_result")]
+    ToolResult {
+        tool_use_id: String,
+        content: String,
+    },
+}
+
+#[derive(Deserialize)]
+struct AnthropicResponseWithTools {
+    content: Vec<AnthropicContentBlock>,
+    model: String,
+    stop_reason: Option<String>,
+    usage: AnthropicUsage,
+}
+
 impl From<&LLMMessage> for AnthropicMessage {
     fn from(msg: &LLMMessage) -> Self {
         Self {
             role: match msg.role {
                 Role::Assistant => "assistant".to_string(),
-                // System handled separately, but fallback to user if encountered
-                Role::System | Role::User => "user".to_string(),
+                // System handled separately, Tool acts as user for now
+                Role::System | Role::User | Role::Tool => "user".to_string(),
             },
             content: msg.content.clone(),
         }
@@ -230,6 +296,7 @@ impl LLMAdapter for AnthropicAdapter {
             },
             finish_reason,
             model: api_response.model,
+            tool_calls: vec![],
         })
     }
 
@@ -353,6 +420,153 @@ impl LLMAdapter for AnthropicAdapter {
             .map_err(|e| LLMError::ConnectionError(e.to_string()))?;
 
         Ok(response.status().is_success())
+    }
+
+    fn supports_tools(&self) -> bool {
+        true
+    }
+
+    #[instrument(skip(self, messages, tools), fields(provider = "anthropic", model = %self.model))]
+    async fn generate_with_tools(
+        &self,
+        messages: &[LLMMessage],
+        tools: &[Tool],
+    ) -> Result<LLMResponse, LLMError> {
+        if tools.is_empty() {
+            return self.generate(messages).await;
+        }
+
+        debug!("Generating with {} tools", tools.len());
+
+        // Extract system message
+        let system = messages
+            .iter()
+            .find(|m| m.role == Role::System)
+            .map(|m| m.content.clone());
+
+        // Convert messages to Anthropic format with content blocks
+        let api_messages: Vec<AnthropicMessageWithContent> = messages
+            .iter()
+            .filter(|m| m.role != Role::System)
+            .map(|m| {
+                let role = match m.role {
+                    Role::Assistant => "assistant".to_string(),
+                    Role::User | Role::System => "user".to_string(),
+                    Role::Tool => "user".to_string(),
+                };
+
+                // Handle tool results and assistant tool calls
+                let content = if m.role == Role::Tool {
+                    // Tool result
+                    AnthropicContentType::Blocks(vec![AnthropicContentBlock::ToolResult {
+                        tool_use_id: m
+                            .tool_call_id
+                            .clone()
+                            .unwrap_or_else(|| "unknown".to_string()),
+                        content: m.content.clone(),
+                    }])
+                } else if m.role == Role::Assistant && !m.tool_calls.is_empty() {
+                    // Assistant with tool calls
+                    let mut blocks = Vec::new();
+                    if !m.content.is_empty() {
+                        blocks.push(AnthropicContentBlock::Text {
+                            text: m.content.clone(),
+                        });
+                    }
+                    for tc in &m.tool_calls {
+                        blocks.push(AnthropicContentBlock::ToolUse {
+                            id: tc.id.clone(),
+                            name: tc.name.clone(),
+                            input: tc.arguments.clone(),
+                        });
+                    }
+                    AnthropicContentType::Blocks(blocks)
+                } else {
+                    AnthropicContentType::Text(m.content.clone())
+                };
+
+                AnthropicMessageWithContent { role, content }
+            })
+            .collect();
+
+        // Convert tools to Anthropic format
+        let anthropic_tools: Vec<AnthropicTool> = tools
+            .iter()
+            .map(|t| AnthropicTool {
+                name: t.name.clone(),
+                description: t.description.clone(),
+                input_schema: t.parameters.clone(),
+            })
+            .collect();
+
+        let request = AnthropicRequestWithTools {
+            model: self.model.clone(),
+            messages: api_messages,
+            max_tokens: self.max_tokens,
+            system,
+            temperature: Some(self.temperature),
+            tools: Some(anthropic_tools),
+        };
+
+        let response = self
+            .client
+            .post(ANTHROPIC_API_URL)
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", ANTHROPIC_VERSION)
+            .header("content-type", "application/json")
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| LLMError::ConnectionError(e.to_string()))?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            if let Ok(error) = serde_json::from_str::<AnthropicError>(&error_text) {
+                return Err(LLMError::ApiError(error.error.message));
+            }
+            return Err(LLMError::ApiError(error_text));
+        }
+
+        let api_response: AnthropicResponseWithTools = response
+            .json()
+            .await
+            .map_err(|e| LLMError::InvalidResponse(e.to_string()))?;
+
+        // Extract text content and tool calls
+        let mut content = String::new();
+        let mut tool_calls = Vec::new();
+
+        for block in &api_response.content {
+            match block {
+                AnthropicContentBlock::Text { text } => {
+                    content.push_str(text);
+                }
+                AnthropicContentBlock::ToolUse { id, name, input } => {
+                    tool_calls.push(ToolCall::new(id.clone(), name.clone(), input.clone()));
+                }
+                AnthropicContentBlock::ToolResult { .. } => {
+                    // Shouldn't appear in response
+                }
+            }
+        }
+
+        let finish_reason = match api_response.stop_reason.as_deref() {
+            Some("max_tokens") => FinishReason::Length,
+            Some("tool_use") => FinishReason::Stop, // Tool use is a valid stop
+            _ => FinishReason::Stop,
+        };
+
+        Ok(LLMResponse {
+            content,
+            tokens_used: TokenUsage {
+                prompt: api_response.usage.input_tokens,
+                completion: api_response.usage.output_tokens,
+                total: api_response.usage.input_tokens + api_response.usage.output_tokens,
+            },
+            finish_reason,
+            model: api_response.model,
+            tool_calls,
+        })
     }
 }
 

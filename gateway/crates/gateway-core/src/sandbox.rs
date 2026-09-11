@@ -8,10 +8,12 @@ use uuid::Uuid;
 pub struct SandboxId(String);
 
 impl SandboxId {
+    #[must_use]
     pub fn new() -> Self {
         Self(format!("sb-{}", Uuid::new_v4()))
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }

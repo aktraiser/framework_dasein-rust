@@ -89,6 +89,7 @@ impl LLMAdapter for MockLLM {
             },
             finish_reason: FinishReason::Stop,
             model: self.name.clone(),
+            tool_calls: vec![],
         })
     }
 

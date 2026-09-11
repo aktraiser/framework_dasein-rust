@@ -8,14 +8,14 @@
 //! - File upload/download
 //! - Remote VM orchestration via SSH
 
-pub mod firecracker;
-pub mod pool;
 pub mod executor;
-pub mod remote;
+pub mod firecracker;
 pub mod orchestrator;
+pub mod pool;
+pub mod remote;
 
-pub use firecracker::FirecrackerManager;
-pub use pool::SandboxPool;
 pub use executor::{CodeExecutor, ExecutionBackend};
-pub use remote::{RemoteSandbox, RemoteSandboxConfig, RemoteSandboxBuilder, FileInfo};
+pub use firecracker::FirecrackerManager;
 pub use orchestrator::{FirecrackerOrchestrator, OrchestratorConfig, VmStatus};
+pub use pool::SandboxPool;
+pub use remote::{FileInfo, RemoteSandbox, RemoteSandboxBuilder, RemoteSandboxConfig};

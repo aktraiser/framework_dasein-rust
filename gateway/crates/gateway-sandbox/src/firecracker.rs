@@ -1,15 +1,12 @@
 //! Firecracker microVM management
 
 use gateway_core::sandbox::{
-    CreateSandboxRequest, ExecuteRequest, ExecuteResponse, Runtime,
-    SandboxId, SandboxStatus,
+    CreateSandboxRequest, ExecuteRequest, ExecuteResponse, Runtime, SandboxId, SandboxStatus,
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::process::Stdio;
 use thiserror::Error;
-use tokio::process::{Child, Command};
-use tracing::{debug, info};
+use tokio::process::Child;
 
 #[derive(Debug, Error)]
 pub enum FirecrackerError {
@@ -103,125 +100,30 @@ impl FirecrackerManager {
         Self { config }
     }
 
-    /// Create a new microVM instance
-    pub async fn create(
-        &self,
-        request: CreateSandboxRequest,
-    ) -> FirecrackerResult<FirecrackerInstance> {
-        let id = SandboxId::new();
-        let socket_path = self.config.socket_dir.join(format!("{}.sock", id.as_str()));
-
-        info!(sandbox_id = %id.as_str(), runtime = ?request.runtime, "Creating Firecracker instance");
-
-        // Ensure socket directory exists
-        tokio::fs::create_dir_all(&self.config.socket_dir).await?;
-
-        // Remove existing socket if present
-        let _ = tokio::fs::remove_file(&socket_path).await;
-
-        let mut instance = FirecrackerInstance::new(id.clone(), request.runtime.clone(), socket_path.clone());
-
-        // Start Firecracker process
-        let process = Command::new(&self.config.binary_path)
-            .arg("--api-sock")
-            .arg(&socket_path)
-            .arg("--log-level")
-            .arg("Warning")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| FirecrackerError::StartFailed(e.to_string()))?;
-
-        instance.process = Some(process);
-
-        // Wait for socket to be available
-        self.wait_for_socket(&socket_path).await?;
-
-        // Configure the VM
-        self.configure_vm(&socket_path, &request).await?;
-
-        instance.status = SandboxStatus::Ready;
-        info!(sandbox_id = %id.as_str(), "Firecracker instance ready");
-
-        Ok(instance)
+    /// Effective configuration, retained for future guest-agent integration.
+    pub fn config(&self) -> &FirecrackerConfig {
+        &self.config
     }
 
-    async fn wait_for_socket(&self, socket_path: &PathBuf) -> FirecrackerResult<()> {
-        for _ in 0..50 {
-            if socket_path.exists() {
-                return Ok(());
-            }
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        }
-        Err(FirecrackerError::StartFailed(
-            "Socket not available after timeout".to_string(),
+    /// VM boot/configuration is unavailable until the guest protocol is implemented.
+    pub async fn create(
+        &self,
+        _request: CreateSandboxRequest,
+    ) -> FirecrackerResult<FirecrackerInstance> {
+        Err(FirecrackerError::ApiError(
+            "Local VM provisioning and guest protocol are not implemented".into(),
         ))
     }
 
-    async fn configure_vm(
-        &self,
-        _socket_path: &PathBuf,
-        request: &CreateSandboxRequest,
-    ) -> FirecrackerResult<()> {
-        let memory_mb = request.memory_mb.unwrap_or(self.config.default_memory_mb);
-
-        debug!(
-            kernel = %self.config.kernel_path.display(),
-            rootfs = %self.config.rootfs_path.display(),
-            memory_mb = memory_mb,
-            "Configuring VM"
-        );
-
-        // In a real implementation, we would:
-        // 1. PUT /boot-source with kernel config
-        // 2. PUT /drives/rootfs with rootfs config
-        // 3. PUT /machine-config with CPU/memory
-        // 4. PUT /actions with InstanceStart
-
-        // For now, this is a placeholder that would use HTTP over Unix socket
-        // to configure Firecracker via its API
-
-        Ok(())
-    }
-
-    /// Execute code in a sandbox
+    /// Reject execution until a real guest transport is available.
     pub async fn execute(
         &self,
-        instance: &FirecrackerInstance,
-        request: ExecuteRequest,
+        _instance: &FirecrackerInstance,
+        _request: ExecuteRequest,
     ) -> FirecrackerResult<ExecuteResponse> {
-        if instance.status != SandboxStatus::Ready {
-            return Err(FirecrackerError::ApiError(format!(
-                "Sandbox not ready: {:?}",
-                instance.status
-            )));
-        }
-
-        debug!(
-            sandbox_id = %instance.id.as_str(),
-            code_len = request.code.len(),
-            "Executing code"
-        );
-
-        let start = std::time::Instant::now();
-
-        // In a real implementation, we would:
-        // 1. Write code to a file in the VM via vsock or SSH
-        // 2. Execute the appropriate interpreter based on runtime
-        // 3. Capture stdout/stderr
-        // 4. Return results
-
-        // Placeholder response
-        let response = ExecuteResponse {
-            stdout: String::new(),
-            stderr: String::new(),
-            exit_code: 0,
-            duration_ms: start.elapsed().as_millis() as u64,
-            error: None,
-        };
-
-        Ok(response)
+        Err(FirecrackerError::ApiError(
+            "Local guest execution is not implemented".into(),
+        ))
     }
 }
 

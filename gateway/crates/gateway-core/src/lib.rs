@@ -5,7 +5,7 @@
 //! - Sandbox execution types
 //! - Error types
 //! - Configuration types
-//! - Storage (SQLite persistence)
+//! - Storage (`SQLite` persistence)
 
 pub mod config;
 pub mod error;
