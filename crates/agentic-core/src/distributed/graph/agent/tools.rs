@@ -5,8 +5,8 @@
 //!
 //! # Note
 //!
-//! Full tool execution is planned for a later phase. This module provides
-//! the type definitions needed for the Agent trait.
+//! This module defines tool schemas. ChatAgent executes registered handlers
+//! and optionally persists their execution through AgentExecutionStore.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -140,6 +140,9 @@ impl ToolParameters {
 /// A single parameter definition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolParam {
+    /// Additional JSON Schema keywords, including nested object properties.
+    #[serde(flatten)]
+    pub schema: std::collections::BTreeMap<String, Value>,
     /// JSON Schema type (string, number, boolean, array, object).
     #[serde(rename = "type")]
     pub param_type: String,
@@ -165,6 +168,7 @@ impl ToolParam {
     /// Create a string parameter.
     pub fn string(description: impl Into<String>) -> Self {
         Self {
+            schema: std::collections::BTreeMap::default(),
             param_type: "string".into(),
             description: Some(description.into()),
             enum_values: None,
@@ -176,6 +180,7 @@ impl ToolParam {
     /// Create a number parameter.
     pub fn number(description: impl Into<String>) -> Self {
         Self {
+            schema: std::collections::BTreeMap::default(),
             param_type: "number".into(),
             description: Some(description.into()),
             enum_values: None,
@@ -187,6 +192,7 @@ impl ToolParam {
     /// Create an integer parameter.
     pub fn integer(description: impl Into<String>) -> Self {
         Self {
+            schema: std::collections::BTreeMap::default(),
             param_type: "integer".into(),
             description: Some(description.into()),
             enum_values: None,
@@ -198,6 +204,7 @@ impl ToolParam {
     /// Create a boolean parameter.
     pub fn boolean(description: impl Into<String>) -> Self {
         Self {
+            schema: std::collections::BTreeMap::default(),
             param_type: "boolean".into(),
             description: Some(description.into()),
             enum_values: None,
@@ -209,6 +216,7 @@ impl ToolParam {
     /// Create a string enum parameter.
     pub fn string_enum(description: impl Into<String>, values: Vec<&str>) -> Self {
         Self {
+            schema: std::collections::BTreeMap::default(),
             param_type: "string".into(),
             description: Some(description.into()),
             enum_values: Some(values.into_iter().map(String::from).collect()),
@@ -220,6 +228,7 @@ impl ToolParam {
     /// Create an array parameter.
     pub fn array(description: impl Into<String>, items: ToolParam) -> Self {
         Self {
+            schema: std::collections::BTreeMap::default(),
             param_type: "array".into(),
             description: Some(description.into()),
             enum_values: None,

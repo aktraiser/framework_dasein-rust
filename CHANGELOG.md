@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Agent Lab runtime integration — 2026-09-16
+- Durable ChatAgent checkpoints and bounded tool execution, preserving provider tool-call state across resume.
+- Immutable JetStream forum, verification task lifecycle, behavior traces and specialist claim types.
+- Responses adapter and provider usage details, including cached input and reasoning subdivisions.
+- Provider tool-history compatibility fixes and isolated temporary Rust validation package identities.
+- `TokenUsage` now includes optional `details`; downstream Rust struct literals should set it to `None` when unavailable.
+
+
 ### Added
 - Initial public release
 - Multi-LLM support: OpenAI, Anthropic, Gemini, Ollama

@@ -61,3 +61,8 @@ pub use anthropic::AnthropicAdapter;
 
 #[cfg(feature = "gemini")]
 pub use gemini::GeminiAdapter;
+
+#[cfg(feature = "openai")]
+mod openai_responses;
+#[cfg(feature = "openai")]
+pub use openai_responses::OpenAIResponsesAdapter;

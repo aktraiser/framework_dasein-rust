@@ -83,6 +83,7 @@ impl LLMAdapter for MockLLM {
         Ok(LLMResponse {
             content,
             tokens_used: TokenUsage {
+                details: None,
                 prompt: input_tokens,
                 completion: output_tokens,
                 total: input_tokens + output_tokens,
@@ -119,6 +120,7 @@ impl LLMAdapter for MockLLM {
                     done: is_last,
                     tokens_used: if is_last {
                         Some(TokenUsage {
+                            details: None,
                             prompt: input_tokens,
                             completion: output_tokens,
                             total: input_tokens + output_tokens,
