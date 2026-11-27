@@ -544,7 +544,7 @@ impl<S: Sandbox> SandboxValidator<S> {
 mkdir -p {dir}/src && \
 cat > {dir}/Cargo.toml << 'CARGO_EOF'
 [package]
-name = "validation_project"
+name = "validation_{project_name}"
 version = "0.1.0"
 edition = "2021"
 
@@ -569,6 +569,13 @@ CARGO_EOF
 echo '{encoded}' | base64 -d > {dir}/src/lib.rs
 "#,
             dir = project_dir.display(),
+            // Concurrent validations may inherit one CARGO_TARGET_DIR. Give each
+            // generated package a distinct artifact identity in that shared cache.
+            project_name = project_dir
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .replace('-', "_"),
             encoded = encoded
         );
 
@@ -1168,6 +1175,20 @@ pub fn broken() -> i32 {
         assert!(!result.compiles, "Code should not compile");
         assert!(!result.compiler_errors.is_empty(), "Should have errors");
         assert!(result.feedback.is_some(), "Should have feedback");
+    }
+
+    #[tokio::test]
+    async fn concurrent_rust_validation_keeps_success_and_failure_separate() {
+        let validator =
+            SandboxValidator::new(ProcessSandbox::new().with_timeout(60000)).run_tests(false);
+        let (valid, invalid) = tokio::join!(
+            validator.validate_rust_code("pub fn valid() -> i32 { 42 }"),
+            validator.validate_rust_code("pub fn invalid() -> i32 { \"wrong type\" }")
+        );
+        assert!(valid.unwrap().compiles);
+        let invalid = invalid.unwrap();
+        assert!(!invalid.compiles, "Invalid source accepted: {invalid:?}");
+        assert!(!invalid.compiler_errors.is_empty());
     }
 
     #[test]

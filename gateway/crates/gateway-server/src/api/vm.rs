@@ -4,7 +4,7 @@
 
 use axum::{extract::State, Json};
 use gateway_sandbox::VmStatus;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::api::chat::ApiError;
 use crate::state::AppState;
@@ -13,7 +13,7 @@ use crate::state::AppState;
 pub async fn start_vm(State(state): State<AppState>) -> Result<Json<VmActionResponse>, ApiError> {
     let orchestrator = state.orchestrator.as_ref().ok_or_else(|| {
         ApiError::BadRequest(
-            "VM orchestrator not configured. Set FIRECRACKER_SSH_PASSWORD.".to_string(),
+            "VM orchestrator not configured. Set FIRECRACKER_SSH_HOST, FIRECRACKER_SSH_PASSWORD and FIRECRACKER_SSH_HOST_KEY_SHA256.".to_string(),
         )
     })?;
 
@@ -135,34 +135,6 @@ pub async fn ensure_vm(State(state): State<AppState>) -> Result<Json<VmActionRes
     }))
 }
 
-/// POST /v1/vm/exec - Execute SSH command on host server
-pub async fn exec_ssh(
-    State(state): State<AppState>,
-    Json(request): Json<SshExecRequest>,
-) -> Result<Json<SshExecResponse>, ApiError> {
-    let orchestrator = state
-        .orchestrator
-        .as_ref()
-        .ok_or_else(|| ApiError::BadRequest("VM orchestrator not configured".to_string()))?;
-
-    // Connect if not already connected
-    orchestrator
-        .connect()
-        .await
-        .map_err(|e| ApiError::Internal(format!("SSH connection failed: {}", e)))?;
-
-    // Execute command
-    let (exit_code, stdout, stderr) = orchestrator
-        .exec(&request.command)
-        .await
-        .map_err(|e| ApiError::Internal(format!("Command failed: {}", e)))?;
-
-    Ok(Json(SshExecResponse {
-        exit_code,
-        stdout,
-        stderr,
-    }))
-}
 
 // ==================== Request/Response Types ====================
 
@@ -178,14 +150,3 @@ pub struct VmStatusResponse {
     pub orchestrator_enabled: bool,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct SshExecRequest {
-    pub command: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct SshExecResponse {
-    pub exit_code: i32,
-    pub stdout: String,
-    pub stderr: String,
-}

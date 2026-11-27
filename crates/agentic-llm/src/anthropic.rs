@@ -108,8 +108,12 @@ struct AnthropicContent {
     text: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, serde::Serialize)]
 struct AnthropicUsage {
+    #[serde(default)]
+    cache_read_input_tokens: Option<u32>,
+    #[serde(default)]
+    cache_creation_input_tokens: Option<u32>,
     input_tokens: u32,
     output_tokens: u32,
 }
@@ -290,9 +294,19 @@ impl LLMAdapter for AnthropicAdapter {
         Ok(LLMResponse {
             content,
             tokens_used: TokenUsage {
-                prompt: api_response.usage.input_tokens,
+                details: serde_json::to_value(&api_response.usage).ok(),
+                prompt: api_response
+                    .usage
+                    .input_tokens
+                    .saturating_add(api_response.usage.cache_read_input_tokens.unwrap_or(0))
+                    .saturating_add(api_response.usage.cache_creation_input_tokens.unwrap_or(0)),
                 completion: api_response.usage.output_tokens,
-                total: api_response.usage.input_tokens + api_response.usage.output_tokens,
+                total: api_response
+                    .usage
+                    .input_tokens
+                    .saturating_add(api_response.usage.cache_read_input_tokens.unwrap_or(0))
+                    .saturating_add(api_response.usage.cache_creation_input_tokens.unwrap_or(0))
+                    .saturating_add(api_response.usage.output_tokens),
             },
             finish_reason,
             model: api_response.model,
@@ -559,9 +573,19 @@ impl LLMAdapter for AnthropicAdapter {
         Ok(LLMResponse {
             content,
             tokens_used: TokenUsage {
-                prompt: api_response.usage.input_tokens,
+                details: serde_json::to_value(&api_response.usage).ok(),
+                prompt: api_response
+                    .usage
+                    .input_tokens
+                    .saturating_add(api_response.usage.cache_read_input_tokens.unwrap_or(0))
+                    .saturating_add(api_response.usage.cache_creation_input_tokens.unwrap_or(0)),
                 completion: api_response.usage.output_tokens,
-                total: api_response.usage.input_tokens + api_response.usage.output_tokens,
+                total: api_response
+                    .usage
+                    .input_tokens
+                    .saturating_add(api_response.usage.cache_read_input_tokens.unwrap_or(0))
+                    .saturating_add(api_response.usage.cache_creation_input_tokens.unwrap_or(0))
+                    .saturating_add(api_response.usage.output_tokens),
             },
             finish_reason,
             model: api_response.model,

@@ -36,7 +36,7 @@ pub type RemoteResult<T> = Result<T, RemoteSandboxError>;
 /// Configuration for remote Firecracker sandbox
 #[derive(Debug, Clone)]
 pub struct RemoteSandboxConfig {
-    /// Base URL of the fc-agent (e.g., "http://65.108.230.227:8080")
+    /// Base URL of the fc-agent (e.g., "http://your-server.example.com:8080")
     pub base_url: String,
     /// Optional API key for authentication
     pub api_key: Option<String>,

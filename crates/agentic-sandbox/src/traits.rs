@@ -53,6 +53,15 @@ pub trait Sandbox: Send + Sync {
     /// Returns an error if execution fails.
     async fn execute(&self, code: &str) -> Result<ExecutionResult, SandboxError>;
 
+    /// Whether code runs isolated from the host (container, microVM, remote).
+    ///
+    /// Defaults to `false`: an implementation must opt in explicitly. Callers
+    /// that execute untrusted or model-generated code must refuse sandboxes
+    /// that return `false` unless the host has opted in.
+    fn is_isolated(&self) -> bool {
+        false
+    }
+
     /// Check if the sandbox is ready.
     ///
     /// # Errors
@@ -74,6 +83,10 @@ pub trait Sandbox: Send + Sync {
 impl Sandbox for Box<dyn Sandbox> {
     async fn execute(&self, code: &str) -> Result<ExecutionResult, SandboxError> {
         (**self).execute(code).await
+    }
+
+    fn is_isolated(&self) -> bool {
+        (**self).is_isolated()
     }
 
     async fn is_ready(&self) -> Result<bool, SandboxError> {

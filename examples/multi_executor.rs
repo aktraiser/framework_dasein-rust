@@ -15,7 +15,7 @@
 //! - FAST_MODEL: Model for simple errors (default: gemini-2.0-flash)
 //! - SMART_MODEL: Model for complex errors (default: gemini-2.0-flash)
 //! - CONTEXT7_API_KEY: Enable MCP Doc Validator (optional)
-//! - FIRECRACKER_URL: Remote Firecracker server URL (e.g., http://65.108.230.227:8080)
+//! - FIRECRACKER_URL: Remote Firecracker server URL (e.g., http://your-server.example.com:8080)
 //! - FIRECRACKER_API_KEY: API key for Firecracker server (optional)
 //!
 //! If FIRECRACKER_URL is set, uses remote Firecracker sandbox (real microVM isolation).

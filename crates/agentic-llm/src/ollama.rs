@@ -148,6 +148,7 @@ impl LLMAdapter for OllamaAdapter {
         Ok(LLMResponse {
             content: chat_response.message.content,
             tokens_used: TokenUsage {
+                details: None,
                 prompt: prompt_tokens,
                 completion: completion_tokens,
                 total: prompt_tokens + completion_tokens,
@@ -199,7 +200,7 @@ impl LLMAdapter for OllamaAdapter {
                             content: response.message.content,
                             done: response.done,
                             tokens_used: if response.done {
-                                Some(TokenUsage {
+                                Some(TokenUsage { details: None,
                                     prompt: response.prompt_eval_count.unwrap_or(0),
                                     completion: response.eval_count.unwrap_or(0),
                                     total: response.prompt_eval_count.unwrap_or(0)

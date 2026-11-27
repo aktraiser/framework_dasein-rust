@@ -215,6 +215,10 @@ impl Default for FirecrackerSandbox {
 
 #[async_trait]
 impl Sandbox for FirecrackerSandbox {
+    fn is_isolated(&self) -> bool {
+        true
+    }
+
     #[instrument(skip(self, code), fields(sandbox = "firecracker"))]
     async fn execute(&self, code: &str) -> Result<ExecutionResult, SandboxError> {
         self.check_prerequisites()?;

@@ -12,7 +12,7 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
-const FIRECRACKER_URL: &str = "http://65.108.230.227:8080";
+const FIRECRACKER_URL: &str = "http://localhost:8080";
 const MAX_ITERATIONS: u32 = 8;
 
 #[derive(Serialize)]

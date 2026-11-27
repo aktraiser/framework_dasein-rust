@@ -28,6 +28,7 @@ use crate::{
 /// `OpenAI` adapter for GPT models.
 pub struct OpenAIAdapter {
     client: Client<OpenAIConfig>,
+    responses: Option<crate::OpenAIResponsesAdapter>,
     model: String,
     temperature: f32,
     max_tokens: Option<u32>,
@@ -42,10 +43,15 @@ impl OpenAIAdapter {
     /// * `model` - Model to use (e.g., "gpt-4o", "gpt-4o-mini")
     #[must_use]
     pub fn new(api_key: impl Into<String>, model: impl Into<String>) -> Self {
+        let api_key = api_key.into();
+        let model = model.into();
+        let responses = crate::OpenAIResponsesAdapter::required(&model)
+            .then(|| crate::OpenAIResponsesAdapter::new(&api_key, &model));
         let config = OpenAIConfig::new().with_api_key(api_key);
         Self {
             client: Client::with_config(config),
-            model: model.into(),
+            model,
+            responses,
             temperature: 0.7,
             max_tokens: None,
         }
@@ -54,11 +60,14 @@ impl OpenAIAdapter {
     /// Set an OpenAI-compatible base URL, including its API version prefix.
     #[must_use]
     pub fn with_api_base(mut self, api_base: impl Into<String>) -> Self {
+        let api_base = api_base.into();
+        self.responses = self.responses.map(|r| r.with_api_base(&api_base));
         self.client = Client::with_config(self.client.config().clone().with_api_base(api_base));
         self
     }
 
-    /// Set the temperature for generation.
+    /// Set temperature for legacy Chat Completions. Responses reasoning models
+    /// omit temperature and keep their provider defaults.
     #[must_use]
     pub const fn with_temperature(mut self, temperature: f32) -> Self {
         self.temperature = temperature;
@@ -67,7 +76,13 @@ impl OpenAIAdapter {
 
     /// Set the maximum tokens for generation.
     #[must_use]
-    pub const fn with_max_tokens(mut self, max_tokens: u32) -> Self {
+    pub fn with_prompt_cache_key(mut self, key: impl Into<String>) -> Self {
+        let key = key.into();
+        self.responses = self.responses.map(|r| r.with_prompt_cache_key(key));
+        self
+    }
+    pub fn with_max_tokens(mut self, max_tokens: u32) -> Self {
+        self.responses = self.responses.map(|r| r.with_max_tokens(max_tokens));
         self.max_tokens = Some(max_tokens);
         self
     }
@@ -149,6 +164,9 @@ impl LLMAdapter for OpenAIAdapter {
         messages: &[LLMMessage],
         tools: &[Tool],
     ) -> Result<LLMResponse, LLMError> {
+        if let Some(r) = &self.responses {
+            return r.generate_with_tools(messages, tools).await;
+        }
         debug!("Generating completion with {} messages", messages.len());
 
         let request = CreateChatCompletionRequest {
@@ -193,6 +211,7 @@ impl LLMAdapter for OpenAIAdapter {
         Ok(LLMResponse {
             content,
             tokens_used: TokenUsage {
+                details: usage.and_then(|u| serde_json::to_value(u).ok()),
                 prompt: usage.map_or(0, |u| u.prompt_tokens),
                 completion: usage.map_or(0, |u| u.completion_tokens),
                 total: usage.map_or(0, |u| u.total_tokens),
@@ -222,6 +241,9 @@ impl LLMAdapter for OpenAIAdapter {
         &self,
         messages: &[LLMMessage],
     ) -> Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send + '_>> {
+        if let Some(r) = &self.responses {
+            return r.generate_stream(messages);
+        }
         let request = CreateChatCompletionRequest {
             model: self.model.clone(),
             messages: Self::convert_messages(messages),
@@ -261,6 +283,9 @@ impl LLMAdapter for OpenAIAdapter {
     }
 
     async fn health_check(&self) -> Result<bool, LLMError> {
+        if let Some(r) = &self.responses {
+            return r.health_check().await;
+        }
         self.client
             .models()
             .list()

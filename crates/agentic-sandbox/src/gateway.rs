@@ -478,6 +478,10 @@ impl std::fmt::Debug for GatewaySandbox {
 
 #[async_trait]
 impl Sandbox for GatewaySandbox {
+    fn is_isolated(&self) -> bool {
+        true
+    }
+
     #[instrument(skip(self, code), fields(sandbox = "gateway", url = %self.config.base_url))]
     async fn execute(&self, code: &str) -> Result<ExecutionResult, SandboxError> {
         info!(runtime = %self.config.runtime, "Executing code via gateway");

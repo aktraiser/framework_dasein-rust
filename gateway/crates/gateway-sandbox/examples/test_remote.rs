@@ -12,7 +12,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
 
     // Create remote sandbox client
-    let config = RemoteSandboxConfig::new("http://65.108.230.227:8080");
+    let config = RemoteSandboxConfig::new("http://localhost:8080");
     let sandbox = RemoteSandbox::new(config)?;
 
     // Health check

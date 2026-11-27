@@ -78,6 +78,13 @@ impl Sandbox for ProcessSandbox {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        // No isolation here, so at least keep the host's credentials out of
+        // the child: executed code could otherwise read them with `env`.
+        for (name, _) in std::env::vars_os() {
+            if name.to_str().is_some_and(is_secret_env_name) {
+                command.env_remove(&name);
+            }
+        }
         #[cfg(unix)]
         command.process_group(0);
         let child = command.spawn().map_err(SandboxError::IoError)?;
@@ -114,6 +121,14 @@ impl Sandbox for ProcessSandbox {
     }
 }
 
+/// Environment variable names that conventionally hold credentials.
+fn is_secret_env_name(name: &str) -> bool {
+    let name = name.to_ascii_uppercase();
+    ["KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL"]
+        .iter()
+        .any(|marker| name.contains(marker))
+}
+
 #[cfg(unix)]
 struct ProcessGroup(Option<i32>);
 #[cfg(unix)]
@@ -147,5 +162,20 @@ mod tests {
         let result = sandbox.execute("exit 42").await.unwrap();
 
         assert_eq!(result.exit_code, 42);
+    }
+
+    #[test]
+    fn test_not_isolated() {
+        assert!(!ProcessSandbox::new().is_isolated());
+    }
+
+    #[test]
+    fn test_secret_env_names() {
+        for name in ["OPENAI_API_KEY", "github_token", "DB_PASSWORD", "AWS_SECRET"] {
+            assert!(is_secret_env_name(name), "{name}");
+        }
+        for name in ["PATH", "HOME", "CARGO_HOME", "LANG"] {
+            assert!(!is_secret_env_name(name), "{name}");
+        }
     }
 }

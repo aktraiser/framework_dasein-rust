@@ -16,6 +16,7 @@ use crate::{
 };
 
 const GEMINI_API_BASE: &str = "https://generativelanguage.googleapis.com/v1beta/models";
+const API_KEY_HEADER: &str = "x-goog-api-key";
 
 /// Google Gemini adapter.
 pub struct GeminiAdapter {
@@ -65,10 +66,80 @@ impl GeminiAdapter {
         } else {
             "generateContent"
         };
-        format!(
-            "{}/{}:{}?key={}",
-            GEMINI_API_BASE, self.model, action, self.api_key
-        )
+        // The key travels in the `x-goog-api-key` header, never in the URL:
+        // URLs end up in error messages, logs and proxies.
+        format!("{}/{}:{}", GEMINI_API_BASE, self.model, action)
+    }
+
+    /// Preserve native tool calls and group the corresponding function responses.
+    fn convert_tool_messages(messages: &[LLMMessage]) -> Result<Vec<serde_json::Value>, LLMError> {
+        use serde_json::json;
+        let mut contents: Vec<serde_json::Value> = Vec::new();
+        let mut pending = std::collections::HashMap::new();
+        let mut last_was_tool = false;
+        for message in messages {
+            match message.role {
+                Role::System => {}
+                Role::Assistant => {
+                    let mut parts = Vec::new();
+                    if !message.content.is_empty() {
+                        parts.push(json!({"text":message.content}));
+                    }
+                    for call in &message.tool_calls {
+                        if pending.insert(call.id.clone(), call.name.clone()).is_some() {
+                            return Err(LLMError::InvalidResponse(
+                                "Duplicate pending tool call ID".into(),
+                            ));
+                        }
+                        parts
+                            .push(json!({"functionCall":{"name":call.name,"args":call.arguments}}));
+                    }
+                    if parts.is_empty() {
+                        parts.push(json!({"text":""}));
+                    }
+                    contents.push(json!({"role":"model","parts":parts}));
+                    last_was_tool = false;
+                }
+                Role::Tool => {
+                    let name = message
+                        .tool_call_id
+                        .as_ref()
+                        .and_then(|id| pending.remove(id))
+                        .ok_or_else(|| {
+                            LLMError::InvalidResponse(
+                                "Tool response has no matching function call".into(),
+                            )
+                        })?;
+                    let value: serde_json::Value = serde_json::from_str(&message.content)
+                        .unwrap_or_else(|_| json!({"output":message.content}));
+                    let value = if value.is_object() {
+                        value
+                    } else {
+                        json!({"result":value})
+                    };
+                    let part = json!({"functionResponse":{"name":name,"response":value}});
+                    if last_was_tool {
+                        contents.last_mut().unwrap()["parts"]
+                            .as_array_mut()
+                            .unwrap()
+                            .push(part);
+                    } else {
+                        contents.push(json!({"role":"user","parts":[part]}));
+                    }
+                    last_was_tool = true;
+                }
+                Role::User => {
+                    contents.push(json!({"role":"user","parts":[{"text":message.content}]}));
+                    last_was_tool = false;
+                }
+            }
+        }
+        if !pending.is_empty() {
+            return Err(LLMError::InvalidResponse(
+                "Missing function responses".into(),
+            ));
+        }
+        Ok(contents)
     }
 
     /// Convert messages to Gemini format.
@@ -157,10 +228,14 @@ struct GeminiCandidate {
     finish_reason: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(clippy::struct_field_names)] // Field names match Gemini API response
 struct GeminiUsageMetadata {
+    #[serde(default)]
+    cached_content_token_count: Option<u32>,
+    #[serde(default)]
+    thoughts_token_count: Option<u32>,
     prompt_token_count: u32,
     candidates_token_count: u32,
     total_token_count: u32,
@@ -183,7 +258,7 @@ struct GeminiErrorDetail {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GeminiRequestWithTools {
-    contents: Vec<GeminiContent>,
+    contents: Vec<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     system_instruction: Option<GeminiSystemInstruction>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -276,24 +351,25 @@ impl LLMAdapter for GeminiAdapter {
         let response = self
             .client
             .post(self.api_url(false))
+            .header(API_KEY_HEADER, &self.api_key)
             .header("content-type", "application/json")
             .json(&request)
             .send()
             .await
-            .map_err(|e| LLMError::ConnectionError(e.to_string()))?;
+            .map_err(|e| LLMError::ConnectionError(e.without_url().to_string()))?;
 
         if !response.status().is_success() {
             let error: GeminiError = response
                 .json()
                 .await
-                .map_err(|e| LLMError::InvalidResponse(e.to_string()))?;
+                .map_err(|e| LLMError::InvalidResponse(e.without_url().to_string()))?;
             return Err(LLMError::ApiError(error.error.message));
         }
 
         let api_response: GeminiResponse = response
             .json()
             .await
-            .map_err(|e| LLMError::InvalidResponse(e.to_string()))?;
+            .map_err(|e| LLMError::InvalidResponse(e.without_url().to_string()))?;
 
         let candidate = api_response
             .candidates
@@ -313,6 +389,8 @@ impl LLMAdapter for GeminiAdapter {
         };
 
         let usage = api_response.usage_metadata.unwrap_or(GeminiUsageMetadata {
+            cached_content_token_count: None,
+            thoughts_token_count: None,
             prompt_token_count: 0,
             candidates_token_count: 0,
             total_token_count: 0,
@@ -321,6 +399,7 @@ impl LLMAdapter for GeminiAdapter {
         Ok(LLMResponse {
             content,
             tokens_used: TokenUsage {
+                details: serde_json::to_value(&usage).ok(),
                 prompt: usage.prompt_token_count,
                 completion: usage.candidates_token_count,
                 total: usage.total_token_count,
@@ -350,15 +429,17 @@ impl LLMAdapter for GeminiAdapter {
 
         let client = self.client.clone();
         let url = self.api_url(true);
+        let api_key = self.api_key.clone();
 
         Box::pin(async_stream::try_stream! {
             let response = client
                 .post(&url)
+                .header(API_KEY_HEADER, &api_key)
                 .header("content-type", "application/json")
                 .json(&request)
                 .send()
                 .await
-                .map_err(|e| LLMError::ConnectionError(e.to_string()))?;
+                .map_err(|e| LLMError::ConnectionError(e.without_url().to_string()))?;
 
             let status = response.status();
             if !status.is_success() {
@@ -370,7 +451,7 @@ impl LLMAdapter for GeminiAdapter {
 
             use futures::StreamExt;
             while let Some(chunk) = stream.next().await {
-                let bytes = chunk.map_err(|e| LLMError::ConnectionError(e.to_string()))?;
+                let bytes = chunk.map_err(|e| LLMError::ConnectionError(e.without_url().to_string()))?;
                 buffer.push_str(&String::from_utf8_lossy(&bytes));
 
                 // Gemini streams JSON array elements
@@ -415,7 +496,7 @@ impl LLMAdapter for GeminiAdapter {
                                 });
 
                                 let tokens_used = if done {
-                                    response.usage_metadata.map(|u| TokenUsage {
+                                    response.usage_metadata.map(|u| TokenUsage { details: serde_json::to_value(&u).ok(),
                                         prompt: u.prompt_token_count,
                                         completion: u.candidates_token_count,
                                         total: u.total_token_count,
@@ -445,14 +526,15 @@ impl LLMAdapter for GeminiAdapter {
 
     async fn health_check(&self) -> Result<bool, LLMError> {
         // List models endpoint to check API connectivity
-        let url = format!("{}/{}?key={}", GEMINI_API_BASE, self.model, self.api_key);
+        let url = format!("{}/{}", GEMINI_API_BASE, self.model);
 
         let response = self
             .client
             .get(&url)
+            .header(API_KEY_HEADER, &self.api_key)
             .send()
             .await
-            .map_err(|e| LLMError::ConnectionError(e.to_string()))?;
+            .map_err(|e| LLMError::ConnectionError(e.without_url().to_string()))?;
 
         Ok(response.status().is_success())
     }
@@ -473,7 +555,9 @@ impl LLMAdapter for GeminiAdapter {
 
         debug!("Generating with {} tools", tools.len());
 
-        let (system_instruction, contents) = Self::convert_messages(messages);
+        let (system_instruction, _) = Self::convert_messages(messages);
+
+        let contents = Self::convert_tool_messages(messages)?;
 
         // Convert tools to Gemini format
         let gemini_tools = vec![GeminiToolDeclaration {
@@ -500,24 +584,25 @@ impl LLMAdapter for GeminiAdapter {
         let response = self
             .client
             .post(self.api_url(false))
+            .header(API_KEY_HEADER, &self.api_key)
             .header("content-type", "application/json")
             .json(&request)
             .send()
             .await
-            .map_err(|e| LLMError::ConnectionError(e.to_string()))?;
+            .map_err(|e| LLMError::ConnectionError(e.without_url().to_string()))?;
 
         if !response.status().is_success() {
             let error: GeminiError = response
                 .json()
                 .await
-                .map_err(|e| LLMError::InvalidResponse(e.to_string()))?;
+                .map_err(|e| LLMError::InvalidResponse(e.without_url().to_string()))?;
             return Err(LLMError::ApiError(error.error.message));
         }
 
         let api_response: GeminiResponseWithFunction = response
             .json()
             .await
-            .map_err(|e| LLMError::InvalidResponse(e.to_string()))?;
+            .map_err(|e| LLMError::InvalidResponse(e.without_url().to_string()))?;
 
         let candidate = api_response
             .candidates
@@ -534,7 +619,7 @@ impl LLMAdapter for GeminiAdapter {
             }
             if let Some(fc) = &part.function_call {
                 tool_calls.push(ToolCall::new(
-                    format!("call_{}", i),
+                    format!("call_{}_{}", messages.len(), i),
                     fc.name.clone(),
                     fc.args.clone(),
                 ));
@@ -547,6 +632,8 @@ impl LLMAdapter for GeminiAdapter {
         };
 
         let usage = api_response.usage_metadata.unwrap_or(GeminiUsageMetadata {
+            cached_content_token_count: None,
+            thoughts_token_count: None,
             prompt_token_count: 0,
             candidates_token_count: 0,
             total_token_count: 0,
@@ -555,6 +642,7 @@ impl LLMAdapter for GeminiAdapter {
         Ok(LLMResponse {
             content,
             tokens_used: TokenUsage {
+                details: serde_json::to_value(&usage).ok(),
                 prompt: usage.prompt_token_count,
                 completion: usage.candidates_token_count,
                 total: usage.total_token_count,
@@ -573,6 +661,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_api_key_never_in_url() {
+        let adapter = GeminiAdapter::new("secret-key-123", "gemini-2.0-flash");
+        assert!(!adapter.api_url(false).contains("secret-key-123"));
+        assert!(!adapter.api_url(true).contains("secret-key-123"));
+    }
+
+    #[test]
     fn test_message_conversion() {
         let messages = vec![
             LLMMessage::system("You are helpful."),
@@ -587,5 +682,47 @@ mod tests {
         assert_eq!(contents.len(), 2);
         assert_eq!(contents[0].role, "user");
         assert_eq!(contents[1].role, "model");
+    }
+    #[test]
+    fn tool_history_preserves_parallel_calls_and_matches_successive_rounds() {
+        use serde_json::json;
+        let messages = vec![
+            LLMMessage::user("task"),
+            LLMMessage::assistant_with_tool_calls(
+                "read",
+                vec![
+                    ToolCall::new("a", "read_document", json!({"id":1})),
+                    ToolCall::new("b", "read_document", json!({"id":2})),
+                ],
+            ),
+            LLMMessage::tool_result("a", r#"{"value":18}"#),
+            LLMMessage::tool_result("b", r#"{"value":5}"#),
+            LLMMessage::assistant_with_tool_calls(
+                "publish",
+                vec![ToolCall::new(
+                    "c",
+                    "publish_finding",
+                    json!({"text":"claim"}),
+                )],
+            ),
+            LLMMessage::tool_result("c", r#"{"id":"F1"}"#),
+        ];
+        let v = GeminiAdapter::convert_tool_messages(&messages).unwrap();
+        assert_eq!(v.len(), 5);
+        assert_eq!(v[1]["parts"][1]["functionCall"]["name"], "read_document");
+        assert_eq!(v[2]["parts"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            v[2]["parts"][0]["functionResponse"]["response"]["value"],
+            18
+        );
+        assert_eq!(
+            v[4]["parts"][0]["functionResponse"]["name"],
+            "publish_finding"
+        );
+        assert!(GeminiAdapter::convert_tool_messages(&messages[..2]).is_err());
+        assert!(
+            GeminiAdapter::convert_tool_messages(&[LLMMessage::tool_result("unknown", "{}")])
+                .is_err()
+        );
     }
 }

@@ -21,7 +21,7 @@
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let sandbox = RemoteSandbox::builder("http://65.108.230.227:8080")
+//!     let sandbox = RemoteSandbox::builder("http://your-server.example.com:8080")
 //!         .api_key("your-secret-key")
 //!         .timeout_ms(30000)
 //!         .build();
@@ -94,7 +94,7 @@ pub struct HealthResponse {
 /// Configuration for `RemoteSandbox`.
 #[derive(Debug, Clone)]
 pub struct RemoteSandboxConfig {
-    /// Base URL of the remote server (e.g., `http://65.108.230.227:8080`)
+    /// Base URL of the remote server (e.g., `http://your-server.example.com:8080`)
     pub base_url: String,
     /// API key for authentication
     pub api_key: Option<String>,
@@ -139,7 +139,7 @@ impl RemoteSandbox {
     ///
     /// ```rust,no_run
     /// # use dasein_agentic_sandbox::RemoteSandbox;
-    /// let sandbox = RemoteSandbox::builder("http://65.108.230.227:8080")
+    /// let sandbox = RemoteSandbox::builder("http://your-server.example.com:8080")
     ///     .api_key("secret")
     ///     .build();
     /// ```
@@ -301,6 +301,10 @@ impl std::fmt::Debug for RemoteSandbox {
 
 #[async_trait]
 impl Sandbox for RemoteSandbox {
+    fn is_isolated(&self) -> bool {
+        true
+    }
+
     #[instrument(skip(self, code), fields(sandbox = "remote", url = %self.config.base_url))]
     async fn execute(&self, code: &str) -> Result<ExecutionResult, SandboxError> {
         info!("Executing code on remote Firecracker server");

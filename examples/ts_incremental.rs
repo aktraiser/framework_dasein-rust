@@ -11,7 +11,7 @@
 //! GEMINI_API_KEY=xxx cargo run --example ts_incremental
 //!
 //! # With Firecracker:
-//! FIRECRACKER_URL=http://65.108.230.227:8080 \
+//! FIRECRACKER_URL=http://your-server.example.com:8080 \
 //! GEMINI_API_KEY=xxx cargo run --example ts_incremental --features remote
 //! ```
 

@@ -32,7 +32,7 @@ Ce guide documente l'installation et le déploiement complet de Firecracker sur 
 ### Notre serveur Hetzner
 
 ```
-IPv4: 65.108.230.227
+IPv4: YOUR_SERVER_IP
 OS: Ubuntu 22.04 LTS
 Type: Serveur dédié AX41
 ```
@@ -42,7 +42,7 @@ Type: Serveur dédié AX41
 ## Étape 1 : Connexion au serveur
 
 ```bash
-ssh root@65.108.230.227
+ssh root@YOUR_SERVER_IP
 ```
 
 ---
@@ -181,7 +181,7 @@ cargo --version
 ### Depuis le Mac, transférer le code
 
 ```bash
-scp -r /Users/rbometon/Downloads/agentic-rs/server root@65.108.230.227:/root/
+scp -r ./server root@YOUR_SERVER_IP:/root/
 ```
 
 ### Sur le serveur, compiler
@@ -253,7 +253,7 @@ systemctl status firecracker-server
 ### Health check
 
 ```bash
-curl http://65.108.230.227:8080/health
+curl http://YOUR_SERVER_IP:8080/health
 ```
 
 **Résultat attendu :**
@@ -269,7 +269,7 @@ curl http://65.108.230.227:8080/health
 ### Test d'exécution
 
 ```bash
-curl -X POST http://65.108.230.227:8080/execute \
+curl -X POST http://YOUR_SERVER_IP:8080/execute \
   -H "Content-Type: application/json" \
   -H "X-API-Key: votre-clé-secrète" \
   -d '{"code": "echo Hello World", "timeout_ms": 5000}'
@@ -304,7 +304,7 @@ use dasein_agentic_sandbox::{RemoteSandbox, Sandbox};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Créer le sandbox distant
-    let sandbox = RemoteSandbox::new("http://65.108.230.227:8080")
+    let sandbox = RemoteSandbox::new("http://YOUR_SERVER_IP:8080")
         .api_key("votre-clé-secrète")
         .timeout_ms(30000)
         .build();
