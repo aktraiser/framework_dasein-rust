@@ -484,7 +484,7 @@ impl Sandbox for GatewaySandbox {
     #[instrument(skip(self, code), fields(sandbox = "gateway", url = %self.config.base_url))]
     async fn execute(&self, code: &str) -> Result<ExecutionResult, SandboxError> {
         info!(runtime = %self.config.runtime, "Executing code via gateway");
-        debug!("Code: {}...", &code[..code.len().min(100)]);
+        debug!("Code: {}...", code.chars().take(100).collect::<String>());
 
         self.execute_with_retry(code).await
     }

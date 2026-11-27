@@ -25,7 +25,7 @@ pub struct MCPToolDef {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MCPToolResult {
     pub content: Vec<MCPContent>,
-    #[serde(default)]
+    #[serde(default, rename = "isError", alias = "is_error")]
     pub is_error: bool,
 }
 

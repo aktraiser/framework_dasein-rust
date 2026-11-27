@@ -51,6 +51,10 @@ pub struct SuperstepState {
     pub group_chat: Option<crate::patterns::GroupChatState>,
     /// Messages pending for each executor.
     pub pending_messages: HashMap<ExecutorId, Vec<serde_json::Value>>,
+    /// Messages held by fan-in edges that are still waiting for some of their
+    /// sources, keyed by edge position and ID, with the executor that sent each one.
+    #[serde(default)]
+    pub fan_in_buffers: HashMap<String, Vec<(ExecutorId, serde_json::Value)>>,
     /// Executors that have completed in the current superstep.
     pub completed_executors: Vec<ExecutorId>,
     /// Executors that failed in the current superstep.
@@ -63,6 +67,7 @@ impl SuperstepState {
         Self {
             group_chat: None,
             pending_messages: HashMap::new(),
+            fan_in_buffers: HashMap::new(),
             completed_executors: Vec::new(),
             failed_executors: HashMap::new(),
         }

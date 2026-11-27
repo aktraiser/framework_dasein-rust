@@ -27,8 +27,8 @@ pub struct ToolDefinition {
 pub struct ToolResult {
     /// Content returned by the tool
     pub content: Vec<ContentItem>,
-    /// Whether this is an error result
-    #[serde(default)]
+    /// Whether this is an error result (`isError` on the wire)
+    #[serde(default, rename = "isError", alias = "is_error")]
     pub is_error: bool,
 }
 
@@ -45,7 +45,8 @@ pub enum ContentItem {
     Image {
         /// Base64 encoded image data.
         data: String,
-        /// MIME type (e.g., "image/png").
+        /// MIME type (e.g., "image/png"), `mimeType` on the wire.
+        #[serde(rename = "mimeType", alias = "mime_type")]
         mime_type: String,
     },
     /// Resource content with URI reference.
@@ -496,5 +497,28 @@ mod tests {
         let result: ToolResult = serde_json::from_str(json).unwrap();
         assert!(!result.is_error);
         assert_eq!(result.content.len(), 1);
+    }
+
+    #[test]
+    fn test_tool_error_and_image_use_wire_names() {
+        let json = r#"{
+            "content": [
+                { "type": "image", "data": "aGk=", "mimeType": "image/png" }
+            ],
+            "isError": true
+        }"#;
+
+        let result: ToolResult = serde_json::from_str(json).unwrap();
+        assert!(
+            result.is_error,
+            "a failed tool call must not look successful"
+        );
+        assert!(matches!(
+            &result.content[0],
+            ContentItem::Image { mime_type, .. } if mime_type == "image/png"
+        ));
+        let wire = serde_json::to_value(&result).unwrap();
+        assert_eq!(wire["isError"], true);
+        assert_eq!(wire["content"][0]["mimeType"], "image/png");
     }
 }

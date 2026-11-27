@@ -614,8 +614,8 @@ impl PipelineTracer {
     pub async fn record_code(&self, code: &str) {
         if let Some(ref mut attempt) = *self.current_attempt.write().await {
             let hash = format!("{:x}", md5::compute(code.as_bytes()));
-            let preview = if code.len() > 500 {
-                format!("{}...", &code[..500])
+            let preview = if code.chars().nth(500).is_some() {
+                format!("{}...", code.chars().take(500).collect::<String>())
             } else {
                 code.to_string()
             };

@@ -42,10 +42,18 @@ use std::sync::Arc;
 
 use super::builder::WorkflowDefinition;
 use super::context::{SharedStateBackend, WorkflowContext, WorkflowContextBuilder};
+use super::edge::{Edge, EdgeKind};
 use super::executor::Executor;
 use super::persistence::{PersistentCheckpoint, PersistentCheckpointBackend};
 use super::superstep::{Checkpoint, CheckpointBackend, InMemoryCheckpointBackend, SuperstepState};
 use super::types::{ExecutorError, ExecutorId, GraphError, GraphResult, TaskId, WorkflowId};
+
+/// Key of a fan-in edge's buffer in [`SuperstepState::fan_in_buffers`]. Edge
+/// IDs are not unique (two joins into one target share theirs), so the edge's
+/// position in the definition is part of the key.
+fn fan_in_key<T: Send + Sync + 'static>(index: usize, edge: &Edge<T>) -> String {
+    format!("{index}:{}", edge.id)
+}
 
 // ============================================================================
 // WORKFLOW CONFIGURATION
@@ -904,13 +912,128 @@ where
             for message in messages {
                 let value = serde_json::to_value(&message)
                     .map_err(|e| GraphError::SerializationError(e.to_string()))?;
-                for target in self.definition.edges.route_from(&id, &message) {
-                    state.enqueue_message(target, value.clone());
+                for (index, edge) in self.definition.edges.all().iter().enumerate() {
+                    if !edge.is_from(&id) || !edge.should_activate(&message) {
+                        continue;
+                    }
+                    if edge.kind == EdgeKind::FanIn {
+                        // Held until the join is complete; see `release_fan_ins`.
+                        state
+                            .fan_in_buffers
+                            .entry(fan_in_key(index, edge))
+                            .or_default()
+                            .push((id.clone(), value.clone()));
+                    } else {
+                        for target in edge.route(&message) {
+                            state.enqueue_message(target, value.clone());
+                        }
+                    }
                 }
             }
             outputs.extend(values);
         }
+        self.release_fan_ins(state)?;
         Ok(outputs)
+    }
+
+    /// Hand buffered fan-in messages to their target once the join is ready.
+    ///
+    /// A join is ready when every source has delivered, or when the sources
+    /// still missing can no longer deliver: nothing pending (and no other
+    /// waiting join) leads to them, because their branch was not taken or
+    /// sent nothing. Such a join fires with what arrived instead of blocking.
+    fn release_fan_ins(&self, state: &mut SuperstepState) -> GraphResult<()> {
+        let edges = self.definition.edges.all();
+        loop {
+            let ready = edges.iter().enumerate().find(|(index, edge)| {
+                edge.kind == EdgeKind::FanIn
+                    && state
+                        .fan_in_buffers
+                        .get(&fan_in_key(*index, edge))
+                        .is_some_and(|held| {
+                            let live = self.may_still_run(state, *index);
+                            edge.source.sources().into_iter().all(|source| {
+                                held.iter().any(|(from, _)| from == source)
+                                    || !live.contains(source)
+                            })
+                        })
+            });
+            let Some((index, edge)) = ready else { break };
+            Self::release_fan_in(index, edge, state)?;
+        }
+        // Joins that wait on each other would never fire: break the tie.
+        if state.pending_messages.is_empty() {
+            let stuck = edges.iter().enumerate().find(|(index, edge)| {
+                edge.kind == EdgeKind::FanIn
+                    && state.fan_in_buffers.contains_key(&fan_in_key(*index, edge))
+            });
+            if let Some((index, edge)) = stuck {
+                Self::release_fan_in(index, edge, state)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Executors that may still run: those with pending input, the targets of
+    /// the other waiting joins, and everything downstream of either. Edge
+    /// conditions are ignored, so this errs on the side of waiting.
+    fn may_still_run(
+        &self,
+        state: &SuperstepState,
+        except_join: usize,
+    ) -> std::collections::HashSet<ExecutorId> {
+        let edges = self.definition.edges.all();
+        let mut frontier: Vec<ExecutorId> = state.pending_messages.keys().cloned().collect();
+        for (index, edge) in edges.iter().enumerate() {
+            if index != except_join && state.fan_in_buffers.contains_key(&fan_in_key(index, edge)) {
+                frontier.extend(edge.target.targets().into_iter().cloned());
+            }
+        }
+        let mut live = std::collections::HashSet::new();
+        while let Some(id) = frontier.pop() {
+            if live.insert(id.clone()) {
+                for edge in self.definition.edges.from_executor(&id) {
+                    frontier.extend(edge.target.targets().into_iter().cloned());
+                }
+            }
+        }
+        live
+    }
+
+    fn release_fan_in(
+        index: usize,
+        edge: &Edge<TMessage>,
+        state: &mut SuperstepState,
+    ) -> GraphResult<()> {
+        let Some(mut held) = state.fan_in_buffers.remove(&fan_in_key(index, edge)) else {
+            return Ok(());
+        };
+        // Deterministic order: by declared source, then by arrival (stable sort).
+        let sources = edge.source.sources();
+        held.sort_by_key(|(from, _)| sources.iter().position(|source| *source == from));
+        let mut values: Vec<serde_json::Value> = held.into_iter().map(|(_, value)| value).collect();
+        // Only an aggregating join needs typed messages; a plain join forwards
+        // the values untouched.
+        if edge.has_aggregate() {
+            let messages = values
+                .into_iter()
+                .map(serde_json::from_value::<TMessage>)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| GraphError::SerializationError(e.to_string()))?;
+            values = edge
+                .aggregate(messages)
+                .map(|merged| serde_json::to_value(&merged))
+                .transpose()
+                .map_err(|e| GraphError::SerializationError(e.to_string()))?
+                .into_iter()
+                .collect();
+        }
+        for value in values {
+            for target in edge.target.targets() {
+                state.enqueue_message(target.clone(), value.clone());
+            }
+        }
+        Ok(())
     }
 
     async fn execute_group_chat_step(

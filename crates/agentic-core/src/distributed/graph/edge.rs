@@ -232,6 +232,8 @@ pub struct Edge<T: Send + Sync + 'static> {
     selection_fn: Option<SelectionFn<T>>,
     /// Default target index (for Switch edges).
     default_target: Option<usize>,
+    /// Aggregation function (for FanIn edges).
+    aggregate_fn: Option<AggregationFn<T>>,
 }
 
 impl<T: Send + Sync + 'static> Edge<T> {
@@ -253,6 +255,7 @@ impl<T: Send + Sync + 'static> Edge<T> {
             switch_fn: None,
             selection_fn: None,
             default_target: None,
+            aggregate_fn: None,
         }
     }
 
@@ -277,6 +280,7 @@ impl<T: Send + Sync + 'static> Edge<T> {
             switch_fn: None,
             selection_fn: None,
             default_target: None,
+            aggregate_fn: None,
         }
     }
 
@@ -301,6 +305,7 @@ impl<T: Send + Sync + 'static> Edge<T> {
             switch_fn: Some(Arc::new(switch_fn)),
             selection_fn: None,
             default_target: None,
+            aggregate_fn: None,
         }
     }
 
@@ -318,6 +323,7 @@ impl<T: Send + Sync + 'static> Edge<T> {
             switch_fn: None,
             selection_fn: None,
             default_target: None,
+            aggregate_fn: None,
         }
     }
 
@@ -342,10 +348,17 @@ impl<T: Send + Sync + 'static> Edge<T> {
             switch_fn: None,
             selection_fn: Some(Arc::new(selection_fn)),
             default_target: None,
+            aggregate_fn: None,
         }
     }
 
-    /// Create a fan-in edge (aggregates from multiple sources).
+    /// Create a fan-in edge (joins multiple sources).
+    ///
+    /// The workflow holds the messages from `sources` until every source has
+    /// delivered, then hands them to the target together, in the same
+    /// superstep and in `sources` order. If a source can no longer deliver
+    /// (nothing still running leads to it), the join fires with what arrived.
+    /// Use [`Edge::fan_in_with`] to merge them into a single message.
     pub fn fan_in(sources: Vec<impl Into<ExecutorId>>, target: impl Into<ExecutorId>) -> Self {
         let source_ids: Vec<ExecutorId> = sources.into_iter().map(Into::into).collect();
         let target_id = target.into();
@@ -359,7 +372,36 @@ impl<T: Send + Sync + 'static> Edge<T> {
             switch_fn: None,
             selection_fn: None,
             default_target: None,
+            aggregate_fn: None,
         }
+    }
+
+    /// Create a fan-in edge that combines the joined messages into one.
+    ///
+    /// The target runs once, with the value `aggregate` returns. The inputs are
+    /// ordered like `sources`; a source that sent several messages contributes
+    /// them in sending order.
+    pub fn fan_in_with<F>(
+        sources: Vec<impl Into<ExecutorId>>,
+        target: impl Into<ExecutorId>,
+        aggregate: F,
+    ) -> Self
+    where
+        F: Fn(Vec<T>) -> T + Send + Sync + 'static,
+    {
+        let mut edge = Self::fan_in(sources, target);
+        edge.aggregate_fn = Some(Arc::new(aggregate));
+        edge
+    }
+
+    /// Whether this edge merges joined messages into one.
+    pub fn has_aggregate(&self) -> bool {
+        self.aggregate_fn.is_some()
+    }
+
+    /// Combine joined messages with this edge's aggregation function, if any.
+    pub fn aggregate(&self, inputs: Vec<T>) -> Option<T> {
+        self.aggregate_fn.as_ref().map(|f| f(inputs))
     }
 
     // ========================================================================
@@ -492,6 +534,7 @@ impl<T: Send + Sync + 'static> fmt::Debug for Edge<T> {
             .field("has_switch_fn", &self.switch_fn.is_some())
             .field("has_selection_fn", &self.selection_fn.is_some())
             .field("default_target", &self.default_target)
+            .field("has_aggregate_fn", &self.aggregate_fn.is_some())
             .finish()
     }
 }
