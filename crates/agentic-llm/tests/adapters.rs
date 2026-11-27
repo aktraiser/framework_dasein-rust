@@ -578,3 +578,119 @@ async fn gemini_sends_back_the_thought_signature_of_a_tool_call() {
     let unsigned: serde_json::Value = serde_json::from_slice(&requests[0].body).unwrap();
     assert!(!unsigned.to_string().contains("thoughtSignature"));
 }
+
+#[tokio::test]
+async fn ollama_declares_tools_reads_calls_and_sends_results_back() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/chat"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "message": {"role": "assistant", "content": "", "tool_calls": [
+                {"function": {"name": "get_weather", "arguments": {"city": "Paris"}}},
+                // Some models send the arguments as a string.
+                {"function": {"name": "get_time", "arguments": "{\"zone\":\"CET\"}"}},
+            ]},
+            "done": true, "done_reason": "stop", "prompt_eval_count": 9, "eval_count": 4,
+        })))
+        .mount(&server)
+        .await;
+    let tools = [
+        Tool::new("get_weather", "Weather of a city").with_string_param("city", "Name"),
+        Tool::new("get_time", "Time in a zone").with_string_param("zone", "Zone"),
+    ];
+    let adapter = ollama(&server);
+    assert!(adapter.supports_tools());
+
+    let question = LLMMessage::user("Weather and time in Paris?");
+    let first = adapter
+        .generate_with_tools(std::slice::from_ref(&question), &tools)
+        .await
+        .unwrap();
+    assert_eq!(first.finish_reason, FinishReason::ToolCalls);
+    assert_eq!(first.tokens_used.total, 13);
+    let [weather, time] = &first.tool_calls[..] else {
+        panic!("{:?}", first.tool_calls)
+    };
+    assert_eq!(
+        (weather.name.as_str(), &weather.arguments),
+        ("get_weather", &json!({"city": "Paris"}))
+    );
+    assert_eq!(
+        (time.name.as_str(), &time.arguments),
+        ("get_time", &json!({"zone": "CET"}))
+    );
+    // Ollama gives no IDs: the adapter makes distinct ones.
+    assert!(!weather.id.is_empty() && weather.id != time.id);
+
+    // The next round carries the calls and each result under its tool's name.
+    adapter
+        .generate_with_tools(
+            &[
+                question,
+                LLMMessage::assistant_with_tool_calls("", first.tool_calls.clone()),
+                LLMMessage::tool_result(time.id.clone(), "14:05"),
+                LLMMessage::tool_result(weather.id.clone(), "12°C"),
+            ],
+            &tools,
+        )
+        .await
+        .unwrap();
+    let requests = server.received_requests().await.unwrap();
+    let declared: serde_json::Value = serde_json::from_slice(&requests[0].body).unwrap();
+    assert_eq!(
+        declared["tools"][0],
+        json!({"type": "function", "function": {
+            "name": "get_weather", "description": "Weather of a city",
+            "parameters": tools[0].parameters,
+        }})
+    );
+    assert_eq!(declared["stream"], false);
+    let sent: serde_json::Value = serde_json::from_slice(&requests[1].body).unwrap();
+    assert_eq!(
+        sent["messages"],
+        json!([
+            {"role": "user", "content": "Weather and time in Paris?"},
+            {"role": "assistant", "content": "", "tool_calls": [
+                {"type": "function", "function": {"name": "get_weather", "arguments": {"city": "Paris"}}},
+                {"type": "function", "function": {"name": "get_time", "arguments": {"zone": "CET"}}},
+            ]},
+            {"role": "tool", "tool_name": "get_time", "content": "14:05"},
+            {"role": "tool", "tool_name": "get_weather", "content": "12°C"},
+        ])
+    );
+}
+
+#[tokio::test]
+async fn ollama_reports_a_model_without_tools_and_answers_plainly_without_any() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/chat"))
+        .and(body_string_contains("\"tools\""))
+        .respond_with(ResponseTemplate::new(400).set_body_json(
+            json!({"error": "registry.ollama.ai/library/tiny:latest does not support tools"}),
+        ))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/chat"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "message": {"content": "plain"}, "done": true,
+        })))
+        .mount(&server)
+        .await;
+    let adapter = ollama(&server).with_max_retries(0);
+    let tool = Tool::new("get_weather", "Weather").with_string_param("city", "Name");
+    let error = adapter
+        .generate_with_tools(&[LLMMessage::user("hi")], &[tool])
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("does not support tools"), "{error}");
+    // Without tools to declare, the request is an ordinary one.
+    let answer = adapter
+        .generate_with_tools(&[LLMMessage::user("hi")], &[])
+        .await
+        .unwrap();
+    assert_eq!(answer.content, "plain");
+    assert!(answer.tool_calls.is_empty());
+}

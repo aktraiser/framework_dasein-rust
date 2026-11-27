@@ -13,7 +13,7 @@
 #![cfg(feature = "mcp")]
 
 use dasein_agentic_core::distributed::graph::agent::{Agent, AgentThread, ChatAgent, ChatMessage};
-use dasein_agentic_llm::GeminiAdapter;
+use dasein_agentic_llm::{GeminiAdapter, LLMAdapter, OllamaAdapter};
 use dasein_agentic_mcp::client::{MCPClientPool, MCPConfig, MCPServerConfig};
 use std::sync::Arc;
 
@@ -27,7 +27,31 @@ async fn real_model_discovers_and_calls_an_mcp_tool() {
         eprintln!("skipped: GEMINI_API_KEY or LIVE_GEMINI_MODEL is not set");
         return;
     };
+    discovers_and_calls(GeminiAdapter::new(key, model)).await;
+}
 
+/// The same with a model served by Ollama on this machine: nothing leaves
+/// it. The model must have the `tools` capability.
+///
+/// ```bash
+/// LIVE_OLLAMA_MODEL=mistral:7b cargo test -p dasein-agentic-core \
+///   --features mcp --test live_mcp_agent -- --include-ignored --nocapture local_model
+/// ```
+#[tokio::test]
+#[ignore = "needs a running Ollama server"]
+async fn local_model_discovers_and_calls_an_mcp_tool() {
+    let Ok(model) = std::env::var("LIVE_OLLAMA_MODEL") else {
+        eprintln!("skipped: LIVE_OLLAMA_MODEL is not set");
+        return;
+    };
+    let mut adapter = OllamaAdapter::new(model).with_temperature(0.0);
+    if let Ok(url) = std::env::var("LIVE_OLLAMA_URL") {
+        adapter = adapter.with_base_url(url);
+    }
+    discovers_and_calls(adapter).await;
+}
+
+async fn discovers_and_calls<L: LLMAdapter + 'static>(llm: L) {
     // The server records the calls it receives in this file.
     let calls = std::env::temp_dir().join(format!("orders-mcp-{}.jsonl", uuid::Uuid::new_v4()));
     let script = concat!(
@@ -47,7 +71,7 @@ async fn real_model_discovers_and_calls_an_mcp_tool() {
 
     // Nothing about the tools is told to the agent: it gets them from the
     // server.
-    let agent = ChatAgent::new("support", GeminiAdapter::new(key, model))
+    let agent = ChatAgent::new("support", llm)
         .with_mcp_tools(Arc::new(pool))
         .await
         .unwrap();
