@@ -476,6 +476,15 @@ where
     fn previous_errors(&self) -> &[ExecutorError] {
         &self.previous_errors
     }
+
+    fn invocation(&self) -> Option<super::executor::Invocation> {
+        Some(super::executor::Invocation {
+            workflow_id: self.workflow_id.clone(),
+            task_id: self.task_id.clone(),
+            superstep: self.superstep,
+            executor_id: self.executor_id.clone(),
+        })
+    }
 }
 
 // ============================================================================
