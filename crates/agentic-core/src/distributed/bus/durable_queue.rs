@@ -24,6 +24,16 @@ pub struct DurableQueueConfig {
     pub max_result_bytes: i64,
     pub ack_wait: Duration,
     pub max_in_flight: i64,
+    /// How long the record of a task, with its result, is kept, counted
+    /// from its last change (submission, then completion). After that the
+    /// task is forgotten: submitted again, it runs again. A task that waits
+    /// and runs for longer still completes, but may be accepted a second
+    /// time meanwhile: keep this above the time your tasks take.
+    ///
+    /// The ledger must hold every task of that period within
+    /// `max_result_bytes`. When it is full, tasks can neither be submitted
+    /// nor completed until records expire.
+    pub result_ttl: Duration,
 }
 impl Default for DurableQueueConfig {
     fn default() -> Self {
@@ -33,6 +43,7 @@ impl Default for DurableQueueConfig {
             max_result_bytes: 512 * 1024 * 1024,
             ack_wait: Duration::from_secs(30),
             max_in_flight: 128,
+            result_ttl: Duration::from_secs(60 * 60),
         }
     }
 }
@@ -52,7 +63,8 @@ struct Record {
     outcome: TaskOutcome,
 }
 
-/// A namespaced work queue. Completed outcomes remain in the bounded ledger.
+/// A namespaced work queue. The record of a task, with its outcome, stays
+/// in the ledger for `result_ttl`.
 #[derive(Clone)]
 pub struct DurableQueue {
     context: jetstream::Context,
@@ -60,6 +72,76 @@ pub struct DurableQueue {
     ledger: kv::Store,
     namespace: String,
     config: DurableQueueConfig,
+    hub: Arc<Hub>,
+}
+
+/// How often a wait reads the record itself, whatever the subscription says.
+const RECHECK: Duration = Duration::from_secs(2);
+
+type Waiting = std::collections::HashMap<String, Vec<tokio::sync::oneshot::Sender<TaskOutcome>>>;
+
+/// Where the waits of a queue meet the results the server pushes.
+struct Hub {
+    /// Waits by ledger key.
+    waiting: std::sync::Mutex<Waiting>,
+    /// The subscription task, once started.
+    task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// Whether the subscription is currently established.
+    watching: tokio::sync::watch::Sender<bool>,
+}
+
+impl Default for Hub {
+    fn default() -> Self {
+        Self {
+            waiting: std::sync::Mutex::default(),
+            task: std::sync::Mutex::default(),
+            watching: tokio::sync::watch::Sender::new(false),
+        }
+    }
+}
+
+impl Hub {
+    fn waiting(&self) -> std::sync::MutexGuard<'_, Waiting> {
+        self.waiting
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Hand a recorded result to the waits for its task, if any.
+    fn deliver(&self, entry: &kv::Entry) {
+        if entry.operation != kv::Operation::Put || !self.waiting().contains_key(&entry.key) {
+            return;
+        }
+        let Ok(record) = serde_json::from_slice::<Record>(&entry.value) else {
+            return;
+        };
+        if record.outcome == TaskOutcome::Pending {
+            return;
+        }
+        if let Some(waits) = self.waiting().remove(&entry.key) {
+            for wait in waits {
+                let _ = wait.send(record.outcome.clone());
+            }
+        }
+    }
+}
+
+/// Removes the ended waits of a task from the hub.
+struct Unregister<'a> {
+    hub: &'a Hub,
+    key: &'a str,
+}
+
+impl Drop for Unregister<'_> {
+    fn drop(&mut self) {
+        let mut waiting = self.hub.waiting();
+        if let Some(waits) = waiting.get_mut(self.key) {
+            waits.retain(|wait| !wait.is_closed());
+            if waits.is_empty() {
+                waiting.remove(self.key);
+            }
+        }
+    }
 }
 
 fn error(e: impl std::fmt::Display) -> BusError {
@@ -103,13 +185,19 @@ impl DurableQueue {
             || config.max_pending < 1
             || config.max_in_flight < 1
             || config.ack_wait.is_zero()
+            || config.result_ttl.is_zero()
         {
-            return Err(error("Queue limits and ACK deadline must be positive"));
+            return Err(error(
+                "Queue limits, ACK deadline and result lifetime must be positive",
+            ));
         }
         let context = nats
             .jetstream()
             .ok_or_else(|| error("JetStream required"))?
             .clone();
+        // A task ID is refused as a duplicate for as long as its record is
+        // kept, not longer: a forgotten task must be able to run again.
+        let duplicate_window = config.result_ttl.min(Duration::from_secs(24 * 60 * 60));
         let stream = context
             .get_or_create_stream(stream::Config {
                 name: format!("DASEIN_TASKS_{namespace}"),
@@ -119,7 +207,7 @@ impl DurableQueue {
                 discard: stream::DiscardPolicy::New,
                 max_messages: config.max_pending,
                 max_bytes: config.max_queue_bytes,
-                duplicate_window: Duration::from_secs(24 * 60 * 60),
+                duplicate_window,
                 ..Default::default()
             })
             .await
@@ -137,18 +225,17 @@ impl DurableQueue {
             ));
         }
         let bucket = format!("DASEIN_RESULTS_{namespace}");
+        let ledger_settings = kv::Config {
+            bucket: bucket.clone(),
+            history: 1,
+            max_bytes: config.max_result_bytes,
+            max_age: config.result_ttl,
+            storage: stream::StorageType::File,
+            ..Default::default()
+        };
         let ledger = match context.get_key_value(&bucket).await {
             Ok(store) => store,
-            Err(_) => match context
-                .create_key_value(kv::Config {
-                    bucket: bucket.clone(),
-                    history: 1,
-                    max_bytes: config.max_result_bytes,
-                    storage: stream::StorageType::File,
-                    ..Default::default()
-                })
-                .await
-            {
+            Err(_) => match context.create_key_value(ledger_settings.clone()).await {
                 Ok(store) => store,
                 Err(create_error) => context
                     .get_key_value(&bucket)
@@ -156,22 +243,57 @@ impl DurableQueue {
                     .map_err(|_| error(create_error))?,
             },
         };
-        let ledger_config = ledger.status().await.map_err(error)?.info.config;
+        let mut ledger_config = ledger.status().await.map_err(error)?.info.config;
+        // A ledger made by an earlier version keeps its records for ever,
+        // and fills up: give it the lifetime asked for.
+        // Only the lifetime changes: whatever else was set on the bucket,
+        // such as its replicas, stays.
+        let ledger = if ledger_config.max_age.is_zero()
+            && ledger_config.max_bytes == config.max_result_bytes
+            && ledger_config.storage == stream::StorageType::File
+            && ledger_config.max_messages_per_subject == 1
+        {
+            let mut wanted = ledger_config.clone();
+            wanted.max_age = config.result_ttl;
+            // The server wants this window no longer than the lifetime.
+            wanted.duplicate_window = wanted.duplicate_window.min(config.result_ttl);
+            context.update_stream(wanted).await.map_err(error)?;
+            let ledger = context.get_key_value(&bucket).await.map_err(error)?;
+            ledger_config = ledger.status().await.map_err(error)?.info.config;
+            ledger
+        } else {
+            ledger
+        };
         if ledger_config.max_bytes != config.max_result_bytes
             || ledger_config.storage != stream::StorageType::File
-            || !ledger_config.max_age.is_zero()
+            || ledger_config.max_age != config.result_ttl
             || ledger_config.max_messages_per_subject != 1
         {
             return Err(error(
                 "Existing result ledger configuration differs; migrate it explicitly",
             ));
         }
+        // Last, once this process is known to agree with the queue: a queue
+        // made by an earlier version refuses a known task ID for a day,
+        // longer than its record is now kept.
+        let stream = if stream.cached_info().config.duplicate_window == duplicate_window {
+            stream
+        } else {
+            let mut wanted = stream.cached_info().config.clone();
+            wanted.duplicate_window = duplicate_window;
+            context.update_stream(wanted).await.map_err(error)?;
+            context
+                .get_stream(format!("DASEIN_TASKS_{namespace}"))
+                .await
+                .map_err(error)?
+        };
         Ok(Self {
             context,
             stream,
             ledger,
             namespace: namespace.into(),
             config,
+            hub: Arc::default(),
         })
     }
 
@@ -190,19 +312,22 @@ impl DurableQueue {
             task: task.clone(),
             outcome: TaskOutcome::Pending,
         };
-        if self
+        if let Err(refusal) = self
             .ledger
             .create(
                 &task_key,
                 serde_json::to_vec(&record).map_err(error)?.into(),
             )
             .await
-            .is_err()
         {
-            let existing = self
-                .record(&task.id)
-                .await?
-                .ok_or_else(|| error("Could not reserve task ID"))?;
+            // Refused and not there: the ledger itself said no, as it does
+            // when it is full.
+            let existing = self.record(&task.id).await?.ok_or_else(|| {
+                error(format!(
+                    "Could not record the task ({refusal}); a full result ledger takes new \
+                     tasks again as records expire"
+                ))
+            })?;
             if existing.task.payload != task.payload
                 || existing.task.supervisor != task.supervisor
                 || existing.task.depends_on != task.depends_on
@@ -246,47 +371,171 @@ impl DurableQueue {
     /// Wait up to `timeout` for a task to finish, and return its state then:
     /// its result or failure, or `Pending` if it is still not done.
     ///
-    /// The result is pushed by the server when it is recorded; nothing is
-    /// polled meanwhile.
+    /// Results are pushed by the server as they are recorded, over one
+    /// subscription shared by every wait of this queue and its clones. The
+    /// record is also read again every few seconds, so that a result still
+    /// arrives if that subscription is being re-established.
     pub async fn wait_outcome(
         &self,
         id: &str,
         timeout: Duration,
     ) -> Result<Option<TaskOutcome>, BusError> {
         let deadline = tokio::time::Instant::now() + timeout;
-        // The current record first, then every change to it.
-        let mut changes = self
-            .ledger
-            .watch_with_history(key(id)?)
-            .await
-            .map_err(error)?;
-        loop {
-            match tokio::time::timeout_at(deadline, changes.next()).await {
-                Err(_) => return self.outcome(id).await,
-                Ok(None) => return Err(error("Result watch ended")),
-                Ok(Some(entry)) => {
-                    let entry = entry.map_err(error)?;
-                    if entry.operation != kv::Operation::Put {
-                        continue;
-                    }
-                    let record: Record = serde_json::from_slice(&entry.value).map_err(error)?;
-                    if record.outcome != TaskOutcome::Pending {
-                        return Ok(Some(record.outcome));
-                    }
+        let task_key = key(id)?;
+        self.watch_results();
+        // Dropped after the receiver: forgets this wait in the hub.
+        let _forget = Unregister {
+            hub: &self.hub,
+            key: &task_key,
+        };
+        let (found, mut pushed) = tokio::sync::oneshot::channel();
+        self.hub
+            .waiting()
+            .entry(task_key.clone())
+            .or_default()
+            .push(found);
+        if !*self.hub.watching.borrow() {
+            // No subscription yet, or it is being re-established. A task
+            // that is already done needs none.
+            if let Ok(outcome) = self.outcome(id).await {
+                if !matches!(outcome, Some(TaskOutcome::Pending) | None) {
+                    return Ok(outcome);
                 }
+            }
+            // A result recorded before the subscription exists would not
+            // be pushed: give it a moment to start.
+            let mut watching = self.hub.watching.subscribe();
+            let _ = tokio::time::timeout(
+                Duration::from_secs(1),
+                watching.wait_for(|watching| *watching),
+            )
+            .await;
+        }
+        let mut pushed_open = true;
+        loop {
+            // A record that cannot be read (the server is restarting, the
+            // network is down) is not a reason to give up before the time
+            // is over: the result may well be there at the next read.
+            let read = self.outcome(id).await;
+            if let Ok(outcome) = &read {
+                if !matches!(outcome, Some(TaskOutcome::Pending) | None) {
+                    return read;
+                }
+            }
+            let now = tokio::time::Instant::now();
+            if now >= deadline {
+                return read;
+            }
+            let recheck = tokio::time::sleep_until(deadline.min(now + RECHECK));
+            tokio::select! {
+                outcome = &mut pushed, if pushed_open => match outcome {
+                    Ok(outcome) => return Ok(Some(outcome)),
+                    Err(_) => pushed_open = false,
+                },
+                () = recheck => {}
             }
         }
     }
 
-    async fn finish(&self, id: &str, outcome: TaskOutcome) -> Result<(), BusError> {
+    /// Start the task that receives recorded results and hands them to the
+    /// waits, unless it is running. It ends when the queue and all its clones
+    /// are dropped, or with the runtime it was started on: a later wait then
+    /// starts it again.
+    fn watch_results(&self) {
+        let mut task = self
+            .hub
+            .task
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if task.as_ref().is_some_and(|task| !task.is_finished()) {
+            return;
+        }
+        self.hub.watching.send_replace(false);
+        let hub = Arc::downgrade(&self.hub);
+        let ledger = self.ledger.clone();
+        *task = Some(tokio::spawn(async move {
+            let mut pause = Duration::from_millis(250);
+            loop {
+                match ledger.watch_all().await {
+                    Ok(mut changes) => {
+                        pause = Duration::from_millis(250);
+                        let Some(alive) = hub.upgrade() else { return };
+                        alive.watching.send_replace(true);
+                        drop(alive);
+                        loop {
+                            // Looking up now and then whether anyone is left.
+                            let next =
+                                tokio::time::timeout(Duration::from_secs(5), changes.next()).await;
+                            let Some(hub) = hub.upgrade() else { return };
+                            match next {
+                                Err(_) => {}
+                                Ok(Some(Ok(entry))) => hub.deliver(&entry),
+                                Ok(Some(Err(error))) => {
+                                    tracing::warn!(%error, "Result subscription failed");
+                                    hub.watching.send_replace(false);
+                                    break;
+                                }
+                                Ok(None) => {
+                                    hub.watching.send_replace(false);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, retry_in = ?pause, "Could not subscribe to results");
+                    }
+                }
+                if hub.strong_count() == 0 {
+                    return;
+                }
+                tokio::time::sleep(pause).await;
+                pause = (pause * 2).min(Duration::from_secs(30));
+            }
+        }));
+    }
+
+    async fn finish(&self, id: &str, task: &Task, outcome: TaskOutcome) -> Result<(), BusError> {
         let task_key = key(id)?;
         for _ in 0..32 {
-            let entry = self
-                .ledger
-                .entry(&task_key)
-                .await
-                .map_err(error)?
-                .ok_or_else(|| error("Task ledger entry missing"))?;
+            let Some(entry) = self.ledger.entry(&task_key).await.map_err(error)? else {
+                // The record expired while the task waited or ran, longer
+                // than `result_ttl`: write it anew with the outcome, so the
+                // work is not lost. Someone else doing so first is fine.
+                let record = Record {
+                    task: task.clone(),
+                    outcome: outcome.clone(),
+                };
+                if self
+                    .ledger
+                    .create(
+                        &task_key,
+                        serde_json::to_vec(&record).map_err(error)?.into(),
+                    )
+                    .await
+                    .is_ok()
+                {
+                    return Ok(());
+                }
+                tokio::task::yield_now().await;
+                continue;
+            };
+            // A deleted record reads as an entry without a value.
+            if entry.operation != kv::Operation::Put {
+                self.ledger
+                    .put(
+                        &task_key,
+                        serde_json::to_vec(&Record {
+                            task: task.clone(),
+                            outcome: outcome.clone(),
+                        })
+                        .map_err(error)?
+                        .into(),
+                    )
+                    .await
+                    .map_err(error)?;
+                return Ok(());
+            }
             let mut record: Record = serde_json::from_slice(&entry.value).map_err(error)?;
             if record.outcome != TaskOutcome::Pending {
                 return Ok(());
@@ -394,7 +643,7 @@ impl DurableWorker {
             }
             if let Some(reason) = failed {
                 self.queue
-                    .finish(&task.id, TaskOutcome::Failed(reason))
+                    .finish(&task.id, &task, TaskOutcome::Failed(reason))
                     .await?;
                 message.double_ack().await.map_err(error)?;
                 continue;
@@ -427,14 +676,18 @@ impl TaskDelivery {
     /// Persist completion before confirming ACK; duplicate deliveries skip work.
     pub async fn complete(self, result: Value) -> Result<(), BusError> {
         self.queue
-            .finish(&self.task_id, TaskOutcome::Completed(result))
+            .finish(&self.task_id, &self.task, TaskOutcome::Completed(result))
             .await?;
         self.message.double_ack().await.map_err(error)
     }
     /// Persist a terminal failure and remove the message from the work queue.
     pub async fn fail(self, reason: impl Into<String>) -> Result<(), BusError> {
         self.queue
-            .finish(&self.task_id, TaskOutcome::Failed(reason.into()))
+            .finish(
+                &self.task_id,
+                &self.task,
+                TaskOutcome::Failed(reason.into()),
+            )
             .await?;
         self.message.double_ack().await.map_err(error)
     }
