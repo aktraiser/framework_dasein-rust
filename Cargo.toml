@@ -16,7 +16,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT"
@@ -91,16 +91,16 @@ wiremock = "0.6"
 
 # Workspace crates (internal)
 # For local dev: use path. For publish: cargo will use version from crates.io
-dasein-agentic-core = { version = "0.1.0", path = "crates/agentic-core" }
-dasein-agentic-llm = { version = "0.1.0", path = "crates/agentic-llm" }
-dasein-agentic-sandbox = { version = "0.1.0", path = "crates/agentic-sandbox" }
-dasein-agentic-mcp = { version = "0.1.0", path = "crates/agentic-mcp" }
-dasein-agentic-bus = { version = "0.1.0", path = "crates/agentic-bus" }
-dasein-agentic-storage = { version = "0.1.0", path = "crates/agentic-storage" }
-dasein-agentic-orchestrator = { version = "0.1.0", path = "crates/agentic-orchestrator" }
-dasein-agentic-chat-platforms = { version = "0.1.0", path = "crates/agentic-chat-platforms" }
-dasein-agentic-tools = { version = "0.1.0", path = "crates/agentic-tools" }
-dasein-agentic-skills = { version = "0.1.0", path = "crates/agentic-skills" }
+dasein-agentic-core = { version = "0.2.0", path = "crates/agentic-core" }
+dasein-agentic-llm = { version = "0.2.0", path = "crates/agentic-llm" }
+dasein-agentic-sandbox = { version = "0.2.0", path = "crates/agentic-sandbox" }
+dasein-agentic-mcp = { version = "0.2.0", path = "crates/agentic-mcp" }
+dasein-agentic-bus = { version = "0.2.0", path = "crates/agentic-bus" }
+dasein-agentic-storage = { version = "0.2.0", path = "crates/agentic-storage" }
+dasein-agentic-orchestrator = { version = "0.2.0", path = "crates/agentic-orchestrator" }
+dasein-agentic-chat-platforms = { version = "0.2.0", path = "crates/agentic-chat-platforms" }
+dasein-agentic-tools = { version = "0.2.0", path = "crates/agentic-tools" }
+dasein-agentic-skills = { version = "0.2.0", path = "crates/agentic-skills" }
 
 # Utils
 base64 = "0.22"

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-27
+
+Not published on crates.io: depend on the repository at the tag `v0.2.0`.
+
 ### Security
 - The legacy `Agent` refuses to run model-generated code on a sandbox without isolation unless the host opts in; `ProcessSandbox` no longer passes secret-looking environment variables to executed code.
 - Gateway: the remote shell endpoint `POST /v1/vm/exec` is removed; the SSH host key is pinned; the dashboard is protected against cross-site requests and login brute force.
@@ -15,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dependencies with known advisories are updated.
 
 ### Added
+- Remote steps: `RemoteExecutor` runs a workflow step on `RemoteWorker`s in other processes, over a `DurableQueue` on NATS JetStream or an `InMemoryTaskQueue`; `NatsStateBackend` shares workflow state between them. See `docs/REMOTE_EXECUTORS.md` and the `remote_steps` example.
+- `ChatAgent::with_mcp_tools` (feature `mcp`): an agent takes its tools from MCP servers.
+- Metrics for workflows, executors, model and tool calls, served to Prometheus (feature `prometheus`) or exported as OpenTelemetry spans (feature `otel`). See `docs/OBSERVABILITY.md`.
+- Tests against the real provider APIs, off by default: `scripts/live-tests.sh` and `docs/LIVE_TESTS.md`.
 - `soak` example: a load and duration test of workflows with a remote step, in memory or through NATS.
 - `DurableQueueConfig::result_ttl`, `InMemoryStateBackend::forget`, `InMemoryTaskQueue::remembering`.
 - MCP client: stdio transport, `initialize` handshake, sessions, reconnection, all content types.
@@ -25,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Gateway: several processes can serve from one SQLite file on a machine. Box executions, the box limit and failed dashboard logins are coordinated through the database, which is opened in WAL mode.
 
 ### Changed
+- The record of a remote task, with its result, is kept for `result_ttl` instead of for ever: a retry or resume that sends the same task again after that runs it again.
+- The legacy `Agent`, the sequencer and the crates they superseded are deprecated in favour of the graph runtime.
 - A fan-in edge now waits for its sources and delivers their messages together.
 - `WorkflowAgent::run` returns an error when the workflow fails.
 - Anthropic and Gemini report `FinishReason::ToolCalls` when the model asks for a tool.
@@ -33,6 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Rust toolchain is pinned in `rust-toolchain.toml`.
 
 ### Fixed
+- Gemini: the thought signature of a tool call is sent back with it, which models that sign their tool calls require on the next round.
+- Gateway: a request reserves its expected tokens when it arrives, so requests running in parallel count against each other.
+- Gateway: processes started together on a new database no longer fail with "database is locked".
 - Remote steps over NATS no longer fail with "maximum consumers limit reached" under load: waits share one subscription instead of creating one each.
 - The result ledger of a `DurableQueue` no longer fills up for good: records expire after `result_ttl` (one hour by default), and a full ledger is reported as such.
 - A workflow no longer keeps the shared state of every run it ever made in memory, and `InMemoryTaskQueue` remembers the last 10 000 results instead of all of them.
@@ -61,5 +74,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/aktraiser/framework_dasein-rust/commits/main
+[Unreleased]: https://github.com/aktraiser/framework_dasein-rust/compare/v0.2.0...main
+[0.2.0]: https://github.com/aktraiser/framework_dasein-rust/releases/tag/v0.2.0
 [0.1.0]: https://crates.io/crates/dasein-agentic-core/0.1.0
