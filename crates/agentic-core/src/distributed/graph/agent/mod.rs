@@ -107,7 +107,7 @@ pub use tools::{Tool, ToolParam, ToolParameters};
 pub use trait_def::{Agent, AgentExt, BoxedAgent, SharedAgent};
 
 // === Implementations ===
-pub use chat_agent::ChatAgent;
+pub use chat_agent::{AgentExecutionCheckpoint, AgentExecutionStore, ChatAgent};
 pub use workflow_agent::{WorkflowAgent, WorkflowAsAgent};
 
 // === Memory ===

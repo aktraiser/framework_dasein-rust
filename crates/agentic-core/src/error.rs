@@ -17,6 +17,10 @@ pub enum AgentError {
     #[error("Sandbox required for execution but not configured")]
     SandboxRequired,
 
+    /// Model-generated code would run on a sandbox with no isolation
+    #[error("Refusing to run model-generated code on a non-isolated sandbox; use an isolated sandbox or opt in with Agent::with_unisolated_execution(true)")]
+    SandboxNotIsolated,
+
     /// LLM error
     #[error("LLM error: {0}")]
     LLMError(String),

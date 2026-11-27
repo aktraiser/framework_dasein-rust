@@ -325,6 +325,8 @@ where
     }
 
     /// Get skills that need improvement (low success rate).
+    // Kept async: the real implementation will query the store.
+    #[allow(unknown_lints, clippy::unused_async_trait_impl)]
     pub async fn get_skills_needing_improvement(
         &self,
         threshold: f64,

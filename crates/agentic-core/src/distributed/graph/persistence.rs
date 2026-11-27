@@ -252,7 +252,7 @@ impl PersistentCheckpointBackend for InMemoryPersistentBackend {
             .map(CheckpointMetadata::from)
             .collect();
 
-        result.sort_by(|a, b| b.superstep.cmp(&a.superstep));
+        result.sort_by_key(|a| std::cmp::Reverse(a.superstep));
         Ok(result)
     }
 
@@ -273,7 +273,7 @@ impl PersistentCheckpointBackend for InMemoryPersistentBackend {
             .map(|(id, c)| (id.clone(), c.superstep()))
             .collect();
 
-        matching.sort_by(|a, b| b.1.cmp(&a.1));
+        matching.sort_by_key(|a| std::cmp::Reverse(a.1));
 
         // Remove all but the last `keep_count`
         let to_remove: Vec<_> = matching

@@ -243,7 +243,7 @@ impl LiaisonArchitect {
         for cap in struct_re.captures_iter(code) {
             let name = cap[1].to_string();
             report.defined_types.insert(name.clone());
-            report.defined_fields.insert(name.clone(), HashSet::new());
+            report.defined_fields.insert(name, HashSet::new());
         }
 
         // Extract enum definitions
@@ -292,7 +292,7 @@ impl LiaisonArchitect {
                 continue;
             }
 
-            report.defined_methods.entry(type_name.clone()).or_default();
+            report.defined_methods.entry(type_name).or_default();
         }
 
         // Extract method definitions

@@ -186,12 +186,69 @@ impl ToolExecutor for GmailTool {
 // ============================================================================
 
 /// Gmail send tool.
-pub struct GmailSendTool;
+///
+/// The recipient is chosen by the model, and the model may have read
+/// untrusted text (an email body, a web page) telling it where to send data.
+/// The tool therefore only sends to recipients the host has allowed, and
+/// refuses everything until an allow-list is configured.
+pub struct GmailSendTool {
+    allowed_recipients: Vec<String>,
+}
 
 impl GmailSendTool {
-    /// Create a new Gmail send tool.
+    /// Create a Gmail send tool that refuses every recipient until
+    /// [`with_allowed_recipients`](Self::with_allowed_recipients) is called.
     pub fn new() -> Self {
-        Self
+        Self {
+            allowed_recipients: Vec::new(),
+        }
+    }
+
+    /// Allow sending to these recipients. Each entry is either a full
+    /// address (`alice@example.com`) or a whole domain (`@example.com`).
+    #[must_use]
+    pub fn with_allowed_recipients<I, S>(mut self, recipients: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.allowed_recipients = recipients
+            .into_iter()
+            .map(|r| r.into().trim().to_ascii_lowercase())
+            .filter(|r| !r.is_empty())
+            .collect();
+        self
+    }
+
+    /// Check that `to` is one plain address covered by the allow-list.
+    fn check_recipient(&self, to: &str) -> Result<(), ToolError> {
+        let invalid =
+            |reason: &str| ToolError::InvalidArgument("to".to_string(), reason.to_string());
+        let to = to.to_ascii_lowercase();
+        // One bare address only: no lists, display names or option-like values.
+        let plain = to.matches('@').count() == 1
+            && !to.starts_with('-')
+            && !to.starts_with('@')
+            && !to.ends_with('@')
+            && !to
+                .contains(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | '<' | '>' | '"'));
+        if !plain {
+            return Err(invalid("expected a single email address"));
+        }
+        let allowed = self.allowed_recipients.iter().any(|entry| {
+            if entry.starts_with('@') {
+                to.ends_with(entry.as_str())
+            } else {
+                to == *entry
+            }
+        });
+        if allowed {
+            Ok(())
+        } else {
+            Err(invalid(
+                "recipient is not in the allow-list configured by the host",
+            ))
+        }
     }
 }
 
@@ -218,6 +275,7 @@ impl ToolExecutor for GmailSendTool {
         let to = arguments["to"]
             .as_str()
             .ok_or_else(|| ToolError::MissingArgument("to".to_string()))?;
+        self.check_recipient(to)?;
         let subject = arguments["subject"]
             .as_str()
             .ok_or_else(|| ToolError::MissingArgument("subject".to_string()))?;
@@ -492,6 +550,37 @@ impl ToolExecutor for DriveTool {
             Ok(ToolResult::ok_with_data(text, files))
         } else {
             Ok(ToolResult::ok(stdout.to_string()))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gmail_send_refuses_everything_by_default() {
+        assert!(GmailSendTool::new()
+            .check_recipient("alice@example.com")
+            .is_err());
+    }
+
+    #[test]
+    fn gmail_send_allow_list() {
+        let tool =
+            GmailSendTool::new().with_allowed_recipients(["Alice@Example.com", "@corp.example"]);
+        assert!(tool.check_recipient("alice@example.com").is_ok());
+        assert!(tool.check_recipient("ALICE@example.com").is_ok());
+        assert!(tool.check_recipient("bob@corp.example").is_ok());
+        for refused in [
+            "bob@example.com",
+            "bob@evilcorp.example",
+            "alice@example.com,eve@evil.test",
+            "eve@evil.test <alice@example.com>",
+            "--attach=/etc/passwd",
+            "@corp.example",
+        ] {
+            assert!(tool.check_recipient(refused).is_err(), "{refused}");
         }
     }
 }

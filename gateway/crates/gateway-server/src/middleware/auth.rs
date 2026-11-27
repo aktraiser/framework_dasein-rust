@@ -79,7 +79,7 @@ pub async fn auth_middleware(
     if state
         .operator_api_key
         .as_deref()
-        .is_some_and(|key| key == token)
+        .is_some_and(|key| constant_time_eq(key.as_bytes(), token.as_bytes()))
     {
         request
             .extensions_mut()
@@ -103,4 +103,13 @@ pub async fn auth_middleware(
         }
     }
     Err(StatusCode::UNAUTHORIZED)
+}
+
+/// Compare two secrets without stopping at the first differing byte, so
+/// response time does not reveal how much of a guessed token is correct.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b).fold(0u8, |diff, (x, y)| diff | (x ^ y)) == 0
 }

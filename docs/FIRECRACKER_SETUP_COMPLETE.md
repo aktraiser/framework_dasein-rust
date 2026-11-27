@@ -29,7 +29,7 @@
 | Paramètre | Valeur |
 |-----------|--------|
 | **Serveur** | Hetzner AX41 (dédié) |
-| **IPv4** | 65.108.230.227 |
+| **IPv4** | YOUR_SERVER_IP |
 | **OS** | Ubuntu 22.04 LTS |
 | **KVM** | `/dev/kvm` disponible |
 
@@ -380,7 +380,7 @@ use dasein_agentic_sandbox::{RemoteSandbox, Sandbox};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let sandbox = RemoteSandbox::new("http://65.108.230.227:8080")
+    let sandbox = RemoteSandbox::new("http://YOUR_SERVER_IP:8080")
         .api_key("votre-clé-secrète")
         .timeout_ms(30000)
         .build();
@@ -467,6 +467,6 @@ systemctl restart caddy
                                                                                                                             
   Testez depuis votre Mac :                                                                                                 
                                                                                                                             
-  curl http://65.108.230.227:8080/health      
+  curl http://YOUR_SERVER_IP:8080/health      
 
-  ssh root@65.108.230.227
+  ssh root@YOUR_SERVER_IP

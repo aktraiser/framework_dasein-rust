@@ -1200,7 +1200,7 @@ pub async fn validate_incrementally<S: Sandbox>(
             stage,
             passed: result.passed,
             code: stage_code.clone(),
-            errors: errors.clone(),
+            errors,
             duration_ms: stage_start.elapsed().as_millis() as u64,
         };
 

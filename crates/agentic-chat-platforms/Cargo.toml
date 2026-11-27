@@ -42,10 +42,12 @@ uuid = { workspace = true }
 regex = { workspace = true }
 
 # Telegram (optional)
-teloxide = { version = "0.13", features = ["macros"], optional = true }
+teloxide = { version = "0.17", features = ["macros"], optional = true }
 
 # Discord (optional)
-serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "model", "rustls_backend"], optional = true }
+# native TLS: the rustls backend of serenity 0.12 pins rustls 0.22, which has
+# unfixed advisories (RUSTSEC-2026-0349 and others).
+serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "model", "native_tls_backend"], optional = true }
 
 # Slack (optional)
 slack-morphism = { version = "2.5", features = ["hyper"], optional = true }

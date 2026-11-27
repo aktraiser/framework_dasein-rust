@@ -12,7 +12,7 @@
 //! GEMINI_API_KEY=xxx ANTHROPIC_API_KEY=xxx cargo run --example ts_executor
 //!
 //! # With remote Firecracker sandbox:
-//! FIRECRACKER_URL=http://65.108.230.227:8080 \
+//! FIRECRACKER_URL=http://your-server.example.com:8080 \
 //! GEMINI_API_KEY=xxx cargo run --example ts_executor --features remote
 //! ```
 

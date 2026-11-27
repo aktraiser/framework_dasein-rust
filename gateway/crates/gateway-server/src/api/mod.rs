@@ -116,7 +116,6 @@ pub fn create_router(state: AppState) -> Router {
         .route("/v1/vm/restart", post(vm::restart_vm))
         .route("/v1/vm/status", get(vm::vm_status))
         .route("/v1/vm/ensure", post(vm::ensure_vm))
-        .route("/v1/vm/exec", post(vm::exec_ssh))
         // Health endpoints
         .route("/health", get(health::health_check))
         .route("/metrics", get(health::metrics))

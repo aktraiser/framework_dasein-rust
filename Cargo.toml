@@ -72,7 +72,7 @@ rmcp = { version = "0.14", features = ["server", "client", "transport-io", "macr
 schemars = "0.8"
 
 # Message Bus
-async-nats = "0.38"
+async-nats = "0.53"
 
 # Storage
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
@@ -109,6 +109,9 @@ tempfile = "3.14"
 [workspace.lints.rust]
 unsafe_code = "forbid"
 missing_docs = "allow"  # Will be enforced when API stabilizes
+# CI runs the latest stable clippy; lints named below may not exist on the
+# older toolchains contributors use locally.
+unknown_lints = "allow"
 
 [workspace.lints.clippy]
 # Base lint groups (warn by default)
@@ -119,6 +122,10 @@ nursery = { level = "warn", priority = -1 }
 # =============================================================================
 # ALLOWED - Truly pedantic or stylistic (35 lints)
 # =============================================================================
+
+# Tests - `assert!(!x.is_empty())` reads better than the suggested
+# `assert_ne!(x, [] as [T; 0])` (lint added in Rust 1.100)
+assert_is_empty = "allow"
 
 # Documentation - enforce later
 missing_errors_doc = "allow"

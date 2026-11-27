@@ -352,7 +352,7 @@ impl ThreadStore for NatsThreadStore {
         }
 
         // Sort by updated_at descending
-        summaries.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        summaries.sort_by_key(|a| std::cmp::Reverse(a.updated_at));
 
         Ok(summaries)
     }
@@ -375,7 +375,7 @@ impl ThreadStore for NatsThreadStore {
         }
 
         // Sort by updated_at descending
-        summaries.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        summaries.sort_by_key(|a| std::cmp::Reverse(a.updated_at));
 
         Ok(summaries)
     }
@@ -478,7 +478,7 @@ impl ThreadStore for InMemoryThreadStore {
             .map(ThreadSummary::from)
             .collect();
 
-        summaries.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        summaries.sort_by_key(|a| std::cmp::Reverse(a.updated_at));
         Ok(summaries)
     }
 
@@ -489,7 +489,7 @@ impl ThreadStore for InMemoryThreadStore {
             .map_err(|e| ThreadStoreError::StorageError(e.to_string()))?;
 
         let mut summaries: Vec<_> = threads.values().map(ThreadSummary::from).collect();
-        summaries.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        summaries.sort_by_key(|a| std::cmp::Reverse(a.updated_at));
         Ok(summaries)
     }
 

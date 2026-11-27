@@ -142,6 +142,10 @@ impl Default for DockerSandbox {
 
 #[async_trait]
 impl Sandbox for DockerSandbox {
+    fn is_isolated(&self) -> bool {
+        true
+    }
+
     async fn execute(&self, code: &str) -> Result<ExecutionResult, SandboxError> {
         let docker = Self::client()?;
         let host_config = self.host_config()?;

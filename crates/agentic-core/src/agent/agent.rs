@@ -44,6 +44,7 @@ pub struct Agent<L: LLMAdapter, S: Sandbox> {
     state: Arc<RwLock<AgentState>>,
     metrics: Arc<RwLock<AgentMetrics>>,
     start_time: Arc<RwLock<Option<std::time::Instant>>>,
+    allow_unisolated_execution: bool,
 }
 
 impl<L: LLMAdapter, S: Sandbox> Agent<L, S> {
@@ -64,7 +65,19 @@ impl<L: LLMAdapter, S: Sandbox> Agent<L, S> {
             state: Arc::new(RwLock::new(AgentState::default())),
             metrics: Arc::new(RwLock::new(AgentMetrics::default())),
             start_time: Arc::new(RwLock::new(None)),
+            allow_unisolated_execution: false,
         }
+    }
+
+    /// Allow model-generated code to run on a sandbox that reports no
+    /// isolation (such as `ProcessSandbox`, which runs it on the host).
+    ///
+    /// Off by default. Only enable for trusted tasks on a development machine:
+    /// text in the task can steer the model into running arbitrary commands.
+    #[must_use]
+    pub const fn with_unisolated_execution(mut self, allow: bool) -> Self {
+        self.allow_unisolated_execution = allow;
+        self
     }
 
     /// Get the agent ID.
@@ -284,6 +297,9 @@ impl<L: LLMAdapter, S: Sandbox> Agent<L, S> {
         // 4. EXECUTE: Run in sandbox
         debug!(task_id = %task_id, "EXECUTE: Running code in sandbox");
         let sandbox = self.sandbox.as_ref().ok_or(AgentError::SandboxRequired)?;
+        if !sandbox.is_isolated() && !self.allow_unisolated_execution {
+            return Err(AgentError::SandboxNotIsolated);
+        }
 
         let code_to_run = code.unwrap();
         let exec_result = sandbox.execute(&code_to_run).await?;
@@ -492,5 +508,106 @@ impl<L: LLMAdapter, S: Sandbox> Agent<L, S> {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dasein_agentic_llm::{FinishReason, LLMError, LLMResponse, StreamChunk, TokenUsage};
+    use dasein_agentic_sandbox::{ExecutionResult, SandboxError};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct ShellBlockLLM;
+    #[async_trait::async_trait]
+    impl LLMAdapter for ShellBlockLLM {
+        fn provider(&self) -> &str {
+            "mock"
+        }
+        fn model(&self) -> &str {
+            "mock"
+        }
+        async fn generate(&self, _: &[LLMMessage]) -> Result<LLMResponse, LLMError> {
+            Ok(LLMResponse {
+                content: "```bash\necho hi\n```".into(),
+                tokens_used: TokenUsage {
+                    details: None,
+                    prompt: 1,
+                    completion: 1,
+                    total: 2,
+                },
+                finish_reason: FinishReason::Stop,
+                model: "mock".into(),
+                tool_calls: vec![],
+            })
+        }
+        fn generate_stream(
+            &self,
+            _: &[LLMMessage],
+        ) -> std::pin::Pin<Box<dyn futures::Stream<Item = Result<StreamChunk, LLMError>> + Send + '_>>
+        {
+            Box::pin(futures::stream::empty())
+        }
+        async fn health_check(&self) -> Result<bool, LLMError> {
+            Ok(true)
+        }
+    }
+
+    /// Counts executions; reports no isolation, like `ProcessSandbox`.
+    struct HostSandbox(Arc<AtomicUsize>);
+    #[async_trait::async_trait]
+    impl Sandbox for HostSandbox {
+        async fn execute(&self, _: &str) -> Result<ExecutionResult, SandboxError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(ExecutionResult {
+                exit_code: 0,
+                stdout: String::new(),
+                stderr: String::new(),
+                execution_time_ms: 0,
+                artifacts: vec![],
+            })
+        }
+        async fn is_ready(&self) -> Result<bool, SandboxError> {
+            Ok(true)
+        }
+        async fn stop(&self) -> Result<(), SandboxError> {
+            Ok(())
+        }
+    }
+
+    fn agent(runs: &Arc<AtomicUsize>) -> Agent<ShellBlockLLM, HostSandbox> {
+        let config = AgentConfig {
+            execution_mode: ExecutionMode::Always,
+            ..AgentConfig::default()
+        };
+        Agent::new(config, ShellBlockLLM, Some(HostSandbox(runs.clone())))
+    }
+
+    fn task() -> TaskPayload {
+        TaskPayload {
+            action: "run".into(),
+            spec: serde_json::json!("say hi"),
+            inputs: None,
+            constraints: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn refuses_model_code_on_unisolated_sandbox_by_default() {
+        let runs = Arc::new(AtomicUsize::new(0));
+        let result = agent(&runs).run(task()).await;
+        assert!(matches!(result, Err(AgentError::SandboxNotIsolated)));
+        assert_eq!(runs.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn runs_on_unisolated_sandbox_after_explicit_opt_in() {
+        let runs = Arc::new(AtomicUsize::new(0));
+        let result = agent(&runs)
+            .with_unisolated_execution(true)
+            .run(task())
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(runs.load(Ordering::SeqCst), 1);
     }
 }

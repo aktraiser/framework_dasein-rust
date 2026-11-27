@@ -35,6 +35,10 @@ pub type OrchestratorResult<T> = Result<T, OrchestratorError>;
 pub struct OrchestratorConfig {
     /// SSH host (IP or hostname)
     pub host: String,
+    /// Expected SHA-256 fingerprint of the server host key, as printed by
+    /// `ssh-keygen -lf` (with or without the `SHA256:` prefix). Required:
+    /// the connection is refused without it.
+    pub host_key_sha256: Option<String>,
     /// SSH port (default: 22)
     pub port: u16,
     /// SSH username
@@ -56,8 +60,12 @@ pub struct OrchestratorConfig {
 impl Default for OrchestratorConfig {
     fn default() -> Self {
         Self {
-            host: std::env::var("FIRECRACKER_SSH_HOST")
-                .unwrap_or_else(|_| "65.108.230.227".to_string()),
+            // No fallback host: credentials must never go to an address the
+            // operator did not choose.
+            host: std::env::var("FIRECRACKER_SSH_HOST").unwrap_or_default(),
+            host_key_sha256: std::env::var("FIRECRACKER_SSH_HOST_KEY_SHA256")
+                .ok()
+                .filter(|f| !f.is_empty()),
             port: std::env::var("FIRECRACKER_SSH_PORT")
                 .ok()
                 .and_then(|p| p.parse().ok())
@@ -65,8 +73,7 @@ impl Default for OrchestratorConfig {
             username: std::env::var("FIRECRACKER_SSH_USER").unwrap_or_else(|_| "root".to_string()),
             password: std::env::var("FIRECRACKER_SSH_PASSWORD").unwrap_or_default(),
             agent_internal_url: "http://172.16.0.2:8080".to_string(),
-            agent_external_url: std::env::var("FIRECRACKER_REMOTE_URL")
-                .unwrap_or_else(|_| "http://65.108.230.227:8080".to_string()),
+            agent_external_url: std::env::var("FIRECRACKER_REMOTE_URL").unwrap_or_default(),
             vm_config_path: "/var/lib/firecracker/vm-config.json".to_string(),
             startup_max_attempts: 30,
             startup_check_delay_ms: 1000,
@@ -74,8 +81,42 @@ impl Default for OrchestratorConfig {
     }
 }
 
-/// SSH client handler
-struct SshHandler;
+impl OrchestratorConfig {
+    /// Names of the required settings that are missing. Empty when the
+    /// orchestrator can connect safely.
+    pub fn missing_settings(&self) -> Vec<&'static str> {
+        let mut missing = Vec::new();
+        if self.host.is_empty() {
+            missing.push("FIRECRACKER_SSH_HOST");
+        }
+        if self.password.is_empty() {
+            missing.push("FIRECRACKER_SSH_PASSWORD");
+        }
+        if self.host_key_sha256.is_none() {
+            missing.push("FIRECRACKER_SSH_HOST_KEY_SHA256");
+        }
+        missing
+    }
+}
+
+/// Compare a host key fingerprint with the pinned one, ignoring the
+/// `SHA256:` prefix and base64 padding that `ssh-keygen` may print.
+fn fingerprint_matches(expected: &str, actual: &str) -> bool {
+    let normalize = |f: &str| {
+        let f = f.trim();
+        f.strip_prefix("SHA256:")
+            .unwrap_or(f)
+            .trim_end_matches('=')
+            .to_string()
+    };
+    let expected = normalize(expected);
+    !expected.is_empty() && expected == normalize(actual)
+}
+
+/// SSH client handler. Accepts only the pinned host key.
+struct SshHandler {
+    expected_fingerprint: Option<String>,
+}
 
 #[async_trait]
 impl client::Handler for SshHandler {
@@ -83,10 +124,17 @@ impl client::Handler for SshHandler {
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &PublicKey,
+        server_public_key: &PublicKey,
     ) -> Result<bool, Self::Error> {
-        // Accept all server keys (in production, verify against known hosts)
-        Ok(true)
+        let actual = server_public_key.fingerprint();
+        let trusted = self
+            .expected_fingerprint
+            .as_deref()
+            .is_some_and(|expected| fingerprint_matches(expected, &actual));
+        if !trusted {
+            warn!(fingerprint = %actual, "SSH host key does not match the pinned fingerprint; refusing connection");
+        }
+        Ok(trusted)
     }
 }
 
@@ -111,6 +159,14 @@ impl FirecrackerOrchestrator {
 
     /// Connect to the remote server via SSH
     pub async fn connect(&self) -> OrchestratorResult<()> {
+        let missing = self.config.missing_settings();
+        if !missing.is_empty() {
+            return Err(OrchestratorError::ConnectionFailed(format!(
+                "missing configuration: {}",
+                missing.join(", ")
+            )));
+        }
+
         info!(
             host = %self.config.host,
             port = self.config.port,
@@ -120,7 +176,9 @@ impl FirecrackerOrchestrator {
 
         let config = client::Config::default();
         let config = Arc::new(config);
-        let handler = SshHandler;
+        let handler = SshHandler {
+            expected_fingerprint: self.config.host_key_sha256.clone(),
+        };
 
         let mut session = client::connect(
             config,
@@ -370,5 +428,44 @@ impl Drop for FirecrackerOrchestrator {
     fn drop(&mut self) {
         // Note: Can't do async cleanup in Drop
         // Session will be cleaned up when dropped
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fingerprint_requires_exact_pinned_value() {
+        let actual = "nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8";
+        assert!(fingerprint_matches(actual, actual));
+        assert!(fingerprint_matches(&format!("SHA256:{actual}="), actual));
+        assert!(!fingerprint_matches("", actual));
+        assert!(!fingerprint_matches("SHA256:", actual));
+        assert!(!fingerprint_matches("somethingelse", actual));
+    }
+
+    #[test]
+    fn config_reports_missing_settings() {
+        let config = OrchestratorConfig {
+            host: String::new(),
+            host_key_sha256: None,
+            port: 22,
+            username: "root".into(),
+            password: String::new(),
+            agent_internal_url: String::new(),
+            agent_external_url: String::new(),
+            vm_config_path: String::new(),
+            startup_max_attempts: 1,
+            startup_check_delay_ms: 1,
+        };
+        assert_eq!(
+            config.missing_settings(),
+            vec![
+                "FIRECRACKER_SSH_HOST",
+                "FIRECRACKER_SSH_PASSWORD",
+                "FIRECRACKER_SSH_HOST_KEY_SHA256"
+            ]
+        );
     }
 }

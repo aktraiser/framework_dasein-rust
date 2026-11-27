@@ -343,7 +343,7 @@ use gateway_core::sandbox::Runtime;
 pub async fn sandboxes(State(state): State<AppState>) -> impl IntoResponse {
     let orchestrator_enabled = state.orchestrator.is_some();
     let vm_host = std::env::var("FIRECRACKER_REMOTE_URL")
-        .unwrap_or_else(|_| "http://65.108.230.227:8080".to_string());
+        .unwrap_or_else(|_| "(FIRECRACKER_REMOTE_URL not set)".to_string());
 
     // Get VM status if orchestrator is enabled
     let vm_status = if let Some(ref orchestrator) = state.orchestrator {
@@ -455,7 +455,7 @@ pub async fn test_code(
 ) -> impl IntoResponse {
     let orchestrator_enabled = state.orchestrator.is_some();
     let vm_host = std::env::var("FIRECRACKER_REMOTE_URL")
-        .unwrap_or_else(|_| "http://65.108.230.227:8080".to_string());
+        .unwrap_or_else(|_| "(FIRECRACKER_REMOTE_URL not set)".to_string());
 
     // Parse runtime
     let runtime = match form.runtime.as_str() {

@@ -69,13 +69,14 @@ impl AppState {
         ));
 
         // Initialize orchestrator if SSH credentials are configured
-        let orchestrator = if std::env::var("FIRECRACKER_SSH_PASSWORD").is_ok() {
+        // Requires an explicit host, password and pinned host key: no defaults.
+        let orchestrator_config = OrchestratorConfig::default();
+        let missing = orchestrator_config.missing_settings();
+        let orchestrator = if missing.is_empty() {
             tracing::info!("Firecracker orchestrator enabled (SSH management)");
-            Some(Arc::new(FirecrackerOrchestrator::new(
-                OrchestratorConfig::default(),
-            )))
+            Some(Arc::new(FirecrackerOrchestrator::new(orchestrator_config)))
         } else {
-            tracing::info!("Firecracker orchestrator disabled (no SSH password configured)");
+            tracing::info!(missing = ?missing, "Firecracker orchestrator disabled");
             None
         };
 

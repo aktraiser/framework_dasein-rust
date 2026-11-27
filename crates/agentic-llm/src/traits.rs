@@ -162,6 +162,9 @@ pub struct ToolCall {
     pub name: String,
     /// Arguments as JSON
     pub arguments: Value,
+    /// Opaque provider continuation data. Never pass this to tool handlers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_metadata: Option<Value>,
 }
 
 impl ToolCall {
@@ -171,6 +174,7 @@ impl ToolCall {
             id: id.into(),
             name: name.into(),
             arguments,
+            provider_metadata: None,
         }
     }
 }
@@ -184,6 +188,8 @@ pub struct TokenUsage {
     pub completion: u32,
     /// Total tokens used
     pub total: u32,
+    /// Provider-reported subdivisions; absent values are unknown, not zero.
+    pub details: Option<serde_json::Value>,
 }
 
 /// Reason for completion finishing.
