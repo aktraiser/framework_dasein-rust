@@ -43,7 +43,13 @@ pub async fn login_submit(
         .map(|info| info.0.ip());
     let client = peer.map_or_else(
         || "unknown".to_string(),
-        |peer| crate::client_addr::client_ip(peer, &headers, &state.trusted_proxies).to_string(),
+        |peer| {
+            super::auth::LoginThrottle::client_key(crate::client_addr::client_ip(
+                peer,
+                &headers,
+                &state.trusted_proxies,
+            ))
+        },
     );
     let forwarded_https = peer.is_some_and(|peer| {
         crate::client_addr::forwarded_https(peer, &headers, &state.trusted_proxies)

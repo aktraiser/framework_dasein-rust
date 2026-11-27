@@ -96,13 +96,49 @@ pub fn client_ip(peer: IpAddr, headers: &HeaderMap, trusted: &[Network]) -> IpAd
     // and stop at the first one we have no reason to believe.
     let hops: Vec<&str> = forwarded.collect();
     for hop in hops.into_iter().rev() {
-        match hop.trim().parse::<IpAddr>() {
-            Ok(ip) if is_trusted(ip, trusted) => {}
-            Ok(ip) => return ip,
-            Err(_) => break,
+        match parse_hop(hop) {
+            Some(ip) if is_trusted(ip, trusted) => {}
+            Some(ip) => return ip,
+            None => break,
         }
     }
     peer
+}
+
+/// Parse one `X-Forwarded-For` entry. Some proxies add the source port
+/// (`203.0.113.9:51234`, `[2001:db8::1]:443`) or bracket IPv6 addresses.
+fn parse_hop(hop: &str) -> Option<IpAddr> {
+    let hop = hop.trim();
+    hop.parse::<IpAddr>()
+        .ok()
+        .or_else(|| {
+            hop.parse::<std::net::SocketAddr>()
+                .ok()
+                .map(|addr| addr.ip())
+        })
+        .or_else(|| {
+            hop.strip_prefix('[')
+                .and_then(|rest| rest.strip_suffix(']'))
+                .and_then(|inner| inner.parse().ok())
+        })
+}
+
+/// The first host in `X-Forwarded-Host`, when the peer is a trusted proxy.
+#[must_use]
+pub fn forwarded_host<'a>(
+    peer: IpAddr,
+    headers: &'a HeaderMap,
+    trusted: &[Network],
+) -> Option<&'a str> {
+    if !is_trusted(peer, trusted) {
+        return None;
+    }
+    headers
+        .get("x-forwarded-host")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .map(str::trim)
+        .filter(|host| !host.is_empty())
 }
 
 /// Whether the client reached us over HTTPS according to a trusted proxy.
@@ -177,6 +213,17 @@ mod tests {
             ip("198.51.100.4")
         );
         assert!(forwarded_https(ip("10.0.0.1"), &chain, &trusted));
+        // Proxies that add ports or brackets are understood.
+        for (entry, expected) in [
+            ("198.51.100.4:51234", "198.51.100.4"),
+            ("[2001:db8::7]:443", "2001:db8::7"),
+            ("[2001:db8::7]", "2001:db8::7"),
+        ] {
+            assert_eq!(
+                client_ip(ip("10.0.0.1"), &headers(entry), &trusted),
+                ip(expected)
+            );
+        }
         // Nothing usable in the header: fall back to the proxy itself.
         assert_eq!(
             client_ip(ip("10.0.0.1"), &headers("garbage"), &trusted),

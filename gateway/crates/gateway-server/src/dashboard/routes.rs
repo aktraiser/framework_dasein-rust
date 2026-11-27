@@ -67,6 +67,6 @@ pub fn create_dashboard_router(state: AppState) -> Router<AppState> {
         .merge(static_router)
         .merge(protected_routes)
         .merge(public_routes)
-        .layer(middleware::from_fn(same_origin_only))
+        .layer(middleware::from_fn_with_state(state, same_origin_only))
         .layer(CookieManagerLayer::new())
 }

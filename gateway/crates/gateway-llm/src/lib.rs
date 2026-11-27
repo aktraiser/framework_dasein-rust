@@ -16,17 +16,23 @@ pub use providers::{AnthropicProvider, OpenAIProvider};
 pub use router::Router;
 
 /// HTTP client shared by all providers, so connections are reused across
-/// requests. It gives up when a provider cannot be reached within 10 s or
-/// stays silent for 2 minutes; a stream that keeps sending is never cut.
+/// requests. It gives up when a provider cannot be reached within 10 s, or
+/// stays silent for 10 minutes. The silence limit is long on purpose: a
+/// non-streamed completion sends nothing until the whole answer is ready.
 pub fn http_client() -> reqwest::Client {
     static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
     CLIENT
         .get_or_init(|| {
             reqwest::Client::builder()
                 .connect_timeout(std::time::Duration::from_secs(10))
-                .read_timeout(std::time::Duration::from_secs(120))
+                .read_timeout(std::time::Duration::from_secs(600))
                 .build()
-                .unwrap_or_default()
+                .unwrap_or_else(|error| {
+                    // Without this the gateway would quietly run with no
+                    // timeouts at all.
+                    tracing::error!(%error, "HTTP client setup failed; using defaults without timeouts");
+                    reqwest::Client::new()
+                })
         })
         .clone()
 }

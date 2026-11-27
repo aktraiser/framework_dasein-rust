@@ -392,3 +392,114 @@ async fn session_cookie_is_secure_when_the_dashboard_is_on_https() {
     );
     assert!(!cookie(spoofed).await.contains("Secure"));
 }
+
+/// Body of a streamed completion request for `test-model`.
+fn stream_request(key: &str) -> Request<Body> {
+    Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header(header::AUTHORIZATION, format!("Bearer {key}"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            r#"{"model":"test-model","stream":true,"messages":[{"role":"user","content":"twelve chars"}]}"#,
+        ))
+        .unwrap()
+}
+
+/// Wait for the usage row a finished stream writes in the background.
+async fn usage_logs(storage: &Storage) -> Vec<gateway_core::storage::UsageLog> {
+    for _ in 0..100 {
+        let logs = storage.get_usage_logs(10).await.unwrap();
+        if !logs.is_empty() {
+            return logs;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    Vec::new()
+}
+
+#[tokio::test]
+async fn provider_without_stream_options_still_streams_and_is_estimated() {
+    let upstream = MockServer::start().await;
+    // A strict server: it rejects the parameter it does not know...
+    Mock::given(method("POST"))
+        .and(wiremock::matchers::body_partial_json(
+            serde_json::json!({ "stream_options": { "include_usage": true } }),
+        ))
+        .respond_with(ResponseTemplate::new(400).set_body_string("unknown field stream_options"))
+        .expect(1)
+        .mount(&upstream)
+        .await;
+    // ...and streams normally without it, reporting no usage, then ends with
+    // a chunk whose usage is in a shape of its own.
+    let chunk = serde_json::json!({
+        "id": "c1", "object": "chat.completion.chunk", "created": 0, "model": "test-model",
+        "choices": [{ "index": 0, "delta": { "content": "sixteen chars!!!" }, "finish_reason": null }],
+    });
+    let odd_usage = serde_json::json!({
+        "id": "c1", "object": "chat.completion.chunk", "created": 0, "model": "test-model",
+        "choices": [], "usage": { "input_tokens": 1, "output_tokens": 2 },
+    });
+    let body = format!("data: {chunk}\n\ndata: {odd_usage}\n\ndata: [DONE]\n\n");
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(body, "text/event-stream"))
+        .expect(1)
+        .mount(&upstream)
+        .await;
+    let (app, storage) = gateway(Some(&upstream.uri())).await;
+    let (_, key) = storage.create_api_key("strict", None, None).await.unwrap();
+
+    let response = app.oneshot(stream_request(&key)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let received = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let received = String::from_utf8(received.to_vec()).unwrap();
+    assert!(received.contains("sixteen chars!!!"), "{received}");
+    // The chunk without choices is not passed to a client that did not ask.
+    assert!(!received.contains("input_tokens"), "{received}");
+
+    // No usable figures from the provider: estimated at 4 characters a token.
+    let logs = usage_logs(&storage).await;
+    assert_eq!(logs.len(), 1);
+    assert_eq!((logs[0].input_tokens, logs[0].output_tokens), (3, 4));
+}
+
+#[tokio::test]
+async fn stream_cut_before_its_usage_is_still_counted() {
+    avoid_minute_boundary().await;
+    let upstream = MockServer::start().await;
+    let chunk = serde_json::json!({
+        "id": "c1", "object": "chat.completion.chunk", "created": 0, "model": "test-model",
+        "choices": [{ "index": 0, "delta": { "content": "x".repeat(400) }, "finish_reason": null }],
+        "usage": null,
+    });
+    // The stream stops after its text: no usage chunk ever arrives, as when
+    // a client closes the connection once it has what it wanted.
+    let body = format!("data: {chunk}\n\n");
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(body, "text/event-stream"))
+        .expect(1)
+        .mount(&upstream)
+        .await;
+    let (app, storage) = gateway(Some(&upstream.uri())).await;
+    let (_, key) = storage
+        .create_api_key("leaver", None, Some(50))
+        .await
+        .unwrap();
+
+    let response = app.clone().oneshot(stream_request(&key)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let _ = axum::body::to_bytes(response.into_body(), usize::MAX).await;
+
+    // 12 prompt characters and 400 streamed characters, at 4 per token.
+    let logs = usage_logs(&storage).await;
+    assert_eq!(logs.len(), 1);
+    assert_eq!((logs[0].input_tokens, logs[0].output_tokens), (3, 100));
+    // The estimate counts against the limit of 50 tokens per minute: the
+    // next call is refused before it reaches the provider.
+    let next = app.oneshot(stream_request(&key)).await.unwrap();
+    assert_eq!(next.status(), StatusCode::TOO_MANY_REQUESTS);
+}

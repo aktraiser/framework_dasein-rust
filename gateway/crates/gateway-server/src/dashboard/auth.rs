@@ -43,12 +43,16 @@ pub async fn require_auth(
 /// Refuse state-changing dashboard requests that a browser sent from
 /// another site (CSRF). The session cookie is `SameSite=Strict` as well; this
 /// check also covers browsers and setups where that is not enough.
-pub async fn same_origin_only(request: Request<Body>, next: Next) -> Response {
+pub async fn same_origin_only(
+    State(state): State<AppState>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
     let safe = matches!(
         *request.method(),
         Method::GET | Method::HEAD | Method::OPTIONS
     );
-    if !safe && is_cross_site(&request) {
+    if !safe && is_cross_site(&request, &state.trusted_proxies) {
         return (StatusCode::FORBIDDEN, "Cross-site request refused").into_response();
     }
     next.run(request).await
@@ -57,7 +61,7 @@ pub async fn same_origin_only(request: Request<Body>, next: Next) -> Response {
 /// Whether the browser says this request comes from a different origin.
 /// Requests with neither header come from non-browser clients, which carry no
 /// ambient cookies and so cannot be used for CSRF.
-fn is_cross_site(request: &Request<Body>) -> bool {
+fn is_cross_site(request: &Request<Body>, trusted: &[crate::client_addr::Network]) -> bool {
     let header = |name: &str| request.headers().get(name).and_then(|v| v.to_str().ok());
     if let Some(site) = header("sec-fetch-site") {
         return !matches!(site, "same-origin" | "none");
@@ -65,9 +69,25 @@ fn is_cross_site(request: &Request<Body>) -> bool {
     let Some(origin) = header("origin") else {
         return false;
     };
-    let host = header("host").or_else(|| request.uri().authority().map(|a| a.as_str()));
     // `Origin` is `scheme://host[:port]`; anything else ("null") is foreign.
-    origin.split_once("://").map(|(_, authority)| authority) != host
+    let Some((_, authority)) = origin.split_once("://") else {
+        return true;
+    };
+    // The host the browser addressed: ours, or the public one a trusted
+    // reverse proxy says it received before rewriting `Host`.
+    let peer = request
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|info| info.0.ip());
+    let hosts = [
+        header("host"),
+        request.uri().authority().map(|a| a.as_str()),
+        peer.and_then(|peer| crate::client_addr::forwarded_host(peer, request.headers(), trusted)),
+    ];
+    !hosts
+        .into_iter()
+        .flatten()
+        .any(|host| host.eq_ignore_ascii_case(authority))
 }
 
 /// Verify the admin password without revealing how much of it matched, or
@@ -100,54 +120,99 @@ pub fn cookie_secure(headers: &axum::http::HeaderMap, forwarded_https: bool) -> 
             .is_some_and(|origin| origin.starts_with("https://"))
 }
 
-/// Limits failed dashboard logins per client address.
+/// Limits failed dashboard logins, per client and overall.
 #[derive(Default)]
 pub struct LoginThrottle {
-    failures: std::sync::Mutex<std::collections::HashMap<String, (u32, std::time::Instant)>>,
+    state: std::sync::Mutex<ThrottleState>,
+}
+
+#[derive(Default)]
+struct ThrottleState {
+    /// Failures per client in its current window.
+    clients: std::collections::HashMap<String, (u32, std::time::Instant)>,
+    /// Failures from everyone in the current window.
+    total: Option<(u32, std::time::Instant)>,
 }
 
 impl LoginThrottle {
-    /// Failed attempts allowed per window before logins are refused.
+    /// Failed attempts one client may make per window.
     pub const MAX_FAILURES: u32 = 5;
+    /// Failed attempts accepted from all clients together per window. An
+    /// attacker with many addresses is held to this rate; while it is
+    /// exceeded nobody can log in, the administrator included.
+    pub const MAX_TOTAL_FAILURES: u32 = 300;
     /// Length of the counting window, and of the lockout.
     pub const WINDOW: std::time::Duration = std::time::Duration::from_secs(300);
-    /// Entries kept at most; older windows are dropped first.
+    /// Clients tracked at most; the oldest windows make room for new ones.
     const MAX_CLIENTS: usize = 10_000;
 
-    fn failures(
-        &self,
-    ) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, (u32, std::time::Instant)>>
-    {
-        self.failures
+    /// Key under which a client's failures are counted. IPv6 clients are
+    /// grouped by /64: one subscriber controls a whole /64 and could
+    /// otherwise use a new address for every attempt.
+    #[must_use]
+    pub fn client_key(ip: std::net::IpAddr) -> String {
+        match ip.to_canonical() {
+            std::net::IpAddr::V4(v4) => v4.to_string(),
+            std::net::IpAddr::V6(v6) => {
+                let prefix = u128::from(v6) >> 64 << 64;
+                format!("{}/64", std::net::Ipv6Addr::from(prefix))
+            }
+        }
+    }
+
+    fn state(&self) -> std::sync::MutexGuard<'_, ThrottleState> {
+        self.state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// Whether this client has used up its attempts for the current window.
+    /// Whether logins from this client are currently refused.
     pub fn is_blocked(&self, client: &str) -> bool {
-        self.failures().get(client).is_some_and(|(count, since)| {
-            *count >= Self::MAX_FAILURES && since.elapsed() < Self::WINDOW
-        })
+        let live = |entry: Option<&(u32, std::time::Instant)>, max: u32| {
+            entry.is_some_and(|(count, since)| *count >= max && since.elapsed() < Self::WINDOW)
+        };
+        let state = self.state();
+        live(state.clients.get(client), Self::MAX_FAILURES)
+            || live(state.total.as_ref(), Self::MAX_TOTAL_FAILURES)
     }
 
     /// Count a failed attempt.
     pub fn record_failure(&self, client: &str) {
-        let mut failures = self.failures();
-        if failures.len() >= Self::MAX_CLIENTS {
-            failures.retain(|_, (_, since)| since.elapsed() < Self::WINDOW);
+        let now = std::time::Instant::now();
+        let mut state = self.state();
+        let total = state.total.get_or_insert((0, now));
+        if total.1.elapsed() >= Self::WINDOW {
+            *total = (0, now);
         }
-        let entry = failures
-            .entry(client.to_owned())
-            .or_insert((0, std::time::Instant::now()));
+        total.0 += 1;
+
+        if !state.clients.contains_key(client) && state.clients.len() >= Self::MAX_CLIENTS {
+            state
+                .clients
+                .retain(|_, (_, since)| since.elapsed() < Self::WINDOW);
+            // Still full of live windows: drop the oldest, so the table
+            // cannot grow without bound. The overall limit still applies.
+            if state.clients.len() >= Self::MAX_CLIENTS {
+                let oldest = state
+                    .clients
+                    .iter()
+                    .min_by_key(|(_, (_, since))| *since)
+                    .map(|(key, _)| key.clone());
+                if let Some(oldest) = oldest {
+                    state.clients.remove(&oldest);
+                }
+            }
+        }
+        let entry = state.clients.entry(client.to_owned()).or_insert((0, now));
         if entry.1.elapsed() >= Self::WINDOW {
-            *entry = (0, std::time::Instant::now());
+            *entry = (0, now);
         }
         entry.0 += 1;
     }
 
     /// Forget a client's failures after a successful login.
     pub fn record_success(&self, client: &str) {
-        self.failures().remove(client);
+        self.state().clients.remove(client);
     }
 }
 
@@ -177,38 +242,53 @@ mod tests {
         request.body(Body::empty()).unwrap()
     }
 
+    fn cross_site(headers: &[(&str, &str)]) -> bool {
+        is_cross_site(&post(headers), &[])
+    }
+
     #[test]
     fn cross_site_requests_are_recognised() {
         let host = ("host", "gateway.local:8080");
         // Same origin, by either header.
-        assert!(!is_cross_site(&post(&[
-            host,
-            ("sec-fetch-site", "same-origin")
-        ])));
-        assert!(!is_cross_site(&post(&[
+        assert!(!cross_site(&[host, ("sec-fetch-site", "same-origin")]));
+        assert!(!cross_site(&[
             host,
             ("origin", "http://gateway.local:8080")
-        ])));
+        ]));
+        assert!(!cross_site(&[
+            host,
+            ("origin", "http://GATEWAY.local:8080")
+        ]));
         // Non-browser client: no header at all.
-        assert!(!is_cross_site(&post(&[host])));
+        assert!(!cross_site(&[host]));
         // Another site, a sibling subdomain, a sandboxed frame, another port.
-        assert!(is_cross_site(&post(&[
-            host,
-            ("sec-fetch-site", "cross-site")
-        ])));
-        assert!(is_cross_site(&post(&[
-            host,
-            ("sec-fetch-site", "same-site")
-        ])));
-        assert!(is_cross_site(&post(&[
-            host,
-            ("origin", "https://evil.example")
-        ])));
-        assert!(is_cross_site(&post(&[host, ("origin", "null")])));
-        assert!(is_cross_site(&post(&[
-            host,
-            ("origin", "http://gateway.local:9999")
-        ])));
+        assert!(cross_site(&[host, ("sec-fetch-site", "cross-site")]));
+        assert!(cross_site(&[host, ("sec-fetch-site", "same-site")]));
+        assert!(cross_site(&[host, ("origin", "https://evil.example")]));
+        assert!(cross_site(&[host, ("origin", "null")]));
+        assert!(cross_site(&[host, ("origin", "http://gateway.local:9999")]));
+    }
+
+    #[test]
+    fn public_host_from_a_trusted_proxy_is_accepted() {
+        let trusted = crate::client_addr::parse_networks(&["10.0.0.1".to_string()]);
+        let behind = |peer: &str, forwarded_host: &str| {
+            let mut request = post(&[
+                ("host", "127.0.0.1:8080"),
+                ("origin", "http://gateway.lan"),
+                ("x-forwarded-host", forwarded_host),
+            ]);
+            let peer: std::net::SocketAddr = format!("{peer}:4000").parse().unwrap();
+            request
+                .extensions_mut()
+                .insert(axum::extract::ConnectInfo(peer));
+            is_cross_site(&request, &trusted)
+        };
+        // The proxy rewrote Host but reports the public one.
+        assert!(!behind("10.0.0.1", "gateway.lan"));
+        assert!(behind("10.0.0.1", "other.lan"));
+        // Anyone else claiming a forwarded host is not believed.
+        assert!(behind("203.0.113.9", "gateway.lan"));
     }
 
     #[test]
@@ -225,5 +305,27 @@ mod tests {
         );
         throttle.record_success("10.0.0.1");
         assert!(!throttle.is_blocked("10.0.0.1"));
+    }
+
+    #[test]
+    fn login_throttle_resists_address_rotation() {
+        // A whole IPv6 /64 is one client.
+        let key = |text: &str| LoginThrottle::client_key(text.parse().unwrap());
+        assert_eq!(
+            key("2001:db8:1:2::1"),
+            key("2001:db8:1:2:ffff:ffff:ffff:ffff")
+        );
+        assert_ne!(key("2001:db8:1:2::1"), key("2001:db8:1:3::1"));
+        assert_eq!(key("::ffff:10.0.0.1"), key("10.0.0.1"));
+
+        // Many distinct clients, one failure each: no single one is blocked,
+        // but together they hit the overall limit, and the table stays small.
+        let throttle = LoginThrottle::default();
+        for n in 0..LoginThrottle::MAX_TOTAL_FAILURES {
+            assert!(!throttle.is_blocked("fresh"));
+            throttle.record_failure(&format!("client-{n}"));
+        }
+        assert!(throttle.is_blocked("fresh"));
+        assert!(throttle.state().clients.len() <= LoginThrottle::MAX_CLIENTS);
     }
 }
