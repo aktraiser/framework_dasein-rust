@@ -58,6 +58,7 @@ pub mod patterns;
 pub mod prelude;
 pub mod protocol;
 pub mod swarm;
+pub mod telemetry;
 pub mod types;
 
 pub use agent::Agent;

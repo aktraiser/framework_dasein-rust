@@ -288,11 +288,19 @@ impl<L: LLMAdapter + 'static> Agent for ChatAgent<L> {
                 .cloned()
                 .collect();
             let llm_messages = self.build_llm_messages(thread);
+            let started = std::time::Instant::now();
             let response = if tools.is_empty() {
                 self.llm.generate(&llm_messages).await
             } else {
                 self.llm.generate_with_tools(&llm_messages, &tools).await
-            }?;
+            };
+            crate::telemetry::llm_request(
+                self.llm.provider(),
+                self.llm.model(),
+                started,
+                response.as_ref().ok().map(|response| &response.tokens_used),
+            );
+            let response = response?;
             total_tokens = total_tokens.saturating_add(response.tokens_used.total);
             if response.tool_calls.is_empty() {
                 if let Some(check) = &self.completion_check {
@@ -365,12 +373,23 @@ impl<L: LLMAdapter + 'static> Agent for ChatAgent<L> {
                     continue;
                 }
                 let handler = &self.handlers[&call.name];
-                let value =
-                    match tokio::time::timeout(self.tool_timeout, handler(call.arguments)).await {
-                        Ok(Ok(value)) => value,
-                        Ok(Err(error)) => serde_json::json!({"error": error.to_string()}),
-                        Err(_) => serde_json::json!({"error": "Tool timed out"}),
-                    };
+                let started = std::time::Instant::now();
+                let outcome =
+                    tokio::time::timeout(self.tool_timeout, handler(call.arguments)).await;
+                crate::telemetry::tool_call(
+                    &call.name,
+                    started,
+                    match &outcome {
+                        Ok(Ok(_)) => crate::telemetry::Outcome::Success,
+                        Ok(Err(_)) => crate::telemetry::Outcome::Error,
+                        Err(_) => crate::telemetry::Outcome::Timeout,
+                    },
+                );
+                let value = match outcome {
+                    Ok(Ok(value)) => value,
+                    Ok(Err(error)) => serde_json::json!({"error": error.to_string()}),
+                    Err(_) => serde_json::json!({"error": "Tool timed out"}),
+                };
                 if self.terminal_tools.contains(&call.name) && value.get("error").is_none() {
                     let content = value
                         .get("conclusion")
