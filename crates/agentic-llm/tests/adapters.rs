@@ -523,3 +523,58 @@ async fn streamed_call_after_tool_rounds_keeps_the_tool_exchange_readable() {
         "{body}"
     );
 }
+
+#[tokio::test]
+async fn gemini_sends_back_the_thought_signature_of_a_tool_call() {
+    let server = MockServer::start().await;
+    // Second round: the call comes back with its signature, the result after.
+    Mock::given(method("POST"))
+        .and(body_string_contains("functionResponse"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "candidates": [{
+                "content": { "role": "model", "parts": [{ "text": "done" }] },
+                "finishReason": "STOP",
+            }],
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    // First round: a thinking model signs the call it asks for.
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "candidates": [{
+                "content": { "role": "model", "parts": [{
+                    "functionCall": { "name": "lookup", "args": { "q": "rust" } },
+                    "thoughtSignature": "c2lnbmF0dXJl",
+                }] },
+                "finishReason": "STOP",
+            }],
+        })))
+        .mount(&server)
+        .await;
+
+    let adapter = gemini(&server);
+    let tools = [Tool::new("lookup", "Look something up")];
+    let question = LLMMessage::user("hi");
+    let first = adapter
+        .generate_with_tools(std::slice::from_ref(&question), &tools)
+        .await
+        .unwrap();
+    let call = first.tool_calls[0].clone();
+    let history = [
+        question,
+        LLMMessage::assistant_with_tool_calls("", first.tool_calls),
+        LLMMessage::tool_result(call.id, "found"),
+    ];
+    let second = adapter.generate_with_tools(&history, &tools).await.unwrap();
+    assert_eq!(second.content, "done");
+
+    let requests = server.received_requests().await.unwrap();
+    let replayed: serde_json::Value = serde_json::from_slice(&requests[1].body).unwrap();
+    let part = &replayed["contents"][1]["parts"][0];
+    assert_eq!(part["functionCall"]["name"], "lookup");
+    assert_eq!(part["thoughtSignature"], "c2lnbmF0dXJl", "{part}");
+    // A call that had no signature is replayed without the field.
+    let unsigned: serde_json::Value = serde_json::from_slice(&requests[0].body).unwrap();
+    assert!(!unsigned.to_string().contains("thoughtSignature"));
+}

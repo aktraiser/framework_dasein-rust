@@ -194,8 +194,18 @@ impl GeminiAdapter {
                                 "Duplicate pending tool call ID".into(),
                             ));
                         }
-                        parts
-                            .push(json!({"functionCall":{"name":call.name,"args":call.arguments}}));
+                        let mut part =
+                            json!({"functionCall":{"name":call.name,"args":call.arguments}});
+                        // Thinking models reject a replayed call that lost
+                        // the signature it was issued with.
+                        if let Some(signature) = call
+                            .provider_metadata
+                            .as_ref()
+                            .and_then(|metadata| metadata.get(THOUGHT_SIGNATURE))
+                        {
+                            part["thoughtSignature"] = signature.clone();
+                        }
+                        parts.push(part);
                     }
                     if parts.is_empty() {
                         parts.push(json!({"text":""}));
@@ -396,7 +406,14 @@ struct GeminiPartWithFunction {
     text: Option<String>,
     #[serde(default)]
     function_call: Option<GeminiFunctionCall>,
+    /// Opaque token of a thinking model, to send back with the call.
+    #[serde(default)]
+    thought_signature: Option<String>,
 }
+
+/// Key under which a call's thought signature is kept in its
+/// `provider_metadata`.
+const THOUGHT_SIGNATURE: &str = "gemini_thought_signature";
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -654,11 +671,16 @@ impl LLMAdapter for GeminiAdapter {
                 content.push_str(text);
             }
             if let Some(fc) = &part.function_call {
-                tool_calls.push(ToolCall::new(
+                let mut call = ToolCall::new(
                     format!("call_{}_{}", messages.len(), i),
                     fc.name.clone(),
                     fc.args.clone(),
-                ));
+                );
+                call.provider_metadata = part
+                    .thought_signature
+                    .as_ref()
+                    .map(|signature| serde_json::json!({ THOUGHT_SIGNATURE: signature }));
+                tool_calls.push(call);
             }
         }
 
