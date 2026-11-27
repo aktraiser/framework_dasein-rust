@@ -34,17 +34,227 @@ struct Response {
     error: Option<String>,
 }
 
+/// The microVM definition, with the paths as the Firecracker process sees
+/// them: on the host, or inside its chroot.
 fn machine_config(
     sandbox: &FirecrackerSandbox,
+    kernel: &Path,
+    rootfs: &Path,
     vsock: &Path,
-) -> Result<serde_json::Value, SandboxError> {
-    Ok(serde_json::json!({
-        "boot-source": {"kernel_image_path":sandbox.config.kernel_path.canonicalize()?, "boot_args":"console=ttyS0 keep_bootcon reboot=k panic=1 pci=off ro root=/dev/vda init=/sbin/dasein-init"},
-        "drives":[{"drive_id":"rootfs","path_on_host":sandbox.config.rootfs_path.canonicalize()?,"is_root_device":true,"is_read_only":true}],
+) -> serde_json::Value {
+    serde_json::json!({
+        "boot-source": {"kernel_image_path":kernel, "boot_args":"console=ttyS0 keep_bootcon reboot=k panic=1 pci=off ro root=/dev/vda init=/sbin/dasein-init"},
+        "drives":[{"drive_id":"rootfs","path_on_host":rootfs,"is_root_device":true,"is_read_only":true}],
         "machine-config":{"vcpu_count":sandbox.config.vcpu_count,"mem_size_mib":sandbox.config.mem_size_mib},
         "vsock":{"guest_cid":3,"uds_path":vsock},
         "network-interfaces":[]
-    }))
+    })
+}
+
+/// What it takes to start one microVM and to clean up after it.
+struct Launch {
+    /// Removed, with everything in it, when the microVM is gone.
+    directory: PathBuf,
+    /// The vsock socket, as seen from this process.
+    vsock: PathBuf,
+    /// The cgroup made for the microVM, if any.
+    cgroup: Option<PathBuf>,
+    /// Program and arguments, run under the deadline of `timeout`.
+    program: PathBuf,
+    arguments: Vec<std::ffi::OsString>,
+}
+
+fn write_config(path: &Path, config: &serde_json::Value) -> Result<(), SandboxError> {
+    std::fs::write(
+        path,
+        serde_json::to_vec(config).map_err(|e| SandboxError::ConfigError(e.to_string()))?,
+    )?;
+    Ok(())
+}
+
+fn socket_path_fits(vsock: &Path) -> Result<(), SandboxError> {
+    if vsock.as_os_str().as_encoded_bytes().len() > 100 {
+        return Err(SandboxError::ConfigError(
+            "VM workspace path is too long for a Unix socket".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Firecracker started directly, as the calling user, in a private directory.
+fn direct_launch(sandbox: &FirecrackerSandbox, id: &str) -> Result<Launch, SandboxError> {
+    let program = sandbox.config.firecracker_bin.canonicalize()?;
+    let directory = private_workspace(&sandbox.config.workspace)?.join(id);
+    std::fs::DirBuilder::new().mode(0o700).create(&directory)?;
+    let launch = Launch {
+        vsock: directory.join("v.sock"),
+        cgroup: None,
+        program,
+        arguments: vec![
+            "--no-api".into(),
+            "--config-file".into(),
+            directory.join("config.json").into(),
+        ],
+        directory,
+    };
+    // From here on the caller removes the directory, also on failure.
+    Ok(launch)
+}
+
+fn prepare_direct(sandbox: &FirecrackerSandbox, launch: &Launch) -> Result<(), SandboxError> {
+    socket_path_fits(&launch.vsock)?;
+    let config = machine_config(
+        sandbox,
+        &sandbox.config.kernel_path.canonicalize()?,
+        &sandbox.config.rootfs_path.canonicalize()?,
+        &launch.vsock,
+    );
+    write_config(&launch.directory.join("config.json"), &config)
+}
+
+/// Firecracker started by the jailer: chrooted, unprivileged, in a cgroup.
+fn jailed_launch(
+    sandbox: &FirecrackerSandbox,
+    jailer: &super::JailerConfig,
+    id: &str,
+) -> Result<Launch, SandboxError> {
+    let firecracker = sandbox.config.firecracker_bin.canonicalize()?;
+    // Where the jailer builds the chroot of this microVM.
+    let directory = jails_of(&sandbox.config, jailer)?.join(id);
+    let memory_max = (u64::from(sandbox.config.mem_size_mib)
+        + u64::from(jailer.memory_overhead_mib))
+        * 1024
+        * 1024;
+    let mut arguments: Vec<std::ffi::OsString> = vec![
+        "--id".into(),
+        id.into(),
+        "--exec-file".into(),
+        firecracker.into(),
+        "--uid".into(),
+        jailer.uid.to_string().into(),
+        "--gid".into(),
+        jailer.gid.to_string().into(),
+        "--chroot-base-dir".into(),
+        jailer.chroot_base.canonicalize()?.into(),
+        "--cgroup-version".into(),
+        "2".into(),
+        "--parent-cgroup".into(),
+        (&jailer.parent_cgroup).into(),
+    ];
+    for limit in [
+        // One full CPU per vCPU, no more, whatever the guest does.
+        format!(
+            "cpu.max={} 100000",
+            u32::from(sandbox.config.vcpu_count) * 100_000
+        ),
+        format!("memory.max={memory_max}"),
+        "memory.swap.max=0".into(),
+        format!("pids.max={}", jailer.pids_max),
+    ] {
+        arguments.push("--cgroup".into());
+        arguments.push(limit.into());
+    }
+    arguments.extend([
+        "--resource-limit".into(),
+        format!("no-file={}", jailer.open_files_max).into(),
+        "--".into(),
+        "--no-api".into(),
+        "--config-file".into(),
+        "/config.json".into(),
+    ]);
+    Ok(Launch {
+        vsock: directory.join("root/v.sock"),
+        cgroup: Some(
+            Path::new("/sys/fs/cgroup")
+                .join(&jailer.parent_cgroup)
+                .join(id),
+        ),
+        program: jailer.jailer_bin.canonicalize()?,
+        arguments,
+        directory,
+    })
+}
+
+/// Where the jailer puts the chroots of `firecracker`'s microVMs.
+fn jails_of(
+    config: &super::FirecrackerConfig,
+    jailer: &super::JailerConfig,
+) -> Result<PathBuf, SandboxError> {
+    let firecracker = config.firecracker_bin.canonicalize()?;
+    let name = firecracker
+        .file_name()
+        .ok_or_else(|| SandboxError::ConfigError("Firecracker path has no file name".into()))?;
+    Ok(jailer.chroot_base.canonicalize()?.join(name))
+}
+
+pub(super) fn remove_stale_jails(
+    config: &super::FirecrackerConfig,
+    jailer: &super::JailerConfig,
+    older_than: Duration,
+) -> Result<usize, SandboxError> {
+    let jails = jails_of(config, jailer)?;
+    let entries = match std::fs::read_dir(&jails) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(e) => return Err(e.into()),
+    };
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let id = entry.file_name();
+        // Only what this sandbox names its microVMs.
+        let ours = id.len() == 32 && id.as_encoded_bytes().iter().all(u8::is_ascii_hexdigit);
+        let old = entry
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .ok()
+            .and_then(|modified| modified.elapsed().ok())
+            .is_some_and(|age| age > older_than);
+        if !ours || !old || !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            continue;
+        }
+        let cgroup = Path::new("/sys/fs/cgroup")
+            .join(&jailer.parent_cgroup)
+            .join(&id);
+        let running = std::fs::read_to_string(cgroup.join("cgroup.procs"))
+            .is_ok_and(|processes| !processes.trim().is_empty());
+        if running {
+            continue;
+        }
+        VmGuard::remove(&entry.path(), Some(&cgroup));
+        if !entry.path().exists() {
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
+fn prepare_jail(sandbox: &FirecrackerSandbox, launch: &Launch) -> Result<(), SandboxError> {
+    socket_path_fits(&launch.vsock)?;
+    let root = launch.directory.join("root");
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&root)?;
+    // Hard links: the same read-only files in every chroot, without a copy.
+    for (source, name) in [
+        (&sandbox.config.kernel_path, "vmlinux"),
+        (&sandbox.config.rootfs_path, "rootfs.ext4"),
+    ] {
+        std::fs::hard_link(source.canonicalize()?, root.join(name)).map_err(|e| {
+            SandboxError::ConfigError(format!(
+                "Cannot link {} into the chroot ({e}): it must be on the same filesystem \
+                 as the jailer chroot base",
+                source.display()
+            ))
+        })?;
+    }
+    let config = machine_config(
+        sandbox,
+        Path::new("/vmlinux"),
+        Path::new("/rootfs.ext4"),
+        Path::new("/v.sock"),
+    );
+    write_config(&root.join("config.json"), &config)
 }
 fn private_workspace(root: &Path) -> Result<PathBuf, SandboxError> {
     match std::fs::DirBuilder::new()
@@ -70,13 +280,16 @@ pub(super) async fn execute(
     sandbox: &FirecrackerSandbox,
     code: &str,
 ) -> Result<ExecutionResult, SandboxError> {
-    let root = private_workspace(&sandbox.config.workspace)?;
     let id = uuid::Uuid::new_v4().simple().to_string();
-    let directory = root.join(&id);
-    std::fs::DirBuilder::new().mode(0o700).create(&directory)?;
+    let launch = match &sandbox.config.jailer {
+        Some(jailer) => jailed_launch(sandbox, jailer, &id)?,
+        None => direct_launch(sandbox, &id)?,
+    };
     let (cancel, mut cancelled) = watch::channel(false);
+    // Owns the cleanup from here on, whatever happens next.
     let mut vm = VmGuard {
-        directory,
+        directory: launch.directory.clone(),
+        cgroup: launch.cgroup.clone(),
         child: None,
         id: id.clone(),
         active: sandbox.active.clone(),
@@ -87,18 +300,12 @@ pub(super) async fn execute(
         .lock()
         .map_err(|_| SandboxError::CreateFailed("VM registry poisoned".into()))?
         .insert(id.clone(), cancel);
-    let vsock = vm.directory.join("v.sock");
-    if vsock.as_os_str().as_encoded_bytes().len() > 100 {
-        return Err(SandboxError::ConfigError(
-            "VM workspace path is too long for a Unix socket".into(),
-        ));
+    if sandbox.config.jailer.is_some() {
+        prepare_jail(sandbox, &launch)?;
+    } else {
+        prepare_direct(sandbox, &launch)?;
     }
-    let config = machine_config(sandbox, &vsock)?;
-    let config_path = vm.directory.join("config.json");
-    std::fs::write(
-        &config_path,
-        serde_json::to_vec(&config).map_err(|e| SandboxError::ConfigError(e.to_string()))?,
-    )?;
+    let vsock = launch.vsock.clone();
     let started = Instant::now();
     // The coreutils timeout survives an unexpected SDK/server process death. The entire
     // VM process group is also killed synchronously by VmGuard on cancellation.
@@ -109,10 +316,13 @@ pub(super) async fn execute(
             "--kill-after=1s",
             &format!("{}s", sandbox.config.timeout.as_secs_f64() + 2.0),
         ])
-        .arg(sandbox.config.firecracker_bin.canonicalize()?)
-        .args(["--no-api", "--config-file"])
-        .arg(&config_path)
-        .current_dir(&vm.directory)
+        .arg(&launch.program)
+        .args(&launch.arguments)
+        .current_dir(if sandbox.config.jailer.is_some() {
+            Path::new("/")
+        } else {
+            launch.directory.as_path()
+        })
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -260,6 +470,8 @@ fn drain(
 }
 struct VmGuard {
     directory: PathBuf,
+    /// The cgroup of a jailed microVM.
+    cgroup: Option<PathBuf>,
     child: Option<Child>,
     id: String,
     active: Arc<Mutex<HashMap<String, watch::Sender<bool>>>>,
@@ -276,6 +488,26 @@ impl VmGuard {
             }
             let _ = child.start_kill();
         }
+        // Everything the jailer put in the cgroup, whatever its process
+        // group became.
+        if let Some(cgroup) = &self.cgroup {
+            let _ = std::fs::write(cgroup.join("cgroup.kill"), "1");
+        }
+    }
+    /// Remove what the microVM leaves on the host.
+    fn remove(directory: &Path, cgroup: Option<&Path>) {
+        let _ = std::fs::remove_dir_all(directory);
+        if let Some(cgroup) = cgroup {
+            // Empty once its processes are reaped, which may take a moment.
+            for _ in 0..50 {
+                match std::fs::remove_dir(cgroup) {
+                    Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    _ => break,
+                }
+            }
+        }
     }
     async fn cleanup(&mut self) -> Result<(), SandboxError> {
         self.kill();
@@ -285,8 +517,12 @@ impl VmGuard {
         if let Ok(mut active) = self.active.lock() {
             active.remove(&self.id);
         }
-        std::fs::remove_dir_all(&self.directory)?;
-        Ok(())
+        let result = std::fs::remove_dir_all(&self.directory);
+        Self::remove(&self.directory, self.cgroup.as_deref());
+        match result {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
+            _ => Ok(()),
+        }
     }
 }
 impl Drop for VmGuard {
@@ -296,15 +532,16 @@ impl Drop for VmGuard {
             active.remove(&self.id);
         }
         let directory = self.directory.clone();
+        let cgroup = self.cgroup.clone();
         if let Some(mut child) = self.child.take() {
             if let Ok(runtime) = tokio::runtime::Handle::try_current() {
                 runtime.spawn(async move {
                     let _ = child.wait().await;
-                    let _ = std::fs::remove_dir_all(directory);
+                    Self::remove(&directory, cgroup.as_deref());
                 });
             }
         } else {
-            let _ = std::fs::remove_dir_all(directory);
+            Self::remove(&directory, cgroup.as_deref());
         }
     }
 }
