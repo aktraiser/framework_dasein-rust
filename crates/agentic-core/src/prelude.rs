@@ -9,7 +9,7 @@
 //! This imports the most commonly used types for building agents:
 //!
 //! ## Core Types
-//! - [`Agent`] - Autonomous entity that processes tasks
+//! - [`Agent`] - First-generation agent, deprecated: use `distributed::graph::agent::ChatAgent`
 //! - [`Supervisor`] - Orchestrates executors in distributed systems
 //! - [`Executor`] - Worker that processes tasks with LLM
 //!
@@ -50,6 +50,7 @@
 //! ```
 
 // Core agent
+#[allow(deprecated)] // Kept exported until the deprecated type is removed.
 pub use crate::Agent;
 pub use crate::AgentError;
 

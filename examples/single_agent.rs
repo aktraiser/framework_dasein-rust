@@ -3,6 +3,7 @@
 //! Run with: cargo run --example single_agent
 //!
 //! Requires: OPENAI_API_KEY environment variable
+#![allow(deprecated)] // Demonstrates the deprecated first-generation agent.
 
 use dasein_agentic_core::{Agent, AgentConfig, ExecutionMode, TaskPayload};
 use dasein_agentic_llm::OllamaAdapter;

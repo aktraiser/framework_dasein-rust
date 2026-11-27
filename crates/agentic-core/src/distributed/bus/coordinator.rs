@@ -20,6 +20,7 @@
 //! // Publish a task
 //! coordinator.publish_task(task).await?;
 //! ```
+#![allow(deprecated)] // The coordinator still exposes the deprecated in-memory sequencer.
 
 use std::sync::Arc;
 use tracing::info;

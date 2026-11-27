@@ -5,6 +5,7 @@
 //! - Dependency tracking (task B waits for task A)
 //! - Rate limiting
 //! - Work queue semantics (each task delivered to one consumer)
+#![allow(deprecated)] // This file is the deprecated sequencer itself.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -38,6 +39,10 @@ impl Default for SequencerConfig {
 }
 
 /// Sequencer for task ordering and prioritization.
+#[deprecated(
+    since = "0.2.0",
+    note = "in-memory only: queued tasks are lost when the process stops and are not shared between processes. Use `DurableQueue` (`BusCoordinator::durable_queue`)."
+)]
 pub struct Sequencer {
     config: SequencerConfig,
     // Serialize multi-collection operations to avoid races and lock inversion.

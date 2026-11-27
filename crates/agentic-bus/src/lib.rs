@@ -10,6 +10,7 @@ mod patterns;
 mod traits;
 
 pub use error::BusError;
+#[allow(deprecated)] // Kept exported until the deprecated type is removed.
 pub use nats::NatsBus;
 pub use patterns::SubjectPatterns;
 pub use traits::{Channel, MessageBus};

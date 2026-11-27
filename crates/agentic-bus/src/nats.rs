@@ -1,4 +1,5 @@
 //! NATS message bus implementation.
+#![allow(deprecated)] // This file is the deprecated bus itself.
 
 use async_nats::Client;
 use async_trait::async_trait;
@@ -14,6 +15,10 @@ use crate::{
 };
 
 /// NATS-based message bus.
+#[deprecated(
+    since = "0.2.0",
+    note = "this crate is not used by the rest of the SDK. Use `dasein_agentic_core::distributed::bus` (`NatsClient`, `DurableQueue`)."
+)]
 pub struct NatsBus {
     client: Client,
     url: String,

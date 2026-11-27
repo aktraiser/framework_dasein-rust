@@ -1,4 +1,5 @@
 //! Orchestrator implementation.
+#![allow(deprecated)] // This file is the deprecated orchestrator itself.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -28,6 +29,10 @@ pub struct AgentRef {
 }
 
 /// Multi-agent orchestrator.
+#[deprecated(
+    since = "0.2.0",
+    note = "this crate is not used by the rest of the SDK. Use the graph engine in `dasein_agentic_core::distributed::graph` (`WorkflowBuilder`, `Workflow`)."
+)]
 pub struct Orchestrator<L: LLMAdapter + 'static, S: Sandbox + 'static> {
     agents: Arc<RwLock<HashMap<String, Arc<Agent<L, S>>>>>,
     default_timeout_ms: u64,
