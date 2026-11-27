@@ -76,7 +76,7 @@ let workflow = Workflow::with_config(
 
 - Choose a worker by load or capability: tasks go to whichever worker of the group asks first.
 - Cancel a task that is already running when the workflow gives up.
-- Send back the events a remote executor emits with `add_event`.
+- Report the events of a remote step as they happen: a worker started with `with_event_reporting(true)` sends them back with the step's result (see `docs/OBSERVABILITY.md`).
 - Move the workflow engine itself: supersteps, routing and checkpoints stay in the workflow process.
 
 ## Try it across machines

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Workflow::run_stream` reports what a run does as it does it, and `with_events` listens to any run or agent: supersteps, executors, outputs, `add_event`, and the model and tool calls of agents. Events of a remote step come back with its result when its worker is started with `with_event_reporting(true)`.
 - Ollama: tool calling (`generate_with_tools`), so an agent can use tools, MCP servers included, with a model running on the machine.
 - A live test of an agent answering from an Obsidian vault through a third-party MCP server, with a small vault as fixture.
 

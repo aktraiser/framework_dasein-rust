@@ -300,6 +300,30 @@ impl<L: LLMAdapter + 'static> Agent for ChatAgent<L> {
                 started,
                 response.as_ref().ok().map(|response| &response.tokens_used),
             );
+            if crate::distributed::graph::events::listening() {
+                use crate::distributed::graph::workflow::WorkflowStreamEvent;
+                let (prompt_tokens, completion_tokens, tool_calls) =
+                    response.as_ref().map_or((0, 0, 0), |response| {
+                        (
+                            response.tokens_used.prompt,
+                            response.tokens_used.completion,
+                            response.tool_calls.len(),
+                        )
+                    });
+                let step = crate::distributed::graph::events::current_step();
+                crate::distributed::graph::events::emit(WorkflowStreamEvent::ModelCalled {
+                    executor_id: step.as_ref().map(|step| step.executor_id.clone()),
+                    input_index: step.as_ref().map(|step| step.input_index),
+                    agent: self.name.clone(),
+                    provider: self.llm.provider().to_owned(),
+                    model: self.llm.model().to_owned(),
+                    duration_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                    prompt_tokens,
+                    completion_tokens,
+                    tool_calls,
+                    error: response.as_ref().err().map(ToString::to_string),
+                });
+            }
             let response = response?;
             total_tokens = total_tokens.saturating_add(response.tokens_used.total);
             if response.tool_calls.is_empty() {
@@ -374,6 +398,10 @@ impl<L: LLMAdapter + 'static> Agent for ChatAgent<L> {
                 }
                 let handler = &self.handlers[&call.name];
                 let started = std::time::Instant::now();
+                // Kept for whoever listens to the run; the handler takes
+                // the arguments themselves.
+                let listened =
+                    crate::distributed::graph::events::listening().then(|| call.arguments.clone());
                 let outcome =
                     tokio::time::timeout(self.tool_timeout, handler(call.arguments)).await;
                 crate::telemetry::tool_call(
@@ -385,11 +413,30 @@ impl<L: LLMAdapter + 'static> Agent for ChatAgent<L> {
                         Err(_) => crate::telemetry::Outcome::Timeout,
                     },
                 );
+                let success = matches!(outcome, Ok(Ok(_)));
                 let value = match outcome {
                     Ok(Ok(value)) => value,
                     Ok(Err(error)) => serde_json::json!({"error": error.to_string()}),
                     Err(_) => serde_json::json!({"error": "Tool timed out"}),
                 };
+                if let Some(arguments) = listened {
+                    use crate::distributed::graph::workflow::WorkflowStreamEvent;
+                    let result = value
+                        .as_str()
+                        .map_or_else(|| value.to_string(), str::to_owned);
+                    let step = crate::distributed::graph::events::current_step();
+                    crate::distributed::graph::events::emit(WorkflowStreamEvent::ToolCalled {
+                        executor_id: step.as_ref().map(|step| step.executor_id.clone()),
+                        input_index: step.as_ref().map(|step| step.input_index),
+                        agent: self.name.clone(),
+                        tool: call.name.clone(),
+                        arguments,
+                        duration_ms: u64::try_from(started.elapsed().as_millis())
+                            .unwrap_or(u64::MAX),
+                        result: crate::distributed::graph::events::preview(&result, 2000),
+                        success,
+                    });
+                }
                 if self.terminal_tools.contains(&call.name) && value.get("error").is_none() {
                     let content = value
                         .get("conclusion")

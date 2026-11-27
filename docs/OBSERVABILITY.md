@@ -2,6 +2,37 @@
 
 The runtime reports what it does in three ways. None of them needs any setup to keep working; export is opt-in.
 
+## Following one run
+
+Metrics and traces say how the system does overall. To see what one run does, as it does it, listen to its events:
+
+```rust
+use futures::StreamExt;
+
+let mut events = workflow.run_stream(input);
+while let Some(event) = events.next().await {
+    println!("{event:?}");
+}
+```
+
+The stream carries, in order: the run starting, each superstep and executor starting and ending (with durations and errors), outputs, what executors add with `add_event`, checkpoints, every model call of an agent (provider, model, duration, tokens, how many tools it asked for) and every tool call (name, arguments, duration, the beginning of the result, whether it succeeded). The last event is `Completed` or `Failed`.
+
+Steps of a superstep may run side by side, so their events interleave: an agent's events name the executor and the input they belong to, and the agent. A workflow run inside a step reports to the same listener; `Started`, `Completed` and `Failed` carry the workflow id, and the run you listen to is over at the last event, the one with its own id.
+
+To get the result as well, or to follow an agent that runs outside a workflow, give a channel to `with_events`:
+
+```rust
+let (listener, mut events) = tokio::sync::mpsc::unbounded_channel();
+let answer = with_events(listener, agent.run(messages, &mut thread)).await?;
+```
+
+Things to know:
+
+- **Nothing is built when nobody listens.** A run outside `run_stream` and `with_events` reports nothing and pays nothing for it.
+- **Remote steps report late, and only if their worker is asked to.** Start the worker with `RemoteWorker::with_event_reporting(true)`: what its executors do then comes back with each step's result, and appears together, between the step's start and its end, not as it happens, and only if the step succeeded. It is off by default because the events are stored with every result, whether or not anyone listens. They get the room the result leaves under the worker's size limit, 200 kB at most; the first ones are kept.
+- **Arguments and results are in the events.** A tool call's arguments are reported whole and its result up to 2 000 characters: treat the events like the data they describe.
+- **Same task only.** Work an executor moves to another task with `tokio::spawn` is not followed.
+
 ## Metrics
 
 `dasein-agentic-core` records metrics through the [`metrics`](https://docs.rs/metrics) facade. Recording costs next to nothing until the application installs a recorder.

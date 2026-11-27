@@ -49,6 +49,7 @@ pub mod agent;
 mod builder;
 mod context;
 mod edge;
+pub mod events;
 mod executor;
 pub mod executors;
 #[cfg(test)]
@@ -61,6 +62,7 @@ mod types;
 mod workflow;
 
 // PR #1: Executor Trait
+pub use events::with_events;
 pub use executor::{
     Executor, ExecutorContext, ExecutorKind, Invocation, LogLevel, ValidationResult,
 };

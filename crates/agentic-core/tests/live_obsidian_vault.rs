@@ -13,6 +13,7 @@
 #![cfg(feature = "mcp")]
 
 use dasein_agentic_core::distributed::graph::agent::{Agent, AgentThread, ChatAgent, ChatMessage};
+use dasein_agentic_core::distributed::graph::{with_events, WorkflowStreamEvent};
 use dasein_agentic_llm::{GeminiAdapter, LLMAdapter, OllamaAdapter};
 use dasein_agentic_mcp::client::{MCPClientPool, MCPConfig, MCPServerConfig};
 use std::collections::BTreeMap;
@@ -137,17 +138,45 @@ async fn answers_from_the_vault<L: LLMAdapter + 'static>(llm: L) {
         .await
         .unwrap()
         .with_tool_filter(reads);
-    let response = agent
-        .run(
-            vec![ChatMessage::user(
-                "Qui est responsable du projet Atelier Kestrel, quel est son numéro de poste, \
-                 et quel est le code de la porte de l'atelier ?",
-            )],
-            &mut AgentThread::new(),
-        )
+    // Listening to the run: every model and tool call, as it happens.
+    let (listener, mut events) = tokio::sync::mpsc::unbounded_channel();
+    let question = vec![ChatMessage::user(
+        "Qui est responsable du projet Atelier Kestrel, quel est son numéro de poste, \
+         et quel est le code de la porte de l'atelier ?",
+    )];
+    let mut thread = AgentThread::new();
+    let response = with_events(listener, agent.run(question, &mut thread))
         .await
         .unwrap();
+    let mut tools_called = 0;
+    while let Ok(event) = events.try_recv() {
+        match event {
+            WorkflowStreamEvent::ModelCalled {
+                model,
+                duration_ms,
+                prompt_tokens,
+                completion_tokens,
+                tool_calls,
+                ..
+            } => println!(
+                "model {model}: {duration_ms} ms, {prompt_tokens}+{completion_tokens} tokens, \
+                 asks for {tool_calls} tool(s)"
+            ),
+            WorkflowStreamEvent::ToolCalled {
+                tool,
+                arguments,
+                duration_ms,
+                success,
+                ..
+            } => {
+                tools_called += 1;
+                println!("tool {tool} {arguments}: {duration_ms} ms, success {success}");
+            }
+            _ => {}
+        }
+    }
     println!("answer: {}", response.content);
+    assert!(tools_called > 0, "no tool call was reported");
 
     // Three facts from three notes in three folders, reached through links.
     for fact in ["Tanguy", "4417", "HIBOU-7302"] {

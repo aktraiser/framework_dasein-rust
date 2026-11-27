@@ -211,14 +211,56 @@ pub enum WorkflowStreamEvent {
         event_type: String,
         data: serde_json::Value,
     },
+    /// An agent asked a model for an answer.
+    ModelCalled {
+        /// The step the agent ran in, if it ran inside a workflow, and
+        /// which of the step's inputs it was working on.
+        executor_id: Option<ExecutorId>,
+        input_index: Option<usize>,
+        /// The agent's name.
+        agent: String,
+        /// Provider and model, as the adapter names them.
+        provider: String,
+        model: String,
+        duration_ms: u64,
+        prompt_tokens: u32,
+        completion_tokens: u32,
+        /// Tools the model asked for in its answer.
+        tool_calls: usize,
+        /// Why the call failed, if it did.
+        error: Option<String>,
+    },
+    /// An agent ran a tool the model asked for.
+    ToolCalled {
+        /// As for `ModelCalled`.
+        executor_id: Option<ExecutorId>,
+        input_index: Option<usize>,
+        agent: String,
+        tool: String,
+        /// The arguments the model gave.
+        arguments: serde_json::Value,
+        duration_ms: u64,
+        /// The beginning of what the tool returned, or of its error.
+        result: String,
+        success: bool,
+    },
     /// Workflow completed successfully.
+    ///
+    /// A workflow run inside a step of another reports to the same
+    /// listener: the run that was listened to is over when the event with
+    /// its own `workflow_id` arrives, which is the last one.
     Completed {
+        workflow_id: WorkflowId,
         duration_ms: u64,
         superstep_count: u32,
         output_count: usize,
     },
     /// Workflow failed.
-    Failed { error: String, last_superstep: u32 },
+    Failed {
+        workflow_id: WorkflowId,
+        error: String,
+        last_superstep: u32,
+    },
 }
 
 // ============================================================================
@@ -545,7 +587,41 @@ where
         let result = self.run_unobserved(input).await;
         self.drop_private_state(&result).await;
         self.observe_run(started, &result);
+        self.report_end(&result);
         result
+    }
+
+    /// Tell the listener, if any, that a run of this task begins, be it
+    /// new or resumed.
+    fn report_start(&self, task_id: &TaskId) {
+        super::events::emit_with(|| WorkflowStreamEvent::Started {
+            workflow_id: self.definition.id.clone(),
+            task_id: task_id.clone(),
+            timestamp: Utc::now(),
+        });
+    }
+
+    /// Tell the listener, if any, how the run ended.
+    fn report_end(&self, result: &GraphResult<WorkflowResult<TOutput>>) {
+        let workflow_id = || self.definition.id.clone();
+        super::events::emit_with(|| match result {
+            Ok(result) if result.success => WorkflowStreamEvent::Completed {
+                workflow_id: workflow_id(),
+                duration_ms: result.duration_ms,
+                superstep_count: result.superstep_count,
+                output_count: result.outputs.len(),
+            },
+            Ok(result) => WorkflowStreamEvent::Failed {
+                workflow_id: workflow_id(),
+                error: result.error.clone().unwrap_or_default(),
+                last_superstep: result.superstep_count,
+            },
+            Err(error) => WorkflowStreamEvent::Failed {
+                workflow_id: workflow_id(),
+                error: error.to_string(),
+                last_superstep: 0,
+            },
+        });
     }
 
     /// Drop the state of a finished run from the workflow's private store,
@@ -585,6 +661,7 @@ where
     {
         let task_id = TaskId::generate();
         let start_time = std::time::Instant::now();
+        self.report_start(&task_id);
 
         // Serialize input
         let input_json = serde_json::to_value(&input).map_err(|e| {
@@ -655,6 +732,10 @@ where
                         .save(&checkpoint)
                         .await
                         .map_err(|e| GraphError::ExecutorFailed(e.to_string()))?;
+                    super::events::emit_with(|| WorkflowStreamEvent::CheckpointCreated {
+                        superstep,
+                        checkpoint_id: checkpoint.id.clone(),
+                    });
                 }
             }
         }
@@ -728,6 +809,7 @@ where
             .await;
         self.drop_private_state(&result).await;
         self.observe_run(started, &result);
+        self.report_end(&result);
         result
     }
 
@@ -740,6 +822,7 @@ where
     where
         TInput: Serialize + Send,
     {
+        self.report_start(&task_id);
         let start_time = std::time::Instant::now();
 
         // Try to load checkpoint
@@ -884,12 +967,17 @@ where
                         .map_err(|e| GraphError::SerializationError(e.to_string()))?;
                     checkpoint.retry_counts = retry_counts.clone();
 
+                    let checkpoint_id = checkpoint.id.clone();
                     let persistent = PersistentCheckpoint::from_checkpoint(checkpoint)
                         .with_shared_state(shared_state);
 
                     backend.save_persistent(&persistent).await.map_err(|e| {
                         GraphError::ExecutorFailed(format!("Failed to save checkpoint: {e}"))
                     })?;
+                    super::events::emit_with(|| WorkflowStreamEvent::CheckpointCreated {
+                        superstep,
+                        checkpoint_id,
+                    });
                 }
             }
         }
@@ -928,8 +1016,34 @@ where
             .map_err(|e| GraphError::ExecutorFailed(e.to_string()))
     }
 
-    /// Execute independent branches concurrently, then route in stable executor order.
+    /// Execute one superstep, reporting its start and its end.
     async fn execute_superstep(
+        &self,
+        superstep: u32,
+        state: &mut SuperstepState,
+        task_id: &TaskId,
+        retry_counts: &mut HashMap<ExecutorId, u32>,
+    ) -> GraphResult<Vec<TOutput>> {
+        let started = std::time::Instant::now();
+        super::events::emit_with(|| WorkflowStreamEvent::SuperstepStarted {
+            superstep,
+            active_executor_count: state.pending_messages.len(),
+        });
+        let outputs = self
+            .run_superstep(superstep, state, task_id, retry_counts)
+            .await;
+        if outputs.is_ok() {
+            super::events::emit_with(|| WorkflowStreamEvent::SuperstepCompleted {
+                superstep,
+                duration_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                messages_routed: state.pending_messages.values().map(Vec::len).sum(),
+            });
+        }
+        outputs
+    }
+
+    /// Execute independent branches concurrently, then route in stable executor order.
+    async fn run_superstep(
         &self,
         superstep: u32,
         state: &mut SuperstepState,
@@ -963,6 +1077,7 @@ where
                                 superstep,
                                 index,
                                 task_id,
+                                attempt < self.config.max_retries_per_executor,
                             )
                             .await
                         {
@@ -1216,7 +1331,14 @@ where
         let mut attempt = 0;
         let (messages, outputs) = loop {
             match self
-                .execute_single(executor.clone(), input.clone(), superstep, 0, task_id)
+                .execute_single(
+                    executor.clone(),
+                    input.clone(),
+                    superstep,
+                    0,
+                    task_id,
+                    attempt < self.config.max_retries_per_executor,
+                )
                 .await
             {
                 Ok(result) => break result,
@@ -1270,6 +1392,8 @@ where
         superstep: u32,
         input_index: usize,
         task_id: &TaskId,
+        // Whether a failure that can be retried will be.
+        attempts_left: bool,
     ) -> Result<(Vec<TMessage>, Vec<TOutput>), ExecutorError> {
         // Create context for this executor
         let mut ctx: WorkflowContext<TMessage, TOutput> = WorkflowContextBuilder::new(
@@ -1285,7 +1409,20 @@ where
         // Execute with timeout
         let timeout = std::time::Duration::from_millis(self.config.executor_timeout_ms);
         let started = std::time::Instant::now();
-        let result = tokio::time::timeout(timeout, executor.handle_dyn(input_json, &mut ctx)).await;
+        super::events::emit_with(|| WorkflowStreamEvent::ExecutorStarted {
+            executor_id: executor.id().clone(),
+            superstep,
+        });
+        // What runs inside reports under this step's name.
+        let step = super::events::Step {
+            executor_id: executor.id().clone(),
+            input_index,
+        };
+        let result = tokio::time::timeout(
+            timeout,
+            super::events::in_step(step, executor.handle_dyn(input_json, &mut ctx)),
+        )
+        .await;
         let outcome = match &result {
             Ok(Ok(())) => crate::telemetry::Outcome::Success,
             Ok(Err(_)) => crate::telemetry::Outcome::Error,
@@ -1293,7 +1430,15 @@ where
         };
         crate::telemetry::executor_invocation(executor.id().as_str(), started, outcome);
 
-        match result {
+        // What the executor reported itself, whether it succeeded or not.
+        for event in ctx.drain_events() {
+            super::events::emit(WorkflowStreamEvent::CustomEvent {
+                executor_id: event.executor_id,
+                event_type: event.event_type,
+                data: event.data,
+            });
+        }
+        let result = match result {
             Ok(Ok(())) => {
                 let messages = ctx.drain_messages();
                 let outputs = ctx.drain_outputs();
@@ -1301,16 +1446,47 @@ where
             }
             Ok(Err(e)) => Err(e),
             Err(_) => Err(ExecutorError::timeout()),
+        };
+        if super::events::listening() {
+            match &result {
+                Ok((messages, outputs)) => {
+                    for output in outputs {
+                        super::events::emit(WorkflowStreamEvent::Output {
+                            executor_id: executor.id().clone(),
+                            data: serde_json::to_value(output).unwrap_or_default(),
+                        });
+                    }
+                    super::events::emit(WorkflowStreamEvent::ExecutorCompleted {
+                        executor_id: executor.id().clone(),
+                        superstep,
+                        duration_ms: u64::try_from(started.elapsed().as_millis())
+                            .unwrap_or(u64::MAX),
+                        message_count: messages.len(),
+                    });
+                }
+                Err(error) => super::events::emit(WorkflowStreamEvent::ExecutorFailed {
+                    executor_id: executor.id().clone(),
+                    superstep,
+                    error: error.to_string(),
+                    will_retry: error.retriable && attempts_left,
+                }),
+            }
         }
+        result
     }
 
     // ========================================================================
     // RUN_STREAM (Streaming)
     // ========================================================================
 
-    /// Run the workflow and stream events.
+    /// Run the workflow and stream what it does, as it does it: supersteps
+    /// and executors starting and ending, outputs, the events executors add,
+    /// and the model and tool calls of agents. The last event is
+    /// `Completed` or `Failed`.
     ///
-    /// Returns a stream of events that can be consumed as the workflow executes.
+    /// The run advances as the stream is read, and stops if it is dropped.
+    /// To get the result as well, use [`run`](Self::run) inside
+    /// [`with_events`](super::with_events).
     pub fn run_stream<TInput>(
         &self,
         input: TInput,
@@ -1318,25 +1494,23 @@ where
     where
         TInput: Serialize + Send + 'static,
     {
-        // Execute the real workflow. This API streams the final result; it does
-        // not yet expose intermediate executor events.
-        Box::pin(futures::stream::once(async move {
-            match self.run(input).await {
-                Ok(result) if result.success => WorkflowStreamEvent::Completed {
-                    duration_ms: result.duration_ms,
-                    superstep_count: result.superstep_count,
-                    output_count: result.outputs.len(),
-                },
-                Ok(result) => WorkflowStreamEvent::Failed {
-                    error: result.error.unwrap_or_default(),
-                    last_superstep: result.superstep_count,
-                },
-                Err(error) => WorkflowStreamEvent::Failed {
-                    error: error.to_string(),
-                    last_superstep: 0,
-                },
+        let (listener, mut events) = tokio::sync::mpsc::unbounded_channel();
+        Box::pin(async_stream::stream! {
+            // The run reports its own end, as its last event.
+            let run = super::events::with_events(listener, self.run(input));
+            tokio::pin!(run);
+            let mut running = true;
+            while running {
+                tokio::select! {
+                    biased;
+                    Some(event) = events.recv() => yield event,
+                    _ = &mut run => running = false,
+                }
             }
-        }))
+            while let Ok(event) = events.try_recv() {
+                yield event;
+            }
+        })
     }
 }
 
