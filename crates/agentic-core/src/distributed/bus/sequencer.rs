@@ -109,7 +109,7 @@ impl Sequencer {
         // Add to pending queue, sorted by priority
         let mut pending = self.pending_tasks.write().await;
         pending.push(task);
-        pending.sort_by(|a, b| b.priority.cmp(&a.priority)); // Higher priority first
+        pending.sort_by_key(|a| std::cmp::Reverse(a.priority)); // Higher priority first
 
         Ok(())
     }
@@ -176,7 +176,7 @@ impl Sequencer {
                 pending.push(task);
             }
         }
-        pending.sort_by(|a, b| b.priority.cmp(&a.priority));
+        pending.sort_by_key(|a| std::cmp::Reverse(a.priority));
 
         Ok(())
     }
