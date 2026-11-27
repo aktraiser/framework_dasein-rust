@@ -7,22 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- The legacy `Agent` refuses to run model-generated code on a sandbox without isolation unless the host opts in; `ProcessSandbox` no longer passes secret-looking environment variables to executed code.
+- Gateway: the remote shell endpoint `POST /v1/vm/exec` is removed; the SSH host key is pinned; the dashboard is protected against cross-site requests and login brute force.
+- The Gemini API key is sent in a header instead of the URL.
+- `gmail_send` only sends to an allow-list of recipients.
+- Dependencies with known advisories are updated.
+
 ### Added
-- Initial public release
-- Multi-LLM support: OpenAI, Anthropic, Gemini, Ollama
-- Sandboxed code execution (Process, Remote Gateway)
-- NATS-based distributed message bus
-- Graph-based workflow engine
-- MCP protocol client
-- Incremental code generation pipeline
-- Validation and linting system
+- MCP client: stdio transport, `initialize` handshake, sessions, reconnection, all content types.
+- Graph: `add_fan_in_edge_with` merges joined messages so the target runs once.
+- Gateway: per-key request and token limits are enforced; usage, cost and streamed tokens are logged; `trusted_proxies`.
+- LLM adapters: `with_base_url`, `with_timeout`, `with_max_retries` on Anthropic, Gemini and Ollama.
 
-### Infrastructure
-- GitHub Actions CI/CD pipeline
-- VitePress documentation site
-- Comprehensive test suite
+### Changed
+- A fan-in edge now waits for its sources and delivers their messages together.
+- `WorkflowAgent::run` returns an error when the workflow fails.
+- Anthropic and Gemini report `FinishReason::ToolCalls` when the model asks for a tool.
+- The gateway listens on `127.0.0.1` when `host` is omitted.
+- A stdio MCP server no longer inherits the environment of the host process.
+- The Rust toolchain is pinned in `rust-toolchain.toml`.
 
-## [0.1.0] - 2024-XX-XX
+### Fixed
+- Streams from Gemini, Anthropic and Ollama no longer lose or corrupt text split across network chunks.
+- A durable `ChatAgent` run can resume after a crash during a model call.
+- Text previews no longer panic on non-ASCII input.
+- MCP `isError` is read: a failed tool call is no longer reported as a success.
+
+## [0.1.0] - 2026-02-16
 
 ### Added
 - `agentic-core`: Core agent runtime with executor trait
@@ -41,5 +53,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/aktraiser/framework_dasein-rust/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/aktraiser/framework_dasein-rust/releases/tag/v0.1.0
+[Unreleased]: https://github.com/aktraiser/framework_dasein-rust/commits/main
+[0.1.0]: https://crates.io/crates/dasein-agentic-core/0.1.0

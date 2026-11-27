@@ -9,10 +9,10 @@ Choose your LLM provider(s):
 ```toml
 [dependencies]
 # Single provider
-agentic-llm = { path = "crates/agentic-llm", features = ["gemini"] }
+dasein-agentic-llm = { path = "crates/agentic-llm", features = ["gemini"] }
 
 # Multiple providers
-agentic-llm = { path = "crates/agentic-llm", features = ["gemini", "openai", "anthropic"] }
+dasein-agentic-llm = { path = "crates/agentic-llm", features = ["gemini", "openai", "anthropic"] }
 ```
 
 ### Available Features
@@ -26,7 +26,7 @@ agentic-llm = { path = "crates/agentic-llm", features = ["gemini", "openai", "an
 
 ### Default Feature
 
-If no feature is specified, **no LLM provider is available**. You must explicitly enable at least one.
+With no feature specified, `openai` and `ollama` are enabled. Use `default-features = false` to choose providers yourself.
 
 ### Usage Example
 
@@ -45,22 +45,23 @@ Choose your code execution environment:
 ```toml
 [dependencies]
 # Default (ProcessSandbox only)
-agentic-sandbox = { path = "crates/agentic-sandbox" }
+dasein-agentic-sandbox = { path = "crates/agentic-sandbox" }
 
 # With Docker support
-agentic-sandbox = { path = "crates/agentic-sandbox", features = ["docker"] }
+dasein-agentic-sandbox = { path = "crates/agentic-sandbox", features = ["docker"] }
 
 # With Firecracker VM support
-agentic-sandbox = { path = "crates/agentic-sandbox", features = ["firecracker"] }
+dasein-agentic-sandbox = { path = "crates/agentic-sandbox", features = ["firecracker"] }
 ```
 
 ### Available Features
 
 | Feature | Sandbox Type | Requirements | Security Level |
 |---------|--------------|--------------|----------------|
-| (default) | `ProcessSandbox` | None | Low |
-| `docker` | `DockerSandbox` | Docker installed | Medium |
-| `firecracker` | `FirecrackerSandbox` | Firecracker + KVM | High |
+| (default) | `ProcessSandbox` | None | None: runs on the host, trusted code only |
+| `docker` | `DockerSandbox` | Docker installed | Container, no network |
+| `firecracker` | `FirecrackerSandbox` | Firecracker + Linux/KVM | MicroVM |
+| `gateway`, `remote` | `GatewaySandbox`, `RemoteSandbox` | A running gateway or remote server | As provided by the server |
 
 ### Security Comparison
 
@@ -82,8 +83,10 @@ let sandbox = ProcessSandbox::new()
 #[cfg(feature = "docker")]
 {
     use dasein_agentic_sandbox::DockerSandbox;
-    let sandbox = DockerSandbox::new("rust:latest")
-        .with_memory_limit(512 * 1024 * 1024);
+    let sandbox = DockerSandbox::builder()
+        .image("python:3.12-alpine")
+        .memory_limit("512m")
+        .build();
 }
 ```
 
@@ -95,16 +98,15 @@ For persistent storage and vector search:
 
 ```toml
 [dependencies]
-agentic-storage = { path = "crates/agentic-storage", features = ["qdrant", "redis"] }
+dasein-agentic-storage = { path = "crates/agentic-storage", features = ["qdrant", "redis"] }
 ```
 
 ### Available Features
 
 | Feature | Backend | Use Case |
 |---------|---------|----------|
+| `redis` (default) | Redis | Key-value state |
 | `qdrant` | Qdrant | Vector similarity search |
-| `redis` | Redis | Key-value caching |
-| `memory` | In-memory | Testing, development |
 
 ---
 
@@ -114,7 +116,7 @@ For Model Context Protocol support:
 
 ```toml
 [dependencies]
-agentic-mcp = { path = "crates/agentic-mcp" }
+dasein-agentic-mcp = { path = "crates/agentic-mcp" }
 ```
 
 ### Environment Variables
@@ -136,25 +138,25 @@ The core crate has no optional features. All distributed components are always a
 ### Minimal (Development)
 
 ```toml
-agentic-core = { path = "crates/agentic-core" }
-agentic-llm = { path = "crates/agentic-llm", features = ["gemini"] }
-agentic-sandbox = { path = "crates/agentic-sandbox" }
+dasein-agentic-core = { path = "crates/agentic-core" }
+dasein-agentic-llm = { path = "crates/agentic-llm", features = ["gemini"] }
+dasein-agentic-sandbox = { path = "crates/agentic-sandbox" }
 ```
 
 ### Full (Production)
 
 ```toml
-agentic-core = { path = "crates/agentic-core" }
-agentic-llm = { path = "crates/agentic-llm", features = ["gemini", "openai", "anthropic"] }
-agentic-sandbox = { path = "crates/agentic-sandbox", features = ["docker"] }
-agentic-storage = { path = "crates/agentic-storage", features = ["qdrant", "redis"] }
-agentic-mcp = { path = "crates/agentic-mcp" }
+dasein-agentic-core = { path = "crates/agentic-core" }
+dasein-agentic-llm = { path = "crates/agentic-llm", features = ["gemini", "openai", "anthropic"] }
+dasein-agentic-sandbox = { path = "crates/agentic-sandbox", features = ["docker"] }
+dasein-agentic-storage = { path = "crates/agentic-storage", features = ["qdrant", "redis"] }
+dasein-agentic-mcp = { path = "crates/agentic-mcp" }
 ```
 
 ### High Security
 
 ```toml
-agentic-sandbox = { path = "crates/agentic-sandbox", features = ["firecracker"] }
+dasein-agentic-sandbox = { path = "crates/agentic-sandbox", features = ["firecracker"] }
 ```
 
 ---
@@ -166,7 +168,7 @@ agentic-sandbox = { path = "crates/agentic-sandbox", features = ["firecracker"] 
 You need to enable the `gemini` feature:
 
 ```toml
-agentic-llm = { path = "crates/agentic-llm", features = ["gemini"] }
+dasein-agentic-llm = { path = "crates/agentic-llm", features = ["gemini"] }
 ```
 
 ### "cannot find type `DockerSandbox`"
@@ -174,7 +176,7 @@ agentic-llm = { path = "crates/agentic-llm", features = ["gemini"] }
 You need to enable the `docker` feature:
 
 ```toml
-agentic-sandbox = { path = "crates/agentic-sandbox", features = ["docker"] }
+dasein-agentic-sandbox = { path = "crates/agentic-sandbox", features = ["docker"] }
 ```
 
 ### "feature `X` is required but it's not selected"

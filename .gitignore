@@ -26,6 +26,11 @@ lcov.info
 
 # Documentation
 /docs/book/
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+
+# Node (docs site, browser tooling)
+node_modules/
 
 # Temporary
 *.tmp

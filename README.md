@@ -18,16 +18,30 @@ A high-performance framework for building **multi-agent AI systems** in Rust. Co
 
 ## Why Dasein?
 
-- **Multi-LLM** - OpenAI, Anthropic, Gemini, Ollama (local models)
-- **Code Execution** - Ephemeral Docker containers with resource limits; trusted local development with ProcessSandbox
-- **Distributed** - NATS-based message bus for scaling
-- **Type-Safe** - Full Rust type safety, zero runtime overhead
-- **Async-First** - Built on Tokio for maximum concurrency
+- **Multi-LLM** - OpenAI, Anthropic, Gemini, Ollama (local models), with timeouts, safe retries and streaming
+- **Tools** - Agents call your functions or any MCP server (HTTP or stdio)
+- **Code Execution** - Ephemeral Docker containers or Firecracker microVMs with no network and resource limits; `ProcessSandbox` for trusted local development only
+- **Workflows** - Graph engine with parallel branches, joins, retries and checkpointed resume
+- **Durable work** - A NATS JetStream queue shares tasks between processes
+- **Gateway** - An OpenAI-compatible endpoint with per-key limits, usage log and an admin dashboard
+
+## Status
+
+This is a **local beta**: built to run on one machine, in a controlled setting. [SDK_STATUS.md](docs/SDK_STATUS.md) lists what is validated and what is not. In short:
+
+- The graph engine, tool-calling agents, Docker execution, the durable queue and the gateway are covered by tests, including against real NATS, Redis and Docker in CI.
+- LLM adapters, the MCP client and the chat platforms are tested against mock servers, not against the live services.
+- Agents are coordinated inside one process. Spreading a workflow across machines is not implemented beyond the shared task queue.
+- There is no OpenTelemetry or Prometheus export yet.
 
 ## Quick Start
 
-```bash
-cargo add dasein-agentic-core dasein-agentic-llm tokio --features "dasein-agentic-llm/anthropic, tokio/full"
+The crates published on crates.io (0.1.0) predate the security and reliability fixes in this repository. Until a new release, depend on the repository:
+
+```toml
+[dependencies]
+dasein-agentic-llm = { git = "https://github.com/aktraiser/framework_dasein-rust", features = ["anthropic"] }
+tokio = { version = "1", features = ["full"] }
 ```
 
 ```rust
@@ -62,50 +76,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    DASEIN AGENTIC SDK                       │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │                   ORCHESTRATOR                       │   │
-│  │   Agent Registry • Workflow Engine • Task Router     │   │
-│  └───────────────────────────┬─────────────────────────┘   │
-│                              │                              │
-│              ┌───────────────┴───────────────┐             │
-│              │          NATS BUS             │             │
-│              │    Pub/Sub • Request/Reply    │             │
-│              └───────────────┬───────────────┘             │
-│                              │                              │
-│     ┌────────────────────────┼────────────────────────┐    │
-│     ▼                        ▼                        ▼    │
-│ ┌────────┐              ┌────────┐              ┌────────┐ │
-│ │ AGENT  │              │ AGENT  │              │ AGENT  │ │
-│ │┌──────┐│              │┌──────┐│              │┌──────┐│ │
-│ ││ LLM  ││              ││ LLM  ││              ││ LLM  ││ │
-│ │├──────┤│              │├──────┤│              │├──────┤│ │
-│ ││SANDBOX│              ││SANDBOX│              ││SANDBOX│ │
-│ │└──────┘│              │└──────┘│              │└──────┘│ │
-│ └────────┘              └────────┘              └────────┘ │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+          your application
+                 │
+   ┌─────────────┴──────────────┐
+   │      dasein-agentic-core    │   graph workflows, agents, tool loop,
+   │                             │   checkpoints, durable queue (NATS)
+   └──┬──────────┬───────────┬──┘
+      │          │           │
+  ┌───┴───┐  ┌───┴────┐  ┌───┴────┐
+  │  llm  │  │ sandbox │  │  mcp   │
+  └───┬───┘  └───┬────┘  └───┬────┘
+      │          │           │
+  providers   Docker /    MCP servers
+              Firecracker (HTTP, stdio)
 ```
+
+Agents and workflows run inside your process. NATS carries the durable task queue, the audit trail and shared memory; it is optional for a single in-process workflow.
 
 ## Crates
 
 | Crate | Description |
 |-------|-------------|
-| `dasein-agentic-core` | Core runtime, executor trait, protocols |
+| `dasein-agentic-core` | Graph workflows, agents, durable queue, persistence |
 | `dasein-agentic-llm` | LLM adapters (OpenAI, Anthropic, Gemini, Ollama) |
-| `dasein-agentic-sandbox` | Sandboxed code execution |
-| `dasein-agentic-bus` | NATS message bus |
-| `dasein-agentic-orchestrator` | Multi-agent workflows |
-| `dasein-agentic-mcp` | Model Context Protocol client |
+| `dasein-agentic-sandbox` | Sandboxed code execution (Docker, Firecracker, process) |
+| `dasein-agentic-mcp` | Model Context Protocol client (HTTP and stdio) |
+| `dasein-agentic-tools` | Ready-made tools (web search, Google Workspace) |
+| `dasein-agentic-skills` | Skill registry and routing |
+| `dasein-agentic-chat-platforms` | Discord, Telegram, Slack (send only) |
+| `dasein-agentic-storage` | Redis and Qdrant stores |
+| `dasein-agentic-bus`, `dasein-agentic-orchestrator` | Earlier bus and orchestrator; not used by the other crates |
+
+The [gateway](gateway/README.md) is a separate workspace under `gateway/`.
 
 ## Examples
 
 ```bash
 # Interactive chat
-cargo run --example chat --features "anthropic"
+cargo run --example chat
 
 # Single agent with sandbox
 cargo run --example single_agent
