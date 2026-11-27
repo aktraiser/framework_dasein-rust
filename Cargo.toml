@@ -72,7 +72,7 @@ rmcp = { version = "0.14", features = ["server", "client", "transport-io", "macr
 schemars = "0.8"
 
 # Message Bus
-async-nats = "0.38"
+async-nats = "0.53"
 
 # Storage
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
