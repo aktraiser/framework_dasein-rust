@@ -529,6 +529,28 @@ where
     where
         TInput: Serialize + Send,
     {
+        let started = std::time::Instant::now();
+        let result = self.run_unobserved(input).await;
+        self.observe_run(started, &result);
+        result
+    }
+
+    /// Record a finished run in the metrics.
+    fn observe_run(
+        &self,
+        started: std::time::Instant,
+        result: &GraphResult<WorkflowResult<TOutput>>,
+    ) {
+        let (success, supersteps) = result.as_ref().map_or((false, None), |result| {
+            (result.success, Some(result.superstep_count))
+        });
+        crate::telemetry::workflow_run(self.definition.id.as_str(), started, success, supersteps);
+    }
+
+    async fn run_unobserved<TInput>(&self, input: TInput) -> GraphResult<WorkflowResult<TOutput>>
+    where
+        TInput: Serialize + Send,
+    {
         let task_id = TaskId::generate();
         let start_time = std::time::Instant::now();
 
@@ -660,6 +682,23 @@ where
     /// * `checkpoint_id` - Optional specific checkpoint to resume from
     /// * `fallback_input` - Input to use if no checkpoint is found
     pub async fn run_with_resume<TInput>(
+        &self,
+        task_id: TaskId,
+        checkpoint_id: Option<&str>,
+        fallback_input: TInput,
+    ) -> GraphResult<WorkflowResult<TOutput>>
+    where
+        TInput: Serialize + Send,
+    {
+        let started = std::time::Instant::now();
+        let result = self
+            .run_with_resume_unobserved(task_id, checkpoint_id, fallback_input)
+            .await;
+        self.observe_run(started, &result);
+        result
+    }
+
+    async fn run_with_resume_unobserved<TInput>(
         &self,
         task_id: TaskId,
         checkpoint_id: Option<&str>,
@@ -1212,7 +1251,14 @@ where
 
         // Execute with timeout
         let timeout = std::time::Duration::from_millis(self.config.executor_timeout_ms);
+        let started = std::time::Instant::now();
         let result = tokio::time::timeout(timeout, executor.handle_dyn(input_json, &mut ctx)).await;
+        let outcome = match &result {
+            Ok(Ok(())) => crate::telemetry::Outcome::Success,
+            Ok(Err(_)) => crate::telemetry::Outcome::Error,
+            Err(_) => crate::telemetry::Outcome::Timeout,
+        };
+        crate::telemetry::executor_invocation(executor.id().as_str(), started, outcome);
 
         match result {
             Ok(Ok(())) => {

@@ -130,11 +130,18 @@ impl<L: LLMAdapter + 'static> ChatAgent<L> {
                     .collect();
                 // Not marked in flight: only tool calls can have uncertain effects.
                 let input = self.build_llm_messages(&state.thread);
+                let started = std::time::Instant::now();
                 let response = if tools.is_empty() {
                     self.llm.generate(&input).await
                 } else {
                     self.llm.generate_with_tools(&input, &tools).await
                 };
+                crate::telemetry::llm_request(
+                    self.llm.provider(),
+                    self.llm.model(),
+                    started,
+                    response.as_ref().ok().map(|response| &response.tokens_used),
+                );
                 let response: LLMResponse = response?;
                 state.tokens = state.tokens.saturating_add(response.tokens_used.total);
                 state.model = response.model.clone();
@@ -233,48 +240,57 @@ impl<L: LLMAdapter + 'static> ChatAgent<L> {
             }
             while state.next_tool < state.pending.len() {
                 let call = state.pending[state.next_tool].clone();
-                let value =
-                    if state.terminal.is_some() {
-                        serde_json::json!({"skipped":"Invocation already finalized"})
-                    } else {
-                        // Resolve the handler first: failing here has run nothing,
-                        // so it must not leave the checkpoint marked uncertain.
-                        let handler = self.handlers.get(&call.name).ok_or_else(|| {
-                            AgentError::tool(&call.name, "Handler unavailable on resume")
-                        })?;
-                        state.in_flight = Some(format!("tool:{}:{}", call.name, call.id));
-                        store.save(&state).await?;
-                        let value =
-                            match tokio::time::timeout(self.tool_timeout, handler(call.arguments))
-                                .await
-                            {
-                                Ok(Ok(v)) => v,
-                                Ok(Err(e)) => serde_json::json!({"error":e.to_string()}),
-                                // A timed out tool may already have performed its side effect.
-                                Err(_) => return Err(AgentError::tool(
-                                    "checkpoint",
-                                    "Tool timed out; result uncertain, automatic replay blocked",
-                                )),
-                            };
-                        state.in_flight = None;
-                        if self.terminal_tools.contains(&call.name) && value.get("error").is_none()
-                        {
-                            let content = value
-                                .get("conclusion")
-                                .and_then(|v| v.as_str())
-                                .map(str::to_owned)
-                                .unwrap_or_else(|| value.to_string());
-                            if self
-                                .completion_check
-                                .as_ref()
-                                .map(|f| f(&content).is_ok())
-                                .unwrap_or(true)
-                            {
-                                state.terminal = Some(content);
-                            }
+                let value = if state.terminal.is_some() {
+                    serde_json::json!({"skipped":"Invocation already finalized"})
+                } else {
+                    // Resolve the handler first: failing here has run nothing,
+                    // so it must not leave the checkpoint marked uncertain.
+                    let handler = self.handlers.get(&call.name).ok_or_else(|| {
+                        AgentError::tool(&call.name, "Handler unavailable on resume")
+                    })?;
+                    state.in_flight = Some(format!("tool:{}:{}", call.name, call.id));
+                    store.save(&state).await?;
+                    let started = std::time::Instant::now();
+                    let outcome =
+                        tokio::time::timeout(self.tool_timeout, handler(call.arguments)).await;
+                    crate::telemetry::tool_call(
+                        &call.name,
+                        started,
+                        match &outcome {
+                            Ok(Ok(_)) => crate::telemetry::Outcome::Success,
+                            Ok(Err(_)) => crate::telemetry::Outcome::Error,
+                            Err(_) => crate::telemetry::Outcome::Timeout,
+                        },
+                    );
+                    let value = match outcome {
+                        Ok(Ok(v)) => v,
+                        Ok(Err(e)) => serde_json::json!({"error":e.to_string()}),
+                        // A timed out tool may already have performed its side effect.
+                        Err(_) => {
+                            return Err(AgentError::tool(
+                                "checkpoint",
+                                "Tool timed out; result uncertain, automatic replay blocked",
+                            ))
                         }
-                        value
                     };
+                    state.in_flight = None;
+                    if self.terminal_tools.contains(&call.name) && value.get("error").is_none() {
+                        let content = value
+                            .get("conclusion")
+                            .and_then(|v| v.as_str())
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| value.to_string());
+                        if self
+                            .completion_check
+                            .as_ref()
+                            .map(|f| f(&content).is_ok())
+                            .unwrap_or(true)
+                        {
+                            state.terminal = Some(content);
+                        }
+                    }
+                    value
+                };
                 state
                     .thread
                     .add_message(LLMMessage::tool_result(call.id, value.to_string()).into());

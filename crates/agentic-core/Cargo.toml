@@ -17,6 +17,16 @@ categories.workspace = true
 default = []
 # Enable Redis-backed checkpoint persistence
 redis-persistence = ["redis"]
+# Serve the runtime's metrics to Prometheus
+prometheus = ["dep:metrics-exporter-prometheus"]
+# Export the runtime's tracing spans to an OpenTelemetry collector (OTLP/HTTP)
+otel = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:tracing-opentelemetry",
+    "dep:tracing-subscriber",
+]
 # Let a ChatAgent take its tools from MCP servers
 mcp = ["dep:dasein-agentic-mcp"]
 
@@ -38,6 +48,17 @@ anyhow = { workspace = true }
 
 # Logging
 tracing = { workspace = true }
+
+# Metrics (no-op until the application installs a recorder)
+metrics = "0.24"
+metrics-exporter-prometheus = { version = "0.18", default-features = false, features = ["http-listener"], optional = true }
+
+# Trace export (optional)
+opentelemetry = { version = "0.33", optional = true }
+opentelemetry_sdk = { version = "0.33", optional = true }
+opentelemetry-otlp = { version = "0.33", optional = true }
+tracing-opentelemetry = { version = "0.34", optional = true }
+tracing-subscriber = { workspace = true, optional = true }
 
 # Validation
 validator = { workspace = true }
@@ -63,6 +84,8 @@ dasein-agentic-sandbox = { workspace = true }
 dasein-agentic-mcp = { workspace = true, optional = true }
 
 [dev-dependencies]
+metrics-exporter-prometheus = { version = "0.18", default-features = false }
+tracing-subscriber = { workspace = true }
 tokio-test = { workspace = true }
 mockall = { workspace = true }
 

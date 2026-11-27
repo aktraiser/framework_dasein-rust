@@ -58,6 +58,7 @@ pub mod patterns;
 pub mod prelude;
 pub mod protocol;
 pub mod swarm;
+pub mod telemetry;
 pub mod types;
 
 #[allow(deprecated)] // Kept exported until the deprecated type is removed.
