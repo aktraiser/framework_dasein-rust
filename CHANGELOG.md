@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Ollama: tool calling (`generate_with_tools`), so an agent can use tools, MCP servers included, with a model running on the machine.
 - A live test of an agent answering from an Obsidian vault through a third-party MCP server, with a small vault as fixture.
 
 ### Fixed

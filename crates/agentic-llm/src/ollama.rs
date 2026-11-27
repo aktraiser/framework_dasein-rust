@@ -9,7 +9,10 @@ use tracing::{debug, instrument};
 
 use crate::{
     error::LLMError,
-    traits::{FinishReason, LLMAdapter, LLMMessage, LLMResponse, Role, StreamChunk, TokenUsage},
+    traits::{
+        FinishReason, LLMAdapter, LLMMessage, LLMResponse, Role, StreamChunk, TokenUsage, Tool,
+        ToolCall,
+    },
 };
 
 /// Ollama adapter for local models.
@@ -111,6 +114,73 @@ struct OllamaChatResponse {
 struct OllamaResponseMessage {
     #[serde(default)]
     content: String,
+    #[serde(default)]
+    tool_calls: Vec<OllamaToolCall>,
+}
+
+#[derive(Deserialize)]
+struct OllamaToolCall {
+    function: OllamaFunctionCall,
+}
+
+#[derive(Deserialize)]
+struct OllamaFunctionCall {
+    name: String,
+    /// An object; some models send it as a JSON string.
+    #[serde(default)]
+    arguments: serde_json::Value,
+}
+
+/// A request that declares tools. Messages are built by hand: tool rounds
+/// have a shape of their own.
+#[derive(Serialize)]
+struct OllamaToolRequest {
+    model: String,
+    messages: Vec<serde_json::Value>,
+    tools: Vec<serde_json::Value>,
+    stream: bool,
+    options: OllamaOptions,
+}
+
+/// The conversation as Ollama takes it when tools are declared: the model's
+/// calls stay calls, and each result names the tool it came from.
+fn tool_messages(messages: &[LLMMessage]) -> Vec<serde_json::Value> {
+    use serde_json::json;
+    // Ollama has no call IDs: a result is matched to its tool by name.
+    let mut names = std::collections::HashMap::new();
+    messages
+        .iter()
+        .map(|message| match message.role {
+            Role::System => json!({"role": "system", "content": message.content}),
+            Role::User => json!({"role": "user", "content": message.content}),
+            Role::Assistant => {
+                let calls: Vec<_> = message
+                    .tool_calls
+                    .iter()
+                    .map(|call| {
+                        names.insert(call.id.clone(), call.name.clone());
+                        json!({"type": "function", "function": {
+                            "name": call.name, "arguments": call.arguments,
+                        }})
+                    })
+                    .collect();
+                if calls.is_empty() {
+                    json!({"role": "assistant", "content": message.content})
+                } else {
+                    json!({"role": "assistant", "content": message.content, "tool_calls": calls})
+                }
+            }
+            Role::Tool => {
+                let name = message
+                    .tool_call_id
+                    .as_ref()
+                    .and_then(|id| names.get(id))
+                    .cloned()
+                    .unwrap_or_default();
+                json!({"role": "tool", "tool_name": name, "content": message.content})
+            }
+        })
+        .collect()
 }
 
 impl OllamaChatResponse {
@@ -193,6 +263,87 @@ impl LLMAdapter for OllamaAdapter {
             content: chat_response.message.content,
             model: self.model.clone(),
             tool_calls: vec![],
+        })
+    }
+
+    /// Whether tool calls work depends on the model: Ollama refuses a
+    /// request with tools for a model that does not have the capability.
+    fn supports_tools(&self) -> bool {
+        true
+    }
+
+    #[instrument(skip(self, messages, tools), fields(provider = "ollama", model = %self.model))]
+    async fn generate_with_tools(
+        &self,
+        messages: &[LLMMessage],
+        tools: &[Tool],
+    ) -> Result<LLMResponse, LLMError> {
+        if tools.is_empty() {
+            return self.generate(messages).await;
+        }
+        debug!("Generating with {} tools", tools.len());
+        let request = OllamaToolRequest {
+            model: self.model.clone(),
+            messages: tool_messages(messages),
+            tools: tools
+                .iter()
+                .map(|tool| {
+                    serde_json::json!({"type": "function", "function": {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": tool.parameters,
+                    }})
+                })
+                .collect(),
+            stream: false,
+            options: OllamaOptions {
+                temperature: self.temperature,
+            },
+        };
+
+        let url = format!("{}/api/chat", self.base_url);
+        let response =
+            crate::http::send(|| self.client.post(&url).json(&request), self.max_retries).await?;
+        let chat_response: OllamaChatResponse = response
+            .json()
+            .await
+            .map_err(|e| LLMError::InvalidResponse(e.without_url().to_string()))?;
+        if let Some(error) = &chat_response.error {
+            return Err(LLMError::ApiError(error.clone()));
+        }
+
+        let tokens_used = chat_response.usage();
+        let mut finish_reason = chat_response.finish_reason();
+        let mut tool_calls = Vec::new();
+        for (index, call) in chat_response.message.tool_calls.into_iter().enumerate() {
+            let arguments = match call.function.arguments {
+                serde_json::Value::String(text) => serde_json::from_str(&text).map_err(|e| {
+                    LLMError::InvalidResponse(format!(
+                        "arguments of the call to `{}` are not JSON: {e}",
+                        call.function.name
+                    ))
+                })?,
+                serde_json::Value::Null => serde_json::json!({}),
+                other => other,
+            };
+            // Ollama gives calls no ID; the rest of the framework needs one
+            // to pair a call with its result. Unique in the conversation:
+            // its length so far, and the call's place in this answer.
+            tool_calls.push(ToolCall::new(
+                format!("call_{}_{index}", messages.len()),
+                call.function.name,
+                arguments,
+            ));
+        }
+        if !tool_calls.is_empty() {
+            finish_reason = FinishReason::ToolCalls;
+        }
+        Ok(LLMResponse {
+            tokens_used,
+            finish_reason,
+            content: chat_response.message.content,
+            model: self.model.clone(),
+            tool_calls,
         })
     }
 

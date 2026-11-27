@@ -25,6 +25,19 @@ Each provider gets the same three checks: a plain answer with token usage, a str
 
 `rejected_key_is_an_authentication_error` only needs `LIVE_ANTHROPIC_MODEL`: it sends an invalid key on purpose.
 
+With Ollama the tool call needs a model that has the `tools` capability (`ollama show <model>` lists it); Ollama refuses a request with tools for one that does not.
+
+## An agent with MCP tools on a local model
+
+The agent of `live_mcp_agent` can run on a model served by Ollama, so that neither the question nor what the tools return leaves the machine:
+
+```bash
+LIVE_OLLAMA_MODEL=mistral:7b cargo test -p dasein-agentic-core \
+  --features mcp --test live_mcp_agent -- --include-ignored --nocapture local_model
+```
+
+It passed with Ollama 0.9.5 and `mistral:7b`: the model found the tool of the MCP server, called it with the right argument and used its answer. Small local models are less reliable with tools than hosted ones; one question and one tool is what was tried.
+
 ## MCP servers
 
 | Check | Variables |
