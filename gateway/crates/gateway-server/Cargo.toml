@@ -49,7 +49,9 @@ argon2 = { workspace = true }
 rand = { workspace = true }
 chrono = { workspace = true }
 http = "1.0"
+sha2 = { workspace = true }
 
 [dev-dependencies]
 axum-test = "17"
+wiremock = "0.6"
 tokio-test = "0.4"

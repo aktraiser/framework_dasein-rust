@@ -30,6 +30,30 @@ pub enum ProviderError {
     Unavailable(String),
 }
 
+impl ProviderError {
+    /// Whether sending the same request again can succeed: the provider was
+    /// unreachable, overloaded or asked us to slow down. A request it
+    /// rejected (bad input, missing permission) will be rejected again.
+    pub fn is_retriable(&self) -> bool {
+        match self {
+            Self::Http(_) | Self::RateLimited { .. } => true,
+            Self::Api { status, .. } => *status >= 500,
+            Self::AuthFailed | Self::ModelNotSupported(_) | Self::Unavailable(_) => false,
+        }
+    }
+}
+
+/// Delay a provider asks for in its `Retry-After` header (in seconds), or one
+/// second when it gives none.
+pub(crate) fn retry_after_ms(response: &reqwest::Response) -> u64 {
+    response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .map_or(1000, |seconds| seconds.saturating_mul(1000))
+}
+
 pub type CompletionStream =
     std::pin::Pin<Box<dyn futures::Stream<Item = ProviderResult<String>> + Send>>;
 

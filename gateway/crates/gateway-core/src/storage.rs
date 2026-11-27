@@ -287,7 +287,11 @@ impl Storage {
         let id = uuid::Uuid::new_v4().to_string();
         let raw_key = generate_api_key();
         let key_prefix = raw_key[..8].to_string();
-        let key_hash = hash_api_key(&raw_key)?;
+        let key_hash = on_blocking_pool({
+            let raw_key = raw_key.clone();
+            move || hash_api_key(&raw_key)
+        })
+        .await?;
 
         let api_key = ApiKey {
             id: id.clone(),
@@ -381,7 +385,13 @@ impl Storage {
         .await?;
 
         for key in candidates {
-            if verify_api_key(raw_key, &key.key_hash)? {
+            // Argon2 is deliberately slow: keep it off the async workers.
+            let matches = on_blocking_pool({
+                let (raw_key, hash) = (raw_key.to_owned(), key.key_hash.clone());
+                move || verify_api_key(&raw_key, &hash)
+            })
+            .await?;
+            if matches {
                 // Update last_used_at
                 sqlx::query("UPDATE api_keys SET last_used_at = ? WHERE id = ?")
                     .bind(Utc::now())
@@ -808,10 +818,13 @@ impl Storage {
             r"
             SELECT id, created_at, expires_at
             FROM admin_sessions
-            WHERE id = ? AND expires_at > datetime('now')
+            WHERE id = ? AND expires_at > ?
             ",
         )
         .bind(session_id)
+        // Bound, not `datetime('now')`: stored timestamps and SQLite's own
+        // text format do not compare correctly as strings.
+        .bind(Utc::now())
         .fetch_optional(&self.pool)
         .await?;
 
@@ -836,7 +849,8 @@ impl Storage {
     /// # Errors
     /// Returns an error if the session database cannot be queried or updated.
     pub async fn cleanup_expired_sessions(&self) -> StorageResult<u64> {
-        let result = sqlx::query("DELETE FROM admin_sessions WHERE expires_at <= datetime('now')")
+        let result = sqlx::query("DELETE FROM admin_sessions WHERE expires_at <= ?")
+            .bind(Utc::now())
             .execute(&self.pool)
             .await?;
 
@@ -869,6 +883,16 @@ fn hash_api_key(key: &str) -> StorageResult<String> {
         .hash_password(key.as_bytes(), &salt)
         .map_err(|e| StorageError::Hash(e.to_string()))?;
     Ok(hash.to_string())
+}
+
+/// Run CPU-heavy hashing on the blocking thread pool, so it cannot stall the
+/// async workers that serve every other request.
+async fn on_blocking_pool<T: Send + 'static>(
+    work: impl FnOnce() -> StorageResult<T> + Send + 'static,
+) -> StorageResult<T> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|e| StorageError::Hash(format!("hashing task failed: {e}")))?
 }
 
 /// Verify an API key against a hash
@@ -1088,6 +1112,22 @@ mod tests {
 
         assert!(!updated.enabled);
         assert_eq!(updated.min_ready, 5);
+    }
+
+    #[tokio::test]
+    async fn session_expired_earlier_today_is_rejected() {
+        let storage = Storage::in_memory().await.unwrap();
+        let session = storage.create_admin_session().await.unwrap();
+        // Expired a minute ago: still "today", which a text comparison with
+        // SQLite's `datetime('now')` used to accept until midnight UTC.
+        sqlx::query("UPDATE admin_sessions SET expires_at = ? WHERE id = ?")
+            .bind(Utc::now() - chrono::Duration::minutes(1))
+            .bind(&session.id)
+            .execute(storage.pool())
+            .await
+            .unwrap();
+        assert!(!storage.validate_admin_session(&session.id).await.unwrap());
+        assert_eq!(storage.cleanup_expired_sessions().await.unwrap(), 1);
     }
 
     #[tokio::test]

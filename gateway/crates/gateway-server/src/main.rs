@@ -51,7 +51,14 @@ async fn main() -> Result<()> {
     // Initialize database
     let database_url =
         std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:gateway.db?mode=rwc".to_string());
-    info!("Initializing database at {}", database_url);
+    // The URL may carry credentials: log where the database is, not how to
+    // get into it.
+    info!(
+        "Initializing database at {}",
+        database_url
+            .rsplit_once('@')
+            .map_or(database_url.as_str(), |(_, location)| location)
+    );
 
     let storage = match Storage::new(&database_url).await {
         Ok(s) => {
@@ -81,6 +88,19 @@ async fn main() -> Result<()> {
         info!("Admin dashboard available at /admin");
     }
 
+    // Expired dashboard sessions are refused already; this removes their rows.
+    if let Some(storage) = state.storage.clone() {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
+            loop {
+                interval.tick().await;
+                if let Err(error) = storage.cleanup_expired_sessions().await {
+                    tracing::debug!(%error, "Session cleanup failed");
+                }
+            }
+        });
+    }
+
     // Recover expired SDK containers left by interrupted gateway processes.
     tokio::spawn(async {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
@@ -102,7 +122,12 @@ async fn main() -> Result<()> {
     let listener = TcpListener::bind(addr).await?;
     info!("Listening on http://{}", addr);
 
-    axum::serve(listener, app).await?;
+    // Connect info gives handlers the client address (login throttling).
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
 
     Ok(())
 }

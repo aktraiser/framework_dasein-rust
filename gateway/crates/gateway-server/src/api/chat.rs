@@ -1,30 +1,78 @@
 //! Chat completion API
 
+use crate::middleware::auth::Principal;
 use crate::state::AppState;
 use axum::{
     extract::State,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
+    Extension, Json,
 };
 use gateway_core::llm::ChatCompletionRequest;
 use serde::{Deserialize, Serialize};
 
+/// Record what a request consumed: in the usage log shown on the dashboard,
+/// and against the key's tokens-per-minute limit. Never fails the request.
+pub(crate) async fn record_usage(
+    state: &AppState,
+    principal: Option<&Principal>,
+    provider: &str,
+    model: &str,
+    usage: Option<&gateway_core::llm::Usage>,
+    started: std::time::Instant,
+) {
+    let api_key_id = principal.and_then(Principal::api_key_id);
+    let (input, output) = usage.map_or((0, 0), |u| (u.prompt_tokens, u.completion_tokens));
+    if let (Some(id), Some(usage)) = (api_key_id, usage) {
+        state
+            .key_limits
+            .record_tokens(id, u64::from(usage.total_tokens));
+    }
+    let Some(storage) = &state.storage else {
+        return;
+    };
+    let clamp = |value: u128| i32::try_from(value).unwrap_or(i32::MAX);
+    // No price table yet: cost is recorded as zero rather than guessed.
+    if let Err(error) = storage
+        .log_usage(
+            api_key_id,
+            provider,
+            model,
+            clamp(u128::from(input)),
+            clamp(u128::from(output)),
+            0.0,
+            clamp(started.elapsed().as_millis()),
+        )
+        .await
+    {
+        tracing::warn!(%error, "Failed to record usage");
+    }
+}
+
 /// POST /v1/chat/completions
 pub async fn chat_completions(
     State(state): State<AppState>,
+    principal: Option<Extension<Principal>>,
     Json(request): Json<ChatCompletionRequest>,
 ) -> Result<Response, ApiError> {
+    let started = std::time::Instant::now();
+    let principal = principal.map(|Extension(principal)| principal);
+    let model = request.model.clone();
+    let router = state
+        .runtime_router()
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
     if request.stream.unwrap_or(false) {
         use axum::response::sse::{Event, KeepAlive, Sse};
         use futures::StreamExt;
-        let stream = state
-            .runtime_router()
-            .await
-            .map_err(|e| ApiError::Internal(e.to_string()))?
+        let provider = router.provider_name(&model).unwrap_or_default();
+        let stream = router
             .chat_completion_stream(request)
             .await
             .map_err(|e| ApiError::Provider(e.to_string()))?;
+        // Token counts of a stream are not known here; the request itself is
+        // still logged.
+        record_usage(&state, principal.as_ref(), &provider, &model, None, started).await;
         let events = stream.map(|item| Ok::<_, std::convert::Infallible>(match item {
             Ok(data) => Event::default().data(data),
             Err(error) => Event::default().event("error").data(serde_json::json!({"error":{"message":error.to_string(),"type":"upstream_error"}}).to_string()),
@@ -38,18 +86,24 @@ pub async fn chat_completions(
         .config
         .llm
         .models
-        .get(&request.model)
+        .get(&model)
         .map(|m| m.fallbacks.clone())
         .unwrap_or_default();
 
     // Route the request
-    let response = state
-        .runtime_router()
-        .await
-        .map_err(|e| ApiError::Internal(e.to_string()))?
-        .chat_completion(request, &fallbacks)
+    let (response, provider) = router
+        .chat_completion_with_provider(request, &fallbacks)
         .await
         .map_err(|e| ApiError::Provider(e.to_string()))?;
+    record_usage(
+        &state,
+        principal.as_ref(),
+        &provider,
+        &model,
+        response.usage.as_ref(),
+        started,
+    )
+    .await;
 
     Ok(Json(response).into_response())
 }

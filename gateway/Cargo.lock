@@ -1398,6 +1398,7 @@ dependencies = [
  "rand 0.8.8",
  "serde",
  "serde_json",
+ "sha2",
  "sqlx",
  "thiserror 2.0.20",
  "tokio",
@@ -1408,6 +1409,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "wiremock",
 ]
 
 [[package]]

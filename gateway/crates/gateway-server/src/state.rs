@@ -20,6 +20,8 @@ pub struct AppState {
     pub code_executor: Arc<CodeExecutor>,
     pub orchestrator: Option<Arc<FirecrackerOrchestrator>>,
     pub storage: Option<Arc<Storage>>,
+    pub login_throttle: Arc<crate::dashboard::auth::LoginThrottle>,
+    pub key_limits: Arc<crate::limits::KeyLimits>,
 }
 
 impl AppState {
@@ -91,6 +93,8 @@ impl AppState {
             code_executor,
             orchestrator,
             storage: None,
+            login_throttle: Arc::default(),
+            key_limits: Arc::default(),
         }
     }
 

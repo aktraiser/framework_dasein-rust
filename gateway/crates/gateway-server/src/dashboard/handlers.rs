@@ -8,7 +8,7 @@ use axum::{
 use serde::Deserialize;
 use tower_cookies::{Cookie, Cookies};
 
-use super::auth::{get_admin_password, verify_admin_password, SESSION_COOKIE};
+use super::auth::{cookie_secure, get_admin_password, verify_admin_password, SESSION_COOKIE};
 use super::templates::{
     ApiKeysTemplate, DashboardTemplate, LayoutData, LoginTemplate, PoolStats, ProvidersTemplate,
     SandboxesTemplate, UsageTemplate,
@@ -32,8 +32,24 @@ pub struct LoginForm {
 pub async fn login_submit(
     State(state): State<AppState>,
     Extension(cookies): Extension<Cookies>,
+    extensions: axum::http::Extensions,
     Form(form): Form<LoginForm>,
 ) -> Response {
+    // Failed logins are counted per client address.
+    let client = extensions
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map_or_else(|| "unknown".to_string(), |info| info.0.ip().to_string());
+    if state.login_throttle.is_blocked(&client) {
+        tracing::warn!(%client, "Dashboard login refused: too many failed attempts");
+        return (
+            axum::http::StatusCode::TOO_MANY_REQUESTS,
+            LoginTemplate {
+                error: Some("Too many failed attempts. Try again in a few minutes.".to_string()),
+            },
+        )
+            .into_response();
+    }
+
     // Check if admin password is configured
     let Some(expected_password) = get_admin_password() else {
         return LoginTemplate {
@@ -44,6 +60,7 @@ pub async fn login_submit(
 
     // Verify password
     if !verify_admin_password(&form.password, &expected_password) {
+        state.login_throttle.record_failure(&client);
         return LoginTemplate {
             error: Some("Invalid password".to_string()),
         }
@@ -57,9 +74,12 @@ pub async fn login_submit(
                 let cookie = Cookie::build((SESSION_COOKIE, session.id))
                     .path("/admin")
                     .http_only(true)
-                    .secure(false) // Set to true in production with HTTPS
+                    // Never sent on requests started by another site.
+                    .same_site(tower_cookies::cookie::SameSite::Strict)
+                    .secure(cookie_secure())
                     .build();
                 cookies.add(cookie);
+                state.login_throttle.record_success(&client);
                 return Redirect::to("/admin").into_response();
             }
             Err(e) => {
@@ -87,7 +107,8 @@ pub async fn logout(
         if let Some(ref storage) = state.storage {
             let _ = storage.delete_admin_session(session_cookie.value()).await;
         }
-        cookies.remove(Cookie::from(SESSION_COOKIE));
+        // Same path as when it was set, or the browser keeps it.
+        cookies.remove(Cookie::build(SESSION_COOKIE).path("/admin").build());
     }
     Redirect::to("/admin/login")
 }
@@ -468,11 +489,10 @@ pub async fn test_code(
         _ => Runtime::Python,
     };
 
-    // Log raw form data for debugging
+    // The submitted code itself stays out of the logs.
     tracing::info!(
         runtime = ?runtime,
-        code = %form.code,
-        code_bytes = ?form.code.as_bytes(),
+        code_len = form.code.len(),
         "Dashboard test_code executing"
     );
 

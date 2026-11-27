@@ -8,7 +8,7 @@ use axum::{
 use tower_cookies::CookieManagerLayer;
 use tower_http::services::ServeDir;
 
-use super::auth::require_auth;
+use super::auth::{require_auth, same_origin_only};
 use super::handlers;
 use crate::state::AppState;
 
@@ -67,5 +67,6 @@ pub fn create_dashboard_router(state: AppState) -> Router<AppState> {
         .merge(static_router)
         .merge(protected_routes)
         .merge(public_routes)
+        .layer(middleware::from_fn(same_origin_only))
         .layer(CookieManagerLayer::new())
 }
