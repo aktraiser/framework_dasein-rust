@@ -150,7 +150,7 @@ async fn nothing_left(chroots: &std::path::Path, cgroups: &std::path::Path) {
 /// kernel and rootfs) in addition to the variables of the test above.
 #[tokio::test]
 #[ignore = "requires root, Linux/KVM, cgroup v2 and the jailer; see server/firecracker-guest/README.md"]
-async fn real_jailed_microvm() {
+async fn real_microvm_lifecycle_jailed() {
     use dasein_agentic_sandbox::JailerConfig;
     use std::os::unix::fs::MetadataExt;
 

@@ -66,7 +66,7 @@ The real test for it needs root, since the jailer does:
 ```sh
 sudo env FIRECRACKER_BIN=... KERNEL_PATH=... ROOTFS_PATH=... \
   JAILER_BIN=/path/to/jailer JAILER_CHROOT_BASE=/srv/jailer \
-  <test binary> --ignored --nocapture real_jailed_microvm
+  <test binary> --ignored --nocapture real_microvm_lifecycle_jailed
 ```
 
 (`cargo test --no-run -p dasein-agentic-sandbox --no-default-features --test firecracker_real` builds the binary and prints its path.) It starts real microVMs and checks, from the host, the user and group of the Firecracker process, its mount namespace and what its root contains, the four cgroup limits, and that nothing is left after a normal end, a stop and a timeout. It passed with Firecracker and jailer 1.18.0 on the Lima VM described above (Ubuntu 26.04, Linux 7.0, cgroup v2).
