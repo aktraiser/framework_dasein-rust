@@ -24,12 +24,25 @@
 //!
 //! - **At least once.** A task whose worker died mid-way is run again. A
 //!   remote executor with side effects must make them idempotent; its
-//!   invocation is identified by workflow, task, superstep, executor and
-//!   input, and the same invocation always gets the same queue task ID.
+//!   invocation is identified by workflow, task, superstep, executor,
+//!   input and its position, and the same invocation always gets the same queue task ID.
+//! - **Inputs of one superstep run together.** Each input a remote step
+//!   receives in a superstep is a task of its own, equal inputs included,
+//!   and they are sent at the same time: with enough workers they run in
+//!   parallel. Their results come back in input order.
 //! - **Results are remembered.** A retried or resumed invocation whose task
 //!   already finished gets the recorded result instead of running again.
-//!   That includes a recorded failure: transient errors are retried by the
-//!   worker, and what it finally reports is final for that invocation.
+//!   That includes a failure of the executor itself: transient errors are
+//!   retried by the worker, and what it finally reports is final for that
+//!   invocation.
+//! - **A task that never ran can be sent again.** A task no worker took
+//!   before it expired (15 minutes by default), or that reached a worker not
+//!   hosting its executor, fails without having run. That failure is
+//!   reported once; a later retry or resume of the invocation sends a new
+//!   task.
+//! - **Results have a size limit.** A result that does not fit in one queue
+//!   record (about 900 kB with its input by default) is a final failure:
+//!   keep large data in a store and pass a reference.
 //! - **Shared state needs a shared backend.** A remote executor only sees
 //!   the workflow's shared state if both sides use a backend they can both
 //!   reach, such as [`NatsStateBackend`](super::NatsStateBackend).
@@ -66,6 +79,31 @@ pub trait TaskQueue: Send + Sync {
 
     /// The recorded state of a task, or `None` if it is unknown.
     async fn outcome(&self, id: &str) -> Result<Option<TaskOutcome>, BusError>;
+
+    /// Wait up to `timeout` for a task to finish, and return its state then:
+    /// `Pending` or `None` if it is still not done.
+    ///
+    /// The default asks [`outcome`](Self::outcome) repeatedly; a queue that
+    /// can be told when a result arrives should override it.
+    async fn wait(&self, id: &str, timeout: Duration) -> Result<Option<TaskOutcome>, BusError> {
+        let started = tokio::time::Instant::now();
+        let mut pause = Duration::from_millis(20);
+        loop {
+            let outcome = self.outcome(id).await?;
+            let done = !matches!(outcome, Some(TaskOutcome::Pending) | None);
+            if done || started.elapsed() + pause > timeout {
+                return Ok(outcome);
+            }
+            tokio::time::sleep(pause).await;
+            // Quick answers are noticed quickly; a long wait asks less often.
+            let slowest = if started.elapsed() < Duration::from_secs(10) {
+                Duration::from_millis(500)
+            } else {
+                Duration::from_secs(2)
+            };
+            pause = (pause * 2).min(slowest);
+        }
+    }
 }
 
 /// Where a [`RemoteWorker`] takes its work.
@@ -103,6 +141,10 @@ impl TaskQueue for DurableQueue {
 
     async fn outcome(&self, id: &str) -> Result<Option<TaskOutcome>, BusError> {
         DurableQueue::outcome(self, id).await
+    }
+
+    async fn wait(&self, id: &str, timeout: Duration) -> Result<Option<TaskOutcome>, BusError> {
+        self.wait_outcome(id, timeout).await
     }
 }
 
@@ -150,12 +192,17 @@ struct MemoryQueueState {
 /// one except durability: results are remembered, a dropped claim puts the
 /// task back, and a known task ID is not run twice.
 ///
-/// It is both the [`TaskQueue`] and the [`TaskSource`]; all tasks form one
-/// group. Use it to develop and test remote steps without NATS.
+/// It is both the [`TaskQueue`] and a [`TaskSource`]. As a source the queue
+/// itself hands out the tasks of every group; [`worker`](Self::worker) gives
+/// a source for one group, as `DurableQueue::worker` does. Use it to develop
+/// and test remote steps without NATS.
 #[derive(Clone, Default)]
 pub struct InMemoryTaskQueue {
     state: Arc<std::sync::Mutex<MemoryQueueState>>,
     arrived: Arc<tokio::sync::Notify>,
+    finished: Arc<tokio::sync::Notify>,
+    /// The only group this handle takes tasks of, if any.
+    group: Option<String>,
 }
 
 impl InMemoryTaskQueue {
@@ -163,6 +210,15 @@ impl InMemoryTaskQueue {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A source handing out the tasks of `group` only.
+    #[must_use]
+    pub fn worker(&self, group: impl Into<String>) -> Self {
+        Self {
+            group: Some(group.into()),
+            ..self.clone()
+        }
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, MemoryQueueState> {
@@ -190,7 +246,7 @@ impl TaskQueue for InMemoryTaskQueue {
                 .insert(task.id.clone(), (task.clone(), TaskOutcome::Pending));
             state.waiting.push_back(task);
         }
-        self.arrived.notify_one();
+        self.arrived.notify_waiters();
         Ok(())
     }
 
@@ -200,6 +256,21 @@ impl TaskQueue for InMemoryTaskQueue {
             .records
             .get(id)
             .map(|(_, outcome)| outcome.clone()))
+    }
+
+    async fn wait(&self, id: &str, timeout: Duration) -> Result<Option<TaskOutcome>, BusError> {
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            // Register for the wake-up before looking, so a result recorded
+            // in between is not missed.
+            let finished = self.finished.notified();
+            let outcome = self.outcome(id).await?;
+            if !matches!(outcome, Some(TaskOutcome::Pending) | None)
+                || tokio::time::timeout_at(deadline, finished).await.is_err()
+            {
+                return Ok(outcome);
+            }
+        }
     }
 }
 
@@ -213,7 +284,17 @@ impl TaskSource for InMemoryTaskQueue {
             // Register for the wake-up before looking, so a task submitted
             // in between is not missed.
             let arrived = self.arrived.notified();
-            if let Some(task) = self.state().waiting.pop_front() {
+            let task = {
+                let mut state = self.state();
+                let mine = |task: &Task| {
+                    self.group
+                        .as_ref()
+                        .map_or(true, |group| *group == task.supervisor)
+                };
+                let position = state.waiting.iter().position(mine);
+                position.and_then(|at| state.waiting.remove(at))
+            };
+            if let Some(task) = task {
                 return Ok(Some(InMemoryClaim {
                     queue: self.clone(),
                     task: Some(task),
@@ -239,6 +320,7 @@ impl InMemoryClaim {
             if let Some(record) = self.queue.state().records.get_mut(&task.id) {
                 record.1 = outcome;
             }
+            self.queue.finished.notify_waiters();
         }
     }
 }
@@ -248,7 +330,7 @@ impl Drop for InMemoryClaim {
         // Not reported on: the worker gave up or died. Hand the task back.
         if let Some(task) = self.task.take() {
             self.queue.state().waiting.push_front(task);
-            self.queue.arrived.notify_one();
+            self.queue.arrived.notify_waiters();
         }
     }
 }
@@ -287,7 +369,36 @@ struct RemoteCall {
     workflow_id: String,
     task_id: String,
     superstep: u32,
+    /// Position of the input among those the step received in the superstep.
+    #[serde(default)]
+    input_index: usize,
     input: Value,
+    /// How many earlier tasks of this invocation ended without running.
+    #[serde(default)]
+    generation: u32,
+    /// Age in milliseconds past which a worker drops the task instead of
+    /// running it; 0 for no limit.
+    #[serde(default)]
+    ttl_ms: u64,
+}
+
+/// Start of the failure reason of a task that ended without its executor
+/// having run. Such a failure is not the invocation's result: the next
+/// attempt sends a new task.
+const NOT_RUN: &str = "not run: ";
+
+/// Tasks an invocation may send because the earlier ones did not run.
+const MAX_GENERATIONS: u32 = 16;
+
+/// Longest failure reason recorded, in characters.
+const MAX_REASON_CHARS: usize = 4000;
+
+/// A group name the durable queue accepts.
+fn valid_group(group: &str) -> bool {
+    (1..=64).contains(&group.len())
+        && group
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
 /// What the worker's executor produced.
@@ -313,6 +424,7 @@ pub struct RemoteExecutor<I, M, O, Q> {
     queue: Q,
     group: String,
     wait: Duration,
+    task_ttl: Duration,
     types: PhantomData<fn(I) -> (M, O)>,
 }
 
@@ -326,8 +438,22 @@ impl<I, M, O, Q: TaskQueue> RemoteExecutor<I, M, O, Q> {
             queue,
             group: group.into(),
             wait: Duration::from_secs(50),
+            task_ttl: Duration::from_secs(15 * 60),
             types: PhantomData,
         }
+    }
+
+    /// Set how long a task may wait for a worker (default 15 minutes; zero
+    /// for no limit).
+    ///
+    /// A task older than this when a worker takes it is dropped instead of
+    /// run, so work nobody waits for any more does not pile up in the queue.
+    /// Keep it above the time the step is given to succeed, retries
+    /// included. The age is measured with the clocks of the two machines.
+    #[must_use]
+    pub const fn with_task_ttl(mut self, ttl: Duration) -> Self {
+        self.task_ttl = ttl;
+        self
     }
 
     /// Set how long one invocation waits for its result (default 50 s).
@@ -347,8 +473,15 @@ impl<I, M, O, Q: TaskQueue> RemoteExecutor<I, M, O, Q> {
 /// already submitted, or already done, instead of starting it again.
 fn task_id_for(call: &RemoteCall) -> String {
     let identity = format!(
-        "{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}",
-        call.workflow_id, call.task_id, call.superstep, call.executor, call.input
+        "{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}",
+        call.workflow_id,
+        call.task_id,
+        call.superstep,
+        call.input_index,
+        call.executor,
+        call.generation,
+        call.ttl_ms,
+        call.input
     );
     format!("{:x}", md5::compute(identity.as_bytes()))
 }
@@ -373,6 +506,12 @@ where
         ExecutorKind::Worker
     }
 
+    /// Each input is a task of its own on the queue: several inputs of one
+    /// superstep are sent together and run on as many workers.
+    fn concurrent_inputs(&self) -> bool {
+        true
+    }
+
     async fn handle<Ctx>(&self, input: I, ctx: &mut Ctx) -> Result<(), ExecutorError>
     where
         Ctx: ExecutorContext<M, O> + Send,
@@ -384,8 +523,15 @@ where
             error
         };
 
+        if !valid_group(&self.group) {
+            return Err(fatal(format!(
+                "`{}` is not a worker group name: 1 to 64 ASCII letters, digits, \
+                 underscores or hyphens",
+                self.group
+            )));
+        }
         let invocation = ctx.invocation();
-        let call = RemoteCall {
+        let mut call = RemoteCall {
             executor: self.id.as_str().to_owned(),
             // Outside a workflow there is no invocation to key on: every
             // call is then a task of its own.
@@ -400,31 +546,40 @@ where
             superstep: invocation
                 .as_ref()
                 .map_or(0, |invocation| invocation.superstep),
+            input_index: invocation
+                .as_ref()
+                .map_or(0, |invocation| invocation.input_index),
             input: serde_json::to_value(&input).map_err(|e| fatal(e.to_string()))?,
+            generation: 0,
+            ttl_ms: u64::try_from(self.task_ttl.as_millis()).unwrap_or(u64::MAX),
         };
-        let id = task_id_for(&call);
+        // Tasks of this invocation that ended without running, in an earlier
+        // attempt, are passed over: this attempt sends the next one.
+        let id = loop {
+            let id = task_id_for(&call);
+            match self.queue.outcome(&id).await {
+                Ok(Some(TaskOutcome::Failed(reason)))
+                    if reason.starts_with(NOT_RUN) && call.generation < MAX_GENERATIONS =>
+                {
+                    call.generation += 1;
+                }
+                Ok(_) => break id,
+                Err(e) => return Err(retriable(format!("could not read remote result: {e}"))),
+            }
+        };
         let payload = serde_json::to_value(&call).map_err(|e| fatal(e.to_string()))?;
         self.queue
             .submit(Task::new(id.clone(), self.group.clone(), payload))
             .await
             .map_err(|e| retriable(format!("could not submit remote task: {e}")))?;
 
-        let deadline = tokio::time::Instant::now() + self.wait;
-        let mut pause = Duration::from_millis(20);
-        let reply = loop {
-            match self.queue.outcome(&id).await {
-                Ok(Some(TaskOutcome::Completed(value))) => break value,
-                Ok(Some(TaskOutcome::Failed(reason))) => {
-                    return Err(fatal(format!("remote executor failed: {reason}")));
-                }
-                Ok(Some(TaskOutcome::Pending) | None) => {}
-                Err(e) => return Err(retriable(format!("could not read remote result: {e}"))),
+        let reply = match self.queue.wait(&id, self.wait).await {
+            Ok(Some(TaskOutcome::Completed(value))) => value,
+            Ok(Some(TaskOutcome::Failed(reason))) => {
+                return Err(fatal(format!("remote executor failed: {reason}")));
             }
-            if tokio::time::Instant::now() + pause > deadline {
-                return Err(ExecutorError::timeout());
-            }
-            tokio::time::sleep(pause).await;
-            pause = (pause * 2).min(Duration::from_millis(500));
+            Ok(Some(TaskOutcome::Pending) | None) => return Err(ExecutorError::timeout()),
+            Err(e) => return Err(retriable(format!("could not read remote result: {e}"))),
         };
 
         let reply: RemoteReply = serde_json::from_value(reply)
@@ -458,6 +613,7 @@ where
     max_attempts: u32,
     executor_timeout: Duration,
     heartbeat: Duration,
+    max_result_bytes: usize,
 }
 
 impl<TMessage, TOutput> RemoteWorker<TMessage, TOutput>
@@ -474,7 +630,18 @@ where
             max_attempts: 3,
             executor_timeout: Duration::from_secs(60),
             heartbeat: Duration::from_secs(5),
+            max_result_bytes: 900_000,
         }
+    }
+
+    /// Set the largest result reported, in bytes, counted together with the
+    /// task it answers (default 900 000, under the 1 MiB message limit of a
+    /// default NATS server). A larger result is recorded as a failure: the
+    /// queue could not store it, and the task would be run again each time.
+    #[must_use]
+    pub const fn with_max_result_bytes(mut self, bytes: usize) -> Self {
+        self.max_result_bytes = bytes;
+        self
     }
 
     /// Use the shared state backend the workflow uses, so executors here read
@@ -511,24 +678,40 @@ where
     /// Take and run tasks until `shutdown` completes. A task in progress is
     /// finished first.
     ///
+    /// A queue that cannot be read (the server is restarting, the network is
+    /// down) does not end the loop: reading is tried again, at most every 30
+    /// seconds, until it works.
+    ///
     /// Tasks are run one at a time; call `serve` from several tasks, or start
     /// several workers, to run more in parallel.
-    ///
-    /// # Errors
-    /// Returns an error if the queue can no longer be read.
     pub async fn serve<S: TaskSource>(
         &self,
         source: &S,
         shutdown: impl std::future::Future<Output = ()> + Send,
-    ) -> Result<(), BusError> {
+    ) {
+        const FIRST_PAUSE: Duration = Duration::from_millis(250);
         tokio::pin!(shutdown);
+        let mut pause = FIRST_PAUSE;
         loop {
             let claim = tokio::select! {
-                () = &mut shutdown => return Ok(()),
-                claim = source.next(Duration::from_secs(1)) => claim?,
+                () = &mut shutdown => return,
+                claim = source.next(Duration::from_secs(1)) => claim,
             };
-            if let Some(claim) = claim {
-                self.run(claim).await;
+            match claim {
+                Ok(claim) => {
+                    pause = FIRST_PAUSE;
+                    if let Some(claim) = claim {
+                        self.run(claim).await;
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(%error, retry_in = ?pause, "Could not read the task queue");
+                    tokio::select! {
+                        () = &mut shutdown => return,
+                        () = tokio::time::sleep(pause) => {}
+                    }
+                    pause = (pause * 2).min(Duration::from_secs(30));
+                }
             }
         }
     }
@@ -538,7 +721,11 @@ where
         let task_id = claim.task().id.clone();
         let reported = match self.execute(&claim).await {
             Ok(reply) => claim.complete(reply).await,
-            Err(reason) => claim.fail(reason).await,
+            Err(reason) => {
+                tracing::warn!(task = %task_id, %reason, "Remote task failed");
+                let reason = reason.chars().take(MAX_REASON_CHARS).collect();
+                claim.fail(reason).await
+            }
         };
         if let Err(error) = reported {
             // The task stays claimed and will be delivered again.
@@ -550,10 +737,26 @@ where
     async fn execute<C: TaskClaim>(&self, claim: &C) -> Result<Value, String> {
         let call: RemoteCall = serde_json::from_value(claim.task().payload.clone())
             .map_err(|e| format!("not a remote executor call: {e}"))?;
+        if call.ttl_ms > 0 {
+            let age = chrono::Utc::now()
+                .signed_duration_since(claim.task().created_at)
+                .num_milliseconds();
+            if u64::try_from(age).is_ok_and(|age| age > call.ttl_ms) {
+                return Err(format!(
+                    "{NOT_RUN}the task expired, {} s after it was sent, before a worker ran it",
+                    age / 1000
+                ));
+            }
+        }
         let executor = self
             .registry
             .get(&ExecutorId::new(call.executor.clone()))
-            .ok_or_else(|| format!("executor `{}` is not hosted by this worker", call.executor))?
+            .ok_or_else(|| {
+                format!(
+                    "{NOT_RUN}executor `{}` is not hosted by this worker",
+                    call.executor
+                )
+            })?
             .clone();
 
         let mut attempt = 0;
@@ -565,6 +768,7 @@ where
                 executor.id().clone(),
             )
             .superstep(call.superstep)
+            .input_index(call.input_index)
             .state_backend(self.state.clone())
             .build();
 
@@ -602,8 +806,21 @@ where
                         .map(serde_json::to_value)
                         .collect::<Result<Vec<_>, _>>()
                         .map_err(|e| format!("unserializable output: {e}"))?;
-                    let reply = RemoteReply { messages, outputs };
-                    return serde_json::to_value(reply).map_err(|e| e.to_string());
+                    let reply = serde_json::to_value(RemoteReply { messages, outputs })
+                        .map_err(|e| e.to_string())?;
+                    // The queue records the result next to the task.
+                    let size = [serde_json::to_vec(&reply), serde_json::to_vec(claim.task())]
+                        .iter()
+                        .map(|bytes| bytes.as_ref().map_or(0, Vec::len))
+                        .sum::<usize>();
+                    if size > self.max_result_bytes {
+                        return Err(format!(
+                            "the result is too large to report: {size} bytes with its task, \
+                             the limit is {}",
+                            self.max_result_bytes
+                        ));
+                    }
+                    return Ok(reply);
                 }
                 Ok(Err(error)) => error,
                 Err(_) => ExecutorError::timeout(),

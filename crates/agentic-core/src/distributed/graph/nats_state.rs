@@ -3,13 +3,15 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
+use async_nats::jetstream::consumer::{push, DeliverPolicy, ReplayPolicy};
 use async_nats::jetstream::{kv, stream};
 use async_trait::async_trait;
 use futures::StreamExt;
 
-use super::context::SharedStateBackend;
-use super::types::ExecutorError;
+use super::context::{split_namespace, state_namespace, SharedStateBackend};
+use super::types::{ExecutorError, TaskId, WorkflowId};
 use crate::distributed::bus::{BusError, NatsClient};
 
 /// Shared state stored in a NATS JetStream key-value bucket.
@@ -18,7 +20,8 @@ use crate::distributed::bus::{BusError, NatsClient};
 /// [`RemoteWorker`](super::RemoteWorker)s that run its remote steps: they
 /// then read and write the same state, wherever they run.
 ///
-/// Values are written last-writer-wins. `restore` replaces a namespace key
+/// The state of a run stays in the bucket until [`forget`](Self::forget) is
+/// called for it. Values are written last-writer-wins. `restore` replaces a namespace key
 /// by key, not atomically: do not run steps of a task while it is being
 /// restored from a checkpoint.
 #[derive(Clone)]
@@ -30,29 +33,45 @@ fn failed(error: impl std::fmt::Display) -> ExecutorError {
     ExecutorError::new("shared-state", format!("NATS shared state: {error}"))
 }
 
-/// Keys may contain any character; bucket keys may not. Hex keeps the
-/// mapping exact and reversible.
-fn encode(key: &str) -> String {
+/// Lower-case hexadecimal of a text: bucket keys accept few characters.
+fn hex(text: &str) -> String {
     use std::fmt::Write;
-    let mut encoded = String::with_capacity(2 + key.len() * 2);
-    encoded.push_str("k_");
-    for byte in key.bytes() {
+    let mut encoded = String::with_capacity(text.len() * 2);
+    for byte in text.bytes() {
         let _ = write!(encoded, "{byte:02x}");
     }
     encoded
 }
 
-fn decode(encoded: &str) -> Option<String> {
-    let hex = encoded.strip_prefix("k_")?;
+fn unhex(hex: &str) -> Option<Vec<u8>> {
     if hex.len() % 2 != 0 {
         return None;
     }
-    let bytes = (0..hex.len())
+    (0..hex.len())
         .step_by(2)
         .map(|at| u8::from_str_radix(hex.get(at..at + 2)?, 16).ok())
-        .collect::<Option<Vec<u8>>>()?;
+        .collect()
+}
+
+/// Bucket key of a state key: `n_{namespace}.k_{rest}`, both in hexadecimal.
+///
+/// The namespace of a workflow run is a token of its own so that NATS can
+/// list the keys of one run without reading those of the others. Keys
+/// outside any run namespace have an empty first token.
+fn encode(key: &str) -> String {
+    let (namespace, rest) = split_namespace(key).unwrap_or(("", key));
+    format!("n_{}.k_{}", hex(namespace), hex(rest))
+}
+
+fn decode(encoded: &str) -> Option<String> {
+    let (namespace, rest) = encoded.split_once('.')?;
+    let mut bytes = unhex(namespace.strip_prefix("n_")?)?;
+    bytes.extend(unhex(rest.strip_prefix("k_")?)?);
     String::from_utf8(bytes).ok()
 }
+
+/// How long a listing waits for its next entry before giving up.
+const LISTING_STALL: Duration = Duration::from_secs(30);
 
 impl NatsStateBackend {
     /// Open the bucket `DASEIN_STATE_{name}`, creating it if needed. `name`
@@ -100,16 +119,82 @@ impl NatsStateBackend {
         Ok(Self { store })
     }
 
-    /// Every live key of the bucket, decoded.
-    async fn keys(&self) -> Result<Vec<String>, ExecutorError> {
-        let mut encoded = self.store.keys().await.map_err(failed)?;
-        let mut keys = Vec::new();
-        while let Some(key) = encoded.next().await {
-            if let Some(key) = decode(&key.map_err(failed)?) {
-                keys.push(key);
+    /// Remove the shared state of one workflow run. State is otherwise kept
+    /// for as long as the bucket exists: call this when a run is finished and
+    /// will not be resumed.
+    ///
+    /// # Errors
+    /// Fails if the state cannot be listed or removed.
+    pub async fn forget(
+        &self,
+        workflow_id: &WorkflowId,
+        task_id: &TaskId,
+    ) -> Result<(), ExecutorError> {
+        let namespace = state_namespace(workflow_id, task_id);
+        for key in self.entries(&namespace).await?.into_keys() {
+            self.store.purge(encode(&key)).await.map_err(failed)?;
+        }
+        Ok(())
+    }
+
+    /// Live entries whose key starts with `prefix`.
+    ///
+    /// When `prefix` is the namespace of a workflow run, only that run's
+    /// entries are read from the server; otherwise the whole bucket is.
+    async fn entries(
+        &self,
+        prefix: &str,
+    ) -> Result<HashMap<String, serde_json::Value>, ExecutorError> {
+        let filter = match split_namespace(prefix) {
+            Some((namespace, "")) => format!("n_{}.>", hex(namespace)),
+            _ => ">".to_owned(),
+        };
+        let consumer = self
+            .store
+            .stream
+            .create_consumer(push::OrderedConfig {
+                deliver_subject: format!("_INBOX.{}", uuid::Uuid::new_v4().simple()),
+                description: Some("dasein shared state listing".to_owned()),
+                filter_subject: format!("{}{filter}", self.store.prefix),
+                replay_policy: ReplayPolicy::Instant,
+                // The current value of each key, not its history.
+                deliver_policy: DeliverPolicy::LastPerSubject,
+                ..Default::default()
+            })
+            .await
+            .map_err(failed)?;
+        let mut values = HashMap::new();
+        if consumer.cached_info().num_pending == 0 {
+            return Ok(values);
+        }
+        let mut messages = consumer.messages().await.map_err(failed)?;
+        loop {
+            let message = tokio::time::timeout(LISTING_STALL, messages.next())
+                .await
+                .map_err(|_| failed("listing stalled"))?
+                .ok_or_else(|| failed("listing ended early"))?
+                .map_err(failed)?;
+            let left = message.info().map_err(failed)?.pending;
+            // Deletions stay in the bucket as entries carrying a marker.
+            let deleted = message.headers.as_ref().is_some_and(|headers| {
+                headers.get("KV-Operation").is_some() || headers.get("Nats-Marker-Reason").is_some()
+            });
+            let key = message
+                .subject
+                .strip_prefix(self.store.prefix.as_str())
+                .and_then(decode);
+            if let (false, Some(key)) = (deleted, key) {
+                if key.starts_with(prefix) {
+                    values.insert(
+                        key,
+                        serde_json::from_slice(&message.payload).map_err(failed)?,
+                    );
+                }
+            }
+            if left == 0 {
+                return Ok(values);
             }
         }
-        Ok(keys)
     }
 }
 
@@ -137,16 +222,7 @@ impl SharedStateBackend for NatsStateBackend {
         &self,
         prefix: &str,
     ) -> Result<HashMap<String, serde_json::Value>, ExecutorError> {
-        let mut values = HashMap::new();
-        for key in self.keys().await? {
-            if key.starts_with(prefix) {
-                // A key deleted since it was listed is simply absent.
-                if let Some(value) = self.get(&key).await? {
-                    values.insert(key, value);
-                }
-            }
-        }
-        Ok(values)
+        self.entries(prefix).await
     }
 
     async fn restore(
@@ -154,8 +230,8 @@ impl SharedStateBackend for NatsStateBackend {
         prefix: &str,
         values: &HashMap<String, serde_json::Value>,
     ) -> Result<(), ExecutorError> {
-        for key in self.keys().await? {
-            if key.starts_with(prefix) && !values.contains_key(&key) {
+        for key in self.entries(prefix).await?.into_keys() {
+            if !values.contains_key(&key) {
                 self.delete(&key).await?;
             }
         }
@@ -179,6 +255,7 @@ mod tests {
         for key in [
             "",
             "8:workflow4:task:group_chat",
+            "8:workflow4:task:",
             "clé à accents/ * > .",
             "a\u{1f}b",
         ] {
@@ -186,12 +263,30 @@ mod tests {
             assert!(
                 encoded
                     .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'_'),
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'.'),
                 "{encoded}"
             );
+            assert!(!encoded.starts_with('.') && !encoded.ends_with('.'));
             assert_eq!(decode(&encoded).as_deref(), Some(key));
         }
         assert_eq!(decode("not-ours"), None);
-        assert_eq!(decode("k_zz"), None);
+        assert_eq!(decode("n_.k_zz"), None);
+    }
+
+    #[test]
+    fn keys_of_one_run_share_a_first_token() {
+        let namespace = state_namespace(&WorkflowId::new("wf:1"), &TaskId::new("run 7"));
+        let first = encode(&format!("{namespace}a"));
+        let second = encode(&format!("{namespace}b:c"));
+        let other = encode(&format!(
+            "{}a",
+            state_namespace(&WorkflowId::new("wf:1"), &TaskId::new("run 8"))
+        ));
+        let token = |key: &str| key.split_once('.').unwrap().0.to_owned();
+        assert_eq!(token(&first), token(&second));
+        assert_eq!(token(&first), format!("n_{}", hex(&namespace)));
+        assert_ne!(token(&first), token(&other));
+        // A key outside any run has the empty namespace.
+        assert_eq!(token(&encode("loose")), "n_");
     }
 }

@@ -46,6 +46,21 @@ pub fn state_namespace(workflow_id: &WorkflowId, task_id: &TaskId) -> String {
     )
 }
 
+/// Split a shared-state key into the namespace [`state_namespace`] gave it
+/// and the rest. `None` if the key does not start with such a namespace.
+pub(crate) fn split_namespace(key: &str) -> Option<(&str, &str)> {
+    /// Skip one `{len}:{text}` field and return what follows it.
+    fn field(text: &str) -> Option<&str> {
+        let (len, rest) = text.split_once(':')?;
+        if len.is_empty() || !len.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        rest.get(len.parse::<usize>().ok()?..)
+    }
+    let rest = field(field(key)?)?.strip_prefix(':')?;
+    Some(key.split_at(key.len() - rest.len()))
+}
+
 // ============================================================================
 // WORKFLOW EVENT
 // ============================================================================
@@ -283,6 +298,8 @@ where
     executor_id: ExecutorId,
     /// Current superstep number
     superstep: u32,
+    /// Position of the input among those of the executor in the superstep
+    input_index: usize,
     /// Messages sent by the executor
     messages: MessageSink<TMessage>,
     /// Outputs yielded by the executor
@@ -312,6 +329,7 @@ where
             task_id,
             executor_id,
             superstep: 0,
+            input_index: 0,
             messages: MessageSink::new(),
             outputs: OutputSink::new(),
             events: Vec::new(),
@@ -483,6 +501,7 @@ where
             task_id: self.task_id.clone(),
             superstep: self.superstep,
             executor_id: self.executor_id.clone(),
+            input_index: self.input_index,
         })
     }
 }
@@ -503,6 +522,7 @@ where
     superstep: u32,
     previous_errors: Vec<ExecutorError>,
     state_backend: Option<Arc<dyn SharedStateBackend>>,
+    input_index: usize,
     _phantom: std::marker::PhantomData<(TMessage, TOutput)>,
 }
 
@@ -520,8 +540,16 @@ where
             superstep: 0,
             previous_errors: Vec::new(),
             state_backend: None,
+            input_index: 0,
             _phantom: std::marker::PhantomData,
         }
+    }
+
+    /// Set the position of the input among those the executor received in
+    /// the superstep.
+    pub fn input_index(mut self, index: usize) -> Self {
+        self.input_index = index;
+        self
     }
 
     /// Set the superstep number.
@@ -555,6 +583,7 @@ where
             state_backend,
         );
         ctx.superstep = self.superstep;
+        ctx.input_index = self.input_index;
         ctx.previous_errors = self.previous_errors;
         ctx
     }
@@ -568,6 +597,27 @@ where
 mod tests {
     use super::*;
     use crate::distributed::graph::LogLevel;
+
+    #[test]
+    fn namespace_is_split_off_a_state_key() {
+        let namespace = state_namespace(&WorkflowId::new("a:b"), &TaskId::new("é1"));
+        assert_eq!(
+            split_namespace(&format!("{namespace}key:1")),
+            Some((namespace.as_str(), "key:1"))
+        );
+        assert_eq!(split_namespace(&namespace), Some((namespace.as_str(), "")));
+        for key in [
+            "",
+            "plain",
+            "run1:note",
+            "3:ab",
+            "2:ab9:x",
+            "2:ab1:x",
+            "1:é1:x:",
+        ] {
+            assert_eq!(split_namespace(key), None, "{key}");
+        }
+    }
 
     fn test_ids() -> (WorkflowId, TaskId, ExecutorId) {
         (

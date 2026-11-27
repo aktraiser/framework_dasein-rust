@@ -58,6 +58,59 @@ async fn nats_state_is_shared_snapshotted_and_restored() {
 
     writer.delete("run2:note").await.unwrap();
     assert_eq!(reader.get("run2:note").await.unwrap(), None);
+    // A deleted key is not listed either.
+    assert!(reader.snapshot("run2:").await.unwrap().is_empty());
+}
+
+#[tokio::test]
+#[ignore = "Requires disposable NATS JetStream"]
+async fn nats_state_of_one_run_is_listed_restored_and_forgotten_alone() {
+    let state = NatsStateBackend::open(nats().await, &unique())
+        .await
+        .unwrap();
+    // The namespaces the workflow engine gives to two runs of one workflow.
+    let (flow, first, second) = (
+        WorkflowId::new("flow"),
+        TaskId::new("run-1"),
+        TaskId::new("run-2"),
+    );
+    let (one, two) = ("4:flow5:run-1:", "4:flow5:run-2:");
+
+    // Nothing yet: an empty snapshot, not a wait.
+    assert!(state.snapshot(one).await.unwrap().is_empty());
+
+    state.set(&format!("{one}note"), json!("a")).await.unwrap();
+    state.set(&format!("{one}n:2"), json!(2)).await.unwrap();
+    state.set(&format!("{two}note"), json!("b")).await.unwrap();
+    state.set("loose", json!(true)).await.unwrap();
+    // Written twice: only the current value counts.
+    state.set(&format!("{one}note"), json!("a2")).await.unwrap();
+
+    let snapshot = state.snapshot(one).await.unwrap();
+    assert_eq!(
+        snapshot,
+        HashMap::from([
+            (format!("{one}note"), json!("a2")),
+            (format!("{one}n:2"), json!(2)),
+        ])
+    );
+
+    state.set(&format!("{one}extra"), json!(1)).await.unwrap();
+    state.delete(&format!("{one}n:2")).await.unwrap();
+    state.restore(one, &snapshot).await.unwrap();
+    assert_eq!(state.snapshot(one).await.unwrap(), snapshot);
+
+    state.forget(&flow, &first).await.unwrap();
+    assert!(state.snapshot(one).await.unwrap().is_empty());
+    assert_eq!(state.get(&format!("{one}note")).await.unwrap(), None);
+    // The other run and the loose key are untouched.
+    assert_eq!(
+        state.snapshot(two).await.unwrap(),
+        HashMap::from([(format!("{two}note"), json!("b"))])
+    );
+    assert_eq!(state.get("loose").await.unwrap(), Some(json!(true)));
+    state.forget(&flow, &second).await.unwrap();
+    assert!(state.snapshot(two).await.unwrap().is_empty());
 }
 
 /// Hosted by the workers: upper-cases its input and adds the shared note.
@@ -153,8 +206,7 @@ async fn workflow_steps_run_on_workers_over_the_durable_queue() {
                 .serve(&source, async {
                     let _ = stopped.await;
                 })
-                .await
-                .unwrap();
+                .await;
         });
     }
 

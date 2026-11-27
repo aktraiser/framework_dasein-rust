@@ -243,6 +243,41 @@ impl DurableQueue {
         Ok(self.record(id).await?.map(|r| r.outcome))
     }
 
+    /// Wait up to `timeout` for a task to finish, and return its state then:
+    /// its result or failure, or `Pending` if it is still not done.
+    ///
+    /// The result is pushed by the server when it is recorded; nothing is
+    /// polled meanwhile.
+    pub async fn wait_outcome(
+        &self,
+        id: &str,
+        timeout: Duration,
+    ) -> Result<Option<TaskOutcome>, BusError> {
+        let deadline = tokio::time::Instant::now() + timeout;
+        // The current record first, then every change to it.
+        let mut changes = self
+            .ledger
+            .watch_with_history(key(id)?)
+            .await
+            .map_err(error)?;
+        loop {
+            match tokio::time::timeout_at(deadline, changes.next()).await {
+                Err(_) => return self.outcome(id).await,
+                Ok(None) => return Err(error("Result watch ended")),
+                Ok(Some(entry)) => {
+                    let entry = entry.map_err(error)?;
+                    if entry.operation != kv::Operation::Put {
+                        continue;
+                    }
+                    let record: Record = serde_json::from_slice(&entry.value).map_err(error)?;
+                    if record.outcome != TaskOutcome::Pending {
+                        return Ok(Some(record.outcome));
+                    }
+                }
+            }
+        }
+    }
+
     async fn finish(&self, id: &str, outcome: TaskOutcome) -> Result<(), BusError> {
         let task_key = key(id)?;
         for _ in 0..32 {

@@ -30,8 +30,10 @@ let worker = RemoteWorker::new(registry)
     .with_state_backend(Arc::new(NatsStateBackend::open(nats, "prod").await?));
 
 let source = queue.worker("summarizers").await?;
-worker.serve(&source, shutdown_signal()).await?;
+worker.serve(&source, shutdown_signal()).await;
 ```
+
+`serve` runs until the shutdown signal. If the queue cannot be read, because NATS is restarting or the network is down, it keeps trying, at most every 30 seconds, and resumes by itself.
 
 ## The workflow process
 
@@ -55,10 +57,16 @@ let workflow = Workflow::with_config(
 ## What to know
 
 - **At least once.** A task whose worker died mid-way is run again. A remote executor with side effects must make them idempotent.
-- **One task per invocation.** An invocation is identified by workflow, run, superstep, executor and input, and always maps to the same queue task. A retry or a resumed workflow finds the work already submitted, or already done, instead of starting it again.
-- **Results are final.** That includes failures: transient errors are retried by the worker (3 attempts by default), and what it finally reports is what the workflow gets for that invocation.
+- **One task per invocation.** An invocation is identified by workflow, run, superstep, executor, input and the input's position in the superstep, and always maps to the same queue task. A retry or a resumed workflow finds the work already submitted, or already done, instead of starting it again.
+- **Inputs of one superstep run in parallel.** When a remote step receives several inputs in the same superstep (a splitter, a join), each is a task of its own, equal inputs included, and all are sent at once: with enough workers they run at the same time, up to the workflow's `max_concurrent_executors`. Results come back in input order. Local steps still take their inputs one after the other; an executor of your own opts in with `concurrent_inputs()`.
+- **Results are pushed, not polled.** With the durable queue a waiting step is told by NATS when its result is recorded.
+- **Results are final.** That includes failures of the executor: transient errors are retried by the worker (3 attempts by default), and what it finally reports is what the workflow gets for that invocation.
+- **A task that never ran can be sent again.** Two failures mean the executor did not run: the task expired before a worker took it, or it reached a worker that does not host its executor. The workflow gets that failure once. A later retry or resume of the same invocation sends a new task, so fixing the deployment and resuming the run works.
+- **Tasks expire.** A task older than 15 minutes when a worker takes it is dropped instead of run, so work nobody waits for any more does not fill the queue. Change it with `RemoteExecutor::with_task_ttl`, and keep it above the time the step is given to succeed, retries included. The age is measured with the clocks of both machines: keep them in sync.
+- **Results have a size limit.** A result that does not fit in one queue record (900 kB with its task by default, `RemoteWorker::with_max_result_bytes`) is a final failure with a clear reason. Keep large data in a store and pass a reference.
 - **Timeouts.** A remote step waits 50 s for its result by default, under the workflow's 60 s executor timeout. Raise both for longer work. When the wait runs out the step fails as a timeout; a retry resumes waiting for the same task.
 - **Shared state needs a shared backend.** Without `with_state_backend` on both sides, a remote executor sees an empty state of its own.
+- **Shared state in NATS is kept until you remove it.** `NatsStateBackend::forget(&workflow_id, &task_id)` removes the state of one run; call it when the run is finished and will not be resumed.
 - **One group, one set of executors.** Any worker of a group may receive any of its tasks: workers of a group must host the same executors. Use several groups to give different executors to different machines.
 - **One task at a time per `serve`.** Run several `serve` loops, or several workers, for more parallelism.
 
@@ -71,9 +79,10 @@ let workflow = Workflow::with_config(
 
 ## Without NATS
 
-`InMemoryTaskQueue` has the same contract inside one process, minus durability. It serves as both queue and source, for development and tests:
+`InMemoryTaskQueue` has the same contract inside one process, minus durability, for development and tests. `queue.worker(group)` is the source of one group, as with the durable queue; the queue itself is a source for the tasks of every group.
 
 ```rust
 let queue = InMemoryTaskQueue::new();
-tokio::spawn(async move { worker.serve(&queue_for_worker, shutdown).await });
+let source = queue.worker("summarizers");
+tokio::spawn(async move { worker.serve(&source, shutdown).await });
 ```

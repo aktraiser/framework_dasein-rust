@@ -110,6 +110,14 @@ pub trait Executor: Send + Sync {
     where
         Ctx: ExecutorContext<Self::Message, Self::Output> + Send;
 
+    /// Whether several inputs arriving in the same superstep may be handled
+    /// at the same time. By default they are handled one after the other,
+    /// in order. Return `true` only if `handle` neither relies on that order
+    /// nor on having the shared state to itself.
+    fn concurrent_inputs(&self) -> bool {
+        false
+    }
+
     /// Optional: Human-readable name for logging.
     fn name(&self) -> &str {
         self.id().as_str()
@@ -205,6 +213,9 @@ pub struct Invocation {
     pub superstep: u32,
     /// The executor.
     pub executor_id: ExecutorId,
+    /// Position of this input among those the executor received in the
+    /// superstep, from 0.
+    pub input_index: usize,
 }
 
 /// Log levels for executor logging.
