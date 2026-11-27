@@ -314,8 +314,8 @@ impl AuditEvent {
             .iter()
             .take(3)
             .map(|e| {
-                if e.len() > 100 {
-                    format!("{}...", &e[..100])
+                if e.chars().nth(100).is_some() {
+                    format!("{}...", e.chars().take(100).collect::<String>())
                 } else {
                     e.clone()
                 }
@@ -356,8 +356,8 @@ impl AuditEvent {
 
     pub fn code_snapshot(trace_id: &str, seq: u64, stage: &str, attempt: u32, code: &str) -> Self {
         let code_hash = format!("{:x}", md5::compute(code.as_bytes()));
-        let code_preview = if code.len() > 500 {
-            format!("{}...", &code[..500])
+        let code_preview = if code.chars().nth(500).is_some() {
+            format!("{}...", code.chars().take(500).collect::<String>())
         } else {
             code.to_string()
         };

@@ -874,10 +874,11 @@ impl SurgicalRepair {
         }
     }
 
-    /// Find the index of the matching closing parenthesis.
+    /// Find the byte index of the matching closing parenthesis.
     fn find_matching_paren(s: &str) -> Option<usize> {
         let mut depth = 1;
-        for (i, c) in s.chars().enumerate() {
+        // Byte offsets, not char counts: callers slice `s` with the result.
+        for (i, c) in s.char_indices() {
             match c {
                 '(' => depth += 1,
                 ')' => {
@@ -1171,6 +1172,20 @@ impl RepairEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_template_fix_keeps_non_ascii_text_intact() {
+        // Multi-byte characters before the closing paren used to shift the cut.
+        assert_eq!(
+            SurgicalRepair::fix_error_pattern("throw new Error(é à ${x});").as_deref(),
+            Some("throw new Error(`é à ${x}`);")
+        );
+        assert_eq!(
+            SurgicalRepair::fix_function_call_pattern("console.log(ça ${x});", "console.log")
+                .as_deref(),
+            Some("console.log(`ça ${x}`);")
+        );
+    }
 
     #[test]
     fn test_extract_typescript_location() {

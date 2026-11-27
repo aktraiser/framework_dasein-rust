@@ -1067,7 +1067,7 @@ impl<S: Sandbox> IncrementalPipeline<S> {
             );
             debug!(
                 "Stage code preview:\n{}",
-                &stage_code[..stage_code.len().min(500)]
+                stage_code.chars().take(500).collect::<String>()
             );
 
             // Use the appropriate validator for the language
@@ -1321,8 +1321,8 @@ pub fn generate_stage_fix_prompt(
 
     if stage != Stage::Types {
         prompt.push_str("\n\n=== FULL CONTEXT (for reference) ===\n");
-        prompt.push_str(&full_code[..full_code.len().min(2000)]);
-        if full_code.len() > 2000 {
+        prompt.extend(full_code.chars().take(2000));
+        if full_code.chars().nth(2000).is_some() {
             prompt.push_str("\n... (truncated)");
         }
     }

@@ -275,13 +275,28 @@ impl<T: Send + Sync + 'static> WorkflowBuilder<T> {
         self.add_edge(Edge::fan_out_with_selection(source, targets, selection_fn))
     }
 
-    /// Add a fan-in edge (aggregates from multiple sources).
+    /// Add a fan-in edge: the target receives the messages of all sources
+    /// together, once every source has delivered.
     pub fn add_fan_in_edge(
         self,
         sources: Vec<impl Into<ExecutorId>>,
         target: impl Into<ExecutorId>,
     ) -> Self {
         self.add_edge(Edge::fan_in(sources, target))
+    }
+
+    /// Add a fan-in edge that merges the joined messages into one, so the
+    /// target runs once.
+    pub fn add_fan_in_edge_with<F>(
+        self,
+        sources: Vec<impl Into<ExecutorId>>,
+        target: impl Into<ExecutorId>,
+        aggregate: F,
+    ) -> Self
+    where
+        F: Fn(Vec<T>) -> T + Send + Sync + 'static,
+    {
+        self.add_edge(Edge::fan_in_with(sources, target, aggregate))
     }
 
     // ========================================================================

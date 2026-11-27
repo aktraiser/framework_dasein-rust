@@ -27,6 +27,23 @@ fn audit_unicode_event_does_not_panic() {
     let _event = AuditEvent::pipeline_started("unicode", 1, &task);
 }
 
+#[test]
+fn audit_unicode_previews_do_not_panic() {
+    // A multi-byte character straddling the byte offset used to cut previews.
+    let error = format!("{}é tail", "a".repeat(99));
+    let _ = AuditEvent::validation_completed("unicode", 1, "rust", false, &[error]);
+    let code = format!("{}é tail", "a".repeat(499));
+    let _ = AuditEvent::code_snapshot("unicode", 2, "types", 1, &code);
+}
+
+#[test]
+fn audit_short_unicode_preview_is_not_marked_truncated() {
+    // 60 characters but 120 bytes: under the 100-character limit.
+    let error = "é".repeat(60);
+    let event = AuditEvent::validation_completed("unicode", 1, "rust", false, &[error]);
+    assert!(!serde_json::to_string(&event).unwrap().contains("..."));
+}
+
 #[tokio::test]
 async fn audit_blocked_tasks_respect_queue_capacity() {
     let seq = Sequencer::with_config(SequencerConfig {

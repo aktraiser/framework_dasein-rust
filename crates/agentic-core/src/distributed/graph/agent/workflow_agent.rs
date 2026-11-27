@@ -185,6 +185,16 @@ where
             .await
             .map_err(|e| AgentError::workflow(e.to_string()))?;
 
+        // `Workflow::run` reports a failed run as `Ok` with `success: false`.
+        if !result.success {
+            return Err(AgentError::workflow(result.error.unwrap_or_else(|| {
+                format!(
+                    "Workflow failed after {} supersteps",
+                    result.superstep_count
+                )
+            })));
+        }
+
         // Build response content from outputs
         let content = if result.outputs.is_empty() {
             format!("Workflow completed ({} supersteps)", result.superstep_count)
