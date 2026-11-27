@@ -35,7 +35,11 @@ pub struct MCPServerConfig {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub args: Vec<String>,
 
-    /// Environment variables
+    /// Environment variables for the server process (stdio transport).
+    ///
+    /// The process does not inherit this program's environment: it gets only
+    /// what it needs to start (`PATH`, `HOME`, locale...) plus these entries,
+    /// so list every credential and setting the server expects.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub env: HashMap<String, String>,
 

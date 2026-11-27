@@ -29,6 +29,15 @@ pub enum MCPError {
     #[error("Serialization error: {0}")]
     SerializationError(String),
 
+    /// The server answered with a JSON-RPC error.
+    #[error("Server error {code}: {message}")]
+    Rpc {
+        /// JSON-RPC error code.
+        code: i64,
+        /// Message from the server.
+        message: String,
+    },
+
     /// Timeout
     #[error("Request timed out")]
     Timeout,

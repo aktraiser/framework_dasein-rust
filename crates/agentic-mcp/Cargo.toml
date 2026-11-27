@@ -44,6 +44,8 @@ dasein-agentic-sandbox = { workspace = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }
+wiremock = { workspace = true }
+tempfile = { workspace = true }
 
 [lints]
 workspace = true
