@@ -5,7 +5,9 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use dasein_agentic_sandbox::{FirecrackerConfig, FirecrackerSandbox, Sandbox, SandboxError};
+use dasein_agentic_sandbox::{
+    FirecrackerConfig, FirecrackerSandbox, JailerConfig, Sandbox, SandboxError,
+};
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::Semaphore;
@@ -128,6 +130,29 @@ fn router(state: AppState) -> Router {
 fn asset(variable: &str, default: PathBuf) -> PathBuf {
     std::env::var_os(variable).map_or(default, PathBuf::from)
 }
+/// The jailer settings, when `JAILER_BIN` asks for the jailer.
+fn jailer_from_env() -> anyhow::Result<Option<JailerConfig>> {
+    let Some(jailer_bin) = std::env::var_os("JAILER_BIN").map(PathBuf::from) else {
+        return Ok(None);
+    };
+    let defaults = JailerConfig::default();
+    let id = |variable: &str, default: u32| -> anyhow::Result<u32> {
+        match std::env::var(variable) {
+            Ok(value) => value
+                .parse()
+                .map_err(|_| anyhow::anyhow!("{variable} must be a numeric ID, got `{value}`")),
+            Err(_) => Ok(default),
+        }
+    };
+    Ok(Some(JailerConfig {
+        jailer_bin,
+        uid: id("JAILER_UID", defaults.uid)?,
+        gid: id("JAILER_GID", defaults.gid)?,
+        chroot_base: asset("JAILER_CHROOT_BASE", defaults.chroot_base),
+        parent_cgroup: std::env::var("JAILER_PARENT_CGROUP").unwrap_or(defaults.parent_cgroup),
+        ..defaults
+    }))
+}
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -141,9 +166,18 @@ async fn main() -> anyhow::Result<()> {
         kernel_path: asset("KERNEL_PATH", defaults.kernel_path),
         rootfs_path: asset("ROOTFS_PATH", defaults.rootfs_path),
         workspace: asset("WORKSPACE", defaults.workspace),
+        jailer: jailer_from_env()?,
         ..defaults
     };
-    FirecrackerSandbox::with_config(config.clone()).check_prerequisites()?;
+    tracing::info!(jailer = config.jailer.is_some(), "Firecracker confinement");
+    let sandbox = FirecrackerSandbox::with_config(config.clone());
+    sandbox.check_prerequisites()?;
+    // What an earlier run of this service left when it was killed.
+    match sandbox.remove_stale_jails() {
+        Ok(0) => {}
+        Ok(removed) => tracing::info!(removed, "Removed stale jails"),
+        Err(error) => tracing::warn!(%error, "Could not look for stale jails"),
+    }
     let address = std::env::var("BIND").unwrap_or_else(|_| {
         format!(
             "127.0.0.1:{}",

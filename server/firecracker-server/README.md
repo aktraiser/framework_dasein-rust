@@ -12,6 +12,17 @@ export BIND=127.0.0.1:8080
 cargo run --manifest-path server/firecracker-server/Cargo.toml --locked
 ```
 
+To confine every microVM with Firecracker's jailer (chroot, unprivileged user, cgroup limits), run the service as root and add:
+
+```sh
+export JAILER_BIN=/path/to/jailer            # turns the jailer on
+export JAILER_CHROOT_BASE=/srv/jailer        # root-owned, same filesystem as the kernel and rootfs
+export JAILER_UID=65534 JAILER_GID=65534     # what Firecracker runs as (default)
+export JAILER_PARENT_CGROUP=dasein           # under /sys/fs/cgroup (default)
+```
+
+The service then refuses to start unless it is root, cgroup v2 is mounted and the chroot base is safe. See the guest guide for what the jailer adds.
+
 Keep the service on loopback for a local lab. For access from a Mac to its Linux VM, use a local SSH tunnel. Public access requires an authenticated TLS deployment and the production host hardening described in the guest guide. `PORT` is supported when `BIND` is omitted; the default listener is `127.0.0.1:8080`.
 
 Both `GET /health` and `POST /execute` require `X-API-Key`. Health reports prerequisite availability, not a cached guest-boot test. Execution accepts:

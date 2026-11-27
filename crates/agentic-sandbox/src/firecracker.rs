@@ -47,6 +47,54 @@ pub struct FirecrackerConfig {
     pub max_output_bytes: usize,
     /// Maximum simultaneous microVMs per sandbox instance (shared by clones).
     pub max_concurrent: usize,
+    /// Run each microVM through Firecracker's jailer: in a chroot, as an
+    /// unprivileged user, inside a cgroup with CPU, memory and process
+    /// limits. `None` starts Firecracker directly, as the calling user.
+    pub jailer: Option<JailerConfig>,
+}
+
+/// How the jailer confines the Firecracker process of each microVM.
+///
+/// The process that uses the sandbox must then run as root: the jailer
+/// needs it to build the chroot and the cgroup, and drops Firecracker itself
+/// to `uid`/`gid` before it starts. Requires cgroup v2.
+#[derive(Debug, Clone)]
+pub struct JailerConfig {
+    /// Path to the jailer binary, of the same release as Firecracker.
+    pub jailer_bin: PathBuf,
+    /// User Firecracker runs as. Not root.
+    pub uid: u32,
+    /// Group Firecracker runs as. Not root.
+    pub gid: u32,
+    /// Directory the chroots are made in, owned by root and writable by
+    /// nobody else. It must be on the same filesystem as the kernel and the
+    /// rootfs, which are hard-linked into each chroot, and short: the path
+    /// of the vsock socket inside a chroot has to fit in 100 bytes.
+    pub chroot_base: PathBuf,
+    /// Cgroup the microVM cgroups are made under, below `/sys/fs/cgroup`.
+    pub parent_cgroup: String,
+    /// Host memory the Firecracker process may use on top of the guest's
+    /// memory, in MiB. Beyond it the kernel kills the microVM.
+    pub memory_overhead_mib: u32,
+    /// Processes and threads the Firecracker process may have.
+    pub pids_max: u32,
+    /// Open files the Firecracker process may have.
+    pub open_files_max: u32,
+}
+
+impl Default for JailerConfig {
+    fn default() -> Self {
+        Self {
+            jailer_bin: PathBuf::from("/usr/bin/jailer"),
+            uid: 65534,
+            gid: 65534,
+            chroot_base: PathBuf::from("/srv/jailer"),
+            parent_cgroup: "dasein".into(),
+            memory_overhead_mib: 128,
+            pids_max: 64,
+            open_files_max: 256,
+        }
+    }
 }
 
 impl Default for FirecrackerConfig {
@@ -61,6 +109,7 @@ impl Default for FirecrackerConfig {
             workspace: PathBuf::from("/tmp/dasein-fc"),
             max_output_bytes: 1024 * 1024,
             max_concurrent: 4,
+            jailer: None,
         }
     }
 }
@@ -101,6 +150,13 @@ impl FirecrackerConfig {
     #[must_use]
     pub fn workspace(mut self, path: impl Into<PathBuf>) -> Self {
         self.workspace = path.into();
+        self
+    }
+
+    /// Confine each microVM with the jailer.
+    #[must_use]
+    pub fn jailer(mut self, jailer: JailerConfig) -> Self {
+        self.jailer = Some(jailer);
         self
     }
 }
@@ -184,12 +240,101 @@ impl FirecrackerSandbox {
                 .map_err(|e| {
                     SandboxError::NotAvailable(format!("KVM read/write access unavailable: {e}"))
                 })?;
+            if let Some(jailer) = &self.config.jailer {
+                Self::check_jailer(jailer)?;
+            }
             if !std::path::Path::new("/usr/bin/timeout").is_file() {
                 return Err(SandboxError::NotAvailable(
                     "Coreutils-compatible /usr/bin/timeout is required for a host-crash deadline"
                         .into(),
                 ));
             }
+        }
+        Ok(())
+    }
+    /// Remove the chroots and cgroups left by microVMs whose process died
+    /// without cleaning up, for instance when the service was killed. Call
+    /// it when the service starts. Returns how many were removed.
+    ///
+    /// Only jails older than ten minutes with no process left in their
+    /// cgroup are removed, so that microVMs being started or run by another
+    /// instance are not touched. Does nothing without the jailer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the jails cannot be listed.
+    pub fn remove_stale_jails(&self) -> Result<usize, SandboxError> {
+        #[cfg(unix)]
+        if let Some(jailer) = &self.config.jailer {
+            return runtime::remove_stale_jails(&self.config, jailer, Duration::from_secs(600));
+        }
+        Ok(0)
+    }
+
+    #[cfg(unix)]
+    fn check_jailer(jailer: &JailerConfig) -> Result<(), SandboxError> {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let unavailable = |reason: String| Err(SandboxError::NotAvailable(reason));
+        if !nix::unistd::geteuid().is_root() {
+            return unavailable(
+                "The jailer needs the calling process to run as root; it drops Firecracker \
+                 to the configured user"
+                    .into(),
+            );
+        }
+        if jailer.uid == 0 || jailer.gid == 0 {
+            return Err(SandboxError::ConfigError(
+                "The jailer must drop Firecracker to a user and group other than root".into(),
+            ));
+        }
+        if !jailer
+            .jailer_bin
+            .metadata()
+            .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        {
+            return unavailable(format!(
+                "Jailer binary is not an executable file: {}",
+                jailer.jailer_bin.display()
+            ));
+        }
+        let valid_cgroup = !jailer.parent_cgroup.is_empty()
+            && jailer.parent_cgroup.len() <= 64
+            && jailer
+                .parent_cgroup
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+        if !valid_cgroup
+            || jailer.pids_max == 0
+            || jailer.open_files_max < 16
+            || jailer.memory_overhead_mib == 0
+        {
+            return Err(SandboxError::ConfigError(
+                "Jailer limits must be positive (at least 16 open files) and the parent \
+                 cgroup a single name of letters, digits, underscores or hyphens"
+                    .into(),
+            ));
+        }
+        if !std::path::Path::new("/sys/fs/cgroup/cgroup.controllers").is_file() {
+            return unavailable("The jailer limits need cgroup v2 at /sys/fs/cgroup".into());
+        }
+        // Root builds chroots there: nobody else may be able to plant
+        // anything in it.
+        let base = jailer.chroot_base.metadata().map_err(|e| {
+            SandboxError::NotAvailable(format!(
+                "Jailer chroot base {}: {e}",
+                jailer.chroot_base.display()
+            ))
+        })?;
+        if !jailer.chroot_base.is_absolute()
+            || !base.is_dir()
+            || base.uid() != 0
+            || base.permissions().mode() & 0o022 != 0
+        {
+            return Err(SandboxError::ConfigError(
+                "Jailer chroot base must be an absolute directory owned by root and \
+                 writable by root only"
+                    .into(),
+            ));
         }
         Ok(())
     }

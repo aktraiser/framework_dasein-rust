@@ -82,4 +82,6 @@ pub use gateway::{
     GatewayHealthResponse, GatewaySandbox, GatewaySandboxBuilder, GatewaySandboxConfig, Runtime,
 };
 
-pub use firecracker::{FirecrackerConfig, FirecrackerSandbox, FirecrackerSandboxBuilder};
+pub use firecracker::{
+    FirecrackerConfig, FirecrackerSandbox, FirecrackerSandboxBuilder, JailerConfig,
+};
