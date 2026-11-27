@@ -396,7 +396,11 @@ struct GeminiToolDeclaration {
 struct GeminiFunctionDeclaration {
     name: String,
     description: String,
-    parameters: serde_json::Value,
+    /// The parameters as JSON Schema. The older `parameters` field takes a
+    /// reduced schema and refuses the whole request for any keyword outside
+    /// it (`$schema`, `additionalProperties`, `exclusiveMinimum`, a numeric
+    /// `enum`...), which tools from MCP servers commonly use.
+    parameters_json_schema: serde_json::Value,
 }
 
 #[derive(Deserialize)]
@@ -634,7 +638,7 @@ impl LLMAdapter for GeminiAdapter {
                 .map(|t| GeminiFunctionDeclaration {
                     name: t.name.clone(),
                     description: t.description.clone(),
-                    parameters: t.parameters.clone(),
+                    parameters_json_schema: gemini_schema(&t.parameters),
                 })
                 .collect(),
         }];
@@ -699,6 +703,39 @@ impl LLMAdapter for GeminiAdapter {
     }
 }
 
+/// A tool's JSON Schema as Gemini takes it in `parametersJsonSchema`.
+///
+/// Checked against the API: it accepts references, combinators, exclusive
+/// bounds, type lists, numeric enums and unknown keywords. The one form it
+/// refuses is `items` given as a list of schemas, the older way to describe
+/// a tuple, which is rewritten as `prefixItems`.
+fn gemini_schema(schema: &serde_json::Value) -> serde_json::Value {
+    use serde_json::Value;
+    match schema {
+        Value::Object(fields) => {
+            let mut converted = serde_json::Map::new();
+            for (keyword, value) in fields {
+                // Values, not schemas: left exactly as given.
+                if matches!(
+                    keyword.as_str(),
+                    "default" | "const" | "enum" | "examples" | "example"
+                ) {
+                    converted.insert(keyword.clone(), value.clone());
+                } else if keyword == "items" && value.is_array() {
+                    converted
+                        .entry("prefixItems")
+                        .or_insert_with(|| gemini_schema(value));
+                } else {
+                    converted.insert(keyword.clone(), gemini_schema(value));
+                }
+            }
+            Value::Object(converted)
+        }
+        Value::Array(values) => Value::Array(values.iter().map(gemini_schema).collect()),
+        other => other.clone(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -725,6 +762,49 @@ mod tests {
         assert_eq!(contents.len(), 2);
         assert_eq!(contents[0].role, "user");
         assert_eq!(contents[1].role, "model");
+    }
+    #[test]
+    fn tool_schemas_are_sent_whole_as_json_schema() {
+        use serde_json::json;
+        // As MCP servers describe their tools: nothing of this may be lost.
+        let schema = json!({
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "event": {"$ref": "#/$defs/Event"},
+                "head": {"type": "number", "exclusiveMinimum": 0},
+                "level": {"type": "integer", "enum": [1, 2, 3]},
+                "tail": {"type": ["integer", "null"]},
+                "url": {"type": "string", "format": "uri"},
+                // Data that only looks like a schema is not rewritten.
+                "options": {"type": "object", "default": {"items": [1, 2]}},
+                // A property that happens to be named like a keyword.
+                "items": {"type": "boolean"}
+            },
+            "required": ["event"],
+            "$defs": {"Event": {"type": "object", "properties": {"title": {"type": "string"}}}}
+        });
+        assert_eq!(gemini_schema(&schema), schema);
+
+        // The one form the API refuses: a tuple written as a list of items.
+        let tuple = json!({"type":"object","properties":{"point":{
+            "type":"array","items":[{"type":"number"},{"type":"array","items":[{"type":"string"}]}]}}});
+        assert_eq!(
+            gemini_schema(&tuple),
+            json!({"type":"object","properties":{"point":{
+                "type":"array","prefixItems":[{"type":"number"},{"type":"array","prefixItems":[{"type":"string"}]}]}}})
+        );
+
+        // And it goes out under the field that takes JSON Schema.
+        let declaration = serde_json::to_value(GeminiFunctionDeclaration {
+            name: "f".into(),
+            description: "d".into(),
+            parameters_json_schema: gemini_schema(&schema),
+        })
+        .unwrap();
+        assert_eq!(declaration["parametersJsonSchema"], schema);
+        assert!(declaration.get("parameters").is_none());
     }
     #[test]
     fn tool_history_preserves_parallel_calls_and_matches_successive_rounds() {
