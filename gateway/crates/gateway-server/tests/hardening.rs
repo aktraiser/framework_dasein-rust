@@ -517,12 +517,15 @@ async fn counted_tokens(storage: &Storage) -> i64 {
 async fn parallel_requests_cannot_slip_under_the_token_limit_together() {
     avoid_minute_boundary().await;
     let upstream = MockServer::start().await;
-    // Slow enough for all the requests to be in flight at once.
+    // Slow enough for all the requests to be in flight at once: each one
+    // first checks its key, which takes a while on a slow machine, and an
+    // answer that came back before the last request was counted would free
+    // its reservation and let more than two through.
     Mock::given(method("POST"))
         .and(path("/chat/completions"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_delay(std::time::Duration::from_millis(400))
+                .set_delay(std::time::Duration::from_secs(4))
                 .set_body_json(serde_json::json!({
                     "id": "c1", "object": "chat.completion", "created": 0, "model": "test-model",
                     "choices": [{ "index": 0, "message": { "role": "assistant", "content": "ok" }, "finish_reason": "stop" }],
