@@ -831,6 +831,8 @@ let events = collector.query(AuditQuery {
 
 ### Intégration OpenTelemetry
 
+> **Prévu, non implémenté.** Le module `telemetry` décrit ci-dessous n'existe pas encore dans le code : ni export OpenTelemetry ni métriques Prometheus côté SDK. L'audit passe aujourd'hui par les événements NATS décrits plus haut.
+
 ```rust
 use dasein_agentic_core::telemetry::{init_telemetry, TelemetryConfig};
 

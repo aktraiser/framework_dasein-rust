@@ -122,8 +122,8 @@ PERSONNE D'AUTRE NE FAIT ÇA.
 │  Capabilities:                                                   │
 │  • Replay complet (debug production incidents)                  │
 │  • Compliance (qui a fait quoi, quand, pourquoi)               │
-│  • OpenTelemetry natif (traces distribuées)                     │
-│  • Métriques Prometheus                                         │
+│  • OpenTelemetry natif (prévu, non implémenté)                  │
+│  • Métriques Prometheus (prévu, non implémenté)                 │
 │  • Export SIEM (Splunk, ELK, etc.)                             │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
