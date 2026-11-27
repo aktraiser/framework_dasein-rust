@@ -163,7 +163,12 @@ impl LLMAdapter for OllamaAdapter {
 
         let request = OllamaChatRequest {
             model: self.model.clone(),
-            messages: messages.iter().map(OllamaMessage::from).collect(),
+            // This adapter does not declare tools: earlier tool rounds are
+            // written out as text.
+            messages: crate::history::tool_rounds_as_text(messages)
+                .iter()
+                .map(OllamaMessage::from)
+                .collect(),
             stream: false,
             options: OllamaOptions {
                 temperature: self.temperature,
@@ -197,7 +202,12 @@ impl LLMAdapter for OllamaAdapter {
     ) -> Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send + '_>> {
         let request = OllamaChatRequest {
             model: self.model.clone(),
-            messages: messages.iter().map(OllamaMessage::from).collect(),
+            // This adapter does not declare tools: earlier tool rounds are
+            // written out as text.
+            messages: crate::history::tool_rounds_as_text(messages)
+                .iter()
+                .map(OllamaMessage::from)
+                .collect(),
             stream: true,
             options: OllamaOptions {
                 temperature: self.temperature,

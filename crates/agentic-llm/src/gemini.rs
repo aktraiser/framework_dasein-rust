@@ -251,7 +251,9 @@ impl GeminiAdapter {
     ) -> (Option<GeminiSystemInstruction>, Vec<GeminiContent>) {
         let system_instruction = Self::system_instruction(messages);
 
-        let contents = messages
+        // No tool declarations go with these calls: earlier tool rounds are
+        // written out as text.
+        let contents = crate::history::tool_rounds_as_text(messages)
             .iter()
             .filter(|m| m.role != Role::System)
             .map(|m| GeminiContent {
