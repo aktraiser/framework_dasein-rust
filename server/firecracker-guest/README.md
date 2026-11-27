@@ -2,7 +2,7 @@
 
 `FirecrackerSandbox` now starts a real microVM per `execute()`. It configures Firecracker with `--no-api --config-file`, waits for the guest's virtio-vsock listener, sends a length-prefixed JSON request, validates the correlated response, then kills/reaps the VM. There is no host-shell fallback.
 
-Validated on an Apple M4 running macOS 15.5, with a Lima VZ Linux VM (`nestedVirtualization: true`), Linux 7.0/aarch64 hosting Firecracker 1.17.0 and a Linux 6.18.44 guest. A remote server is not necessary for this setup. Linux with accessible KVM is required; an arbitrary VPS or Docker on macOS does not guarantee KVM. Other CPUs, kernels and x86_64 still require their own qualification.
+Validated on an Apple M4 running macOS 15.5, with a Lima VZ Linux VM (`nestedVirtualization: true`), Linux 7.0/aarch64 hosting Firecracker 1.17.0 and a Linux 6.18.44 guest. The same test also passes on that Mac in a Lima VM created with `limactl start --vm-type=vz --nested-virt`, with Firecracker 1.18.0 and the `vmlinux-6.1.155` guest kernel of the Firecracker CI artifacts (line v1.15, the latest one published for aarch64 at the time). A remote server is not necessary for this setup. Linux with accessible KVM is required; an arbitrary VPS or Docker on macOS does not guarantee KVM. Other CPUs, kernels and x86_64 still require their own qualification.
 
 ## Prepare an image
 
