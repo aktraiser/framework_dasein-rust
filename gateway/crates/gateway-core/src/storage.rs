@@ -839,21 +839,84 @@ impl Storage {
         })
     }
 
+    /// Set aside the tokens a request is expected to use, unless the key's
+    /// token limit for the current minute is already reached. Done in one
+    /// atomic statement, so requests arriving together each see what the
+    /// others reserved and cannot all slip under the limit.
+    ///
+    /// Call [`settle_tokens`](Self::settle_tokens) once the real figure is
+    /// known. Returns `Err(wait)` with the time until the minute ends when
+    /// refused.
+    ///
+    /// # Errors
+    /// Returns a storage error if the database query or connection fails.
+    pub async fn reserve_tokens(
+        &self,
+        api_key_id: &str,
+        estimate: u32,
+        tokens_per_minute: Option<i32>,
+    ) -> StorageResult<Result<(), std::time::Duration>> {
+        let now = Utc::now().timestamp();
+        let reserved = sqlx::query(
+            r"
+            INSERT INTO key_rate_windows (api_key_id, minute, requests, tokens)
+            VALUES (?1, ?2, 0, ?3)
+            ON CONFLICT (api_key_id, minute) DO UPDATE SET tokens = tokens + excluded.tokens
+            WHERE (?4 IS NULL OR tokens < ?4)
+            ",
+        )
+        .bind(api_key_id)
+        .bind(now.div_euclid(60))
+        .bind(i64::from(estimate))
+        .bind(tokens_per_minute.filter(|v| *v > 0).map(i64::from))
+        .execute(&self.pool)
+        .await?
+        .rows_affected()
+            > 0;
+        Ok(if reserved {
+            Ok(())
+        } else {
+            let remaining = 60 - now.rem_euclid(60);
+            Err(std::time::Duration::from_secs(remaining.unsigned_abs()))
+        })
+    }
+
+    /// Replace a reservation by what the request really used. `actual` is
+    /// zero when the request failed, which gives the reservation back.
+    ///
+    /// # Errors
+    /// Returns a storage error if the database query or connection fails.
+    pub async fn settle_tokens(
+        &self,
+        api_key_id: &str,
+        reserved: u32,
+        actual: u32,
+    ) -> StorageResult<()> {
+        self.adjust_tokens(api_key_id, i64::from(actual) - i64::from(reserved))
+            .await
+    }
+
     /// Add the tokens a request consumed to the key's current minute.
     ///
     /// # Errors
     /// Returns a storage error if the database query or connection fails.
     pub async fn record_tokens(&self, api_key_id: &str, tokens: u32) -> StorageResult<()> {
+        self.adjust_tokens(api_key_id, i64::from(tokens)).await
+    }
+
+    /// Change the token count of the key's current minute, never below zero
+    /// (a reservation made in the previous minute may be settled in this one).
+    async fn adjust_tokens(&self, api_key_id: &str, delta: i64) -> StorageResult<()> {
         sqlx::query(
             r"
             INSERT INTO key_rate_windows (api_key_id, minute, requests, tokens)
-            VALUES (?1, ?2, 0, ?3)
-            ON CONFLICT (api_key_id, minute) DO UPDATE SET tokens = tokens + excluded.tokens
+            VALUES (?1, ?2, 0, MAX(0, ?3))
+            ON CONFLICT (api_key_id, minute) DO UPDATE SET tokens = MAX(0, tokens + ?3)
             ",
         )
         .bind(api_key_id)
         .bind(Utc::now().timestamp().div_euclid(60))
-        .bind(i64::from(tokens))
+        .bind(delta)
         .execute(&self.pool)
         .await?;
         Ok(())

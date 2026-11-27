@@ -503,3 +503,81 @@ async fn stream_cut_before_its_usage_is_still_counted() {
     let next = app.oneshot(stream_request(&key)).await.unwrap();
     assert_eq!(next.status(), StatusCode::TOO_MANY_REQUESTS);
 }
+
+/// Tokens counted for a key in the current rate-limit windows.
+async fn counted_tokens(storage: &Storage) -> i64 {
+    let (tokens,): (i64,) = sqlx::query_as("SELECT COALESCE(SUM(tokens), 0) FROM key_rate_windows")
+        .fetch_one(storage.pool())
+        .await
+        .unwrap();
+    tokens
+}
+
+#[tokio::test]
+async fn parallel_requests_cannot_slip_under_the_token_limit_together() {
+    avoid_minute_boundary().await;
+    let upstream = MockServer::start().await;
+    // Slow enough for all the requests to be in flight at once.
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(std::time::Duration::from_millis(400))
+                .set_body_json(serde_json::json!({
+                    "id": "c1", "object": "chat.completion", "created": 0, "model": "test-model",
+                    "choices": [{ "index": 0, "message": { "role": "assistant", "content": "ok" }, "finish_reason": "stop" }],
+                    "usage": { "prompt_tokens": 10, "completion_tokens": 50, "total_tokens": 60 },
+                })),
+        )
+        .mount(&upstream)
+        .await;
+    let (app, storage) = gateway(Some(&upstream.uri())).await;
+    // Each request reserves about 1,025 tokens (prompt + default answer
+    // allowance): two fit under 1,500 per minute, the others must wait.
+    let (_, key) = storage
+        .create_api_key("burst", None, Some(1500))
+        .await
+        .unwrap();
+
+    let statuses = futures::future::join_all((0..6).map(|_| {
+        let (app, request) = (app.clone(), chat(&key));
+        async move { app.oneshot(request).await.unwrap().status() }
+    }))
+    .await;
+    let passed = statuses.iter().filter(|s| **s == StatusCode::OK).count();
+    let refused = statuses
+        .iter()
+        .filter(|s| **s == StatusCode::TOO_MANY_REQUESTS)
+        .count();
+    assert_eq!((passed, refused), (2, 4), "{statuses:?}");
+    // Reservations were replaced by what the two answers really used.
+    assert_eq!(counted_tokens(&storage).await, 120);
+}
+
+#[tokio::test]
+async fn failed_request_gives_its_reserved_tokens_back() {
+    avoid_minute_boundary().await;
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(400).set_body_string("bad request"))
+        .mount(&upstream)
+        .await;
+    let (app, storage) = gateway(Some(&upstream.uri())).await;
+    let (_, key) = storage
+        .create_api_key("unlucky", None, Some(1500))
+        .await
+        .unwrap();
+
+    let response = app.oneshot(chat(&key)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    // Given back in the background once the failure is known.
+    let mut tokens = -1;
+    for _ in 0..100 {
+        tokens = counted_tokens(&storage).await;
+        if tokens == 0 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(tokens, 0, "a failed request kept its reservation");
+}

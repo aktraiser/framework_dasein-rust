@@ -58,6 +58,10 @@ impl AuthLayer {
 #[derive(Clone)]
 pub struct Principal(pub String);
 
+/// Tokens per minute allowed to the API key that made the request.
+#[derive(Clone, Copy)]
+pub struct TokenLimit(pub Option<i32>);
+
 /// Middleware function for authentication
 pub async fn auth_middleware(
     axum::extract::State(state): axum::extract::State<crate::state::AppState>,
@@ -113,6 +117,9 @@ pub async fn auth_middleware(
                         }
                     }
                 }
+                request
+                    .extensions_mut()
+                    .insert(TokenLimit(key.rate_limit_tpm));
                 request.extensions_mut().insert(Principal(key.id));
                 return Ok(next.run(request).await);
             }
@@ -132,7 +139,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 }
 
 /// 429 response telling the client when its window resets.
-fn rate_limited(wait: std::time::Duration) -> Response {
+pub(crate) fn rate_limited(wait: std::time::Duration) -> Response {
     use axum::response::IntoResponse;
     let seconds = wait.as_secs().max(1);
     (
