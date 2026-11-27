@@ -131,6 +131,21 @@ struct OllamaFunctionCall {
     arguments: serde_json::Value,
 }
 
+/// The answer without the reasoning some models write before it.
+///
+/// Models with a thinking phase (qwen3, deepseek-r1...) put it at the start
+/// of the content, between `<think>` tags, unless the server is asked to
+/// separate it. It is not part of the answer.
+fn without_thinking(content: String) -> String {
+    let trimmed = content.trim_start();
+    if let Some(rest) = trimmed.strip_prefix("<think>") {
+        if let Some((_, answer)) = rest.split_once("</think>") {
+            return answer.trim_start().to_owned();
+        }
+    }
+    content
+}
+
 /// A request that declares tools. Messages are built by hand: tool rounds
 /// have a shape of their own.
 #[derive(Serialize)]
@@ -260,7 +275,7 @@ impl LLMAdapter for OllamaAdapter {
         Ok(LLMResponse {
             tokens_used: chat_response.usage(),
             finish_reason: chat_response.finish_reason(),
-            content: chat_response.message.content,
+            content: without_thinking(chat_response.message.content),
             model: self.model.clone(),
             tool_calls: vec![],
         })
@@ -341,7 +356,7 @@ impl LLMAdapter for OllamaAdapter {
         Ok(LLMResponse {
             tokens_used,
             finish_reason,
-            content: chat_response.message.content,
+            content: without_thinking(chat_response.message.content),
             model: self.model.clone(),
             tool_calls,
         })

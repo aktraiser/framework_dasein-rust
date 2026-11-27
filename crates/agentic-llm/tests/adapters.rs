@@ -694,3 +694,29 @@ async fn ollama_reports_a_model_without_tools_and_answers_plainly_without_any() 
     assert_eq!(answer.content, "plain");
     assert!(answer.tool_calls.is_empty());
 }
+
+#[tokio::test]
+async fn ollama_answer_does_not_carry_the_model_reasoning() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/chat"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "message": {"content": "<think>\nThe user wants a city.\n</think>\n\nParis. Use <think> tags sparingly."},
+            "done": true,
+        })))
+        .mount(&server)
+        .await;
+    let adapter = ollama(&server);
+    let tool = Tool::new("get_weather", "Weather").with_string_param("city", "Name");
+    let question = [LLMMessage::user("Capital of France?")];
+    let expected = "Paris. Use <think> tags sparingly.";
+    assert_eq!(adapter.generate(&question).await.unwrap().content, expected);
+    assert_eq!(
+        adapter
+            .generate_with_tools(&question, &[tool])
+            .await
+            .unwrap()
+            .content,
+        expected
+    );
+}

@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A live test of an agent answering from an Obsidian vault through a third-party MCP server, with a small vault as fixture.
 
 ### Fixed
+- Ollama: the reasoning a thinking model writes before its answer (`<think>...</think>`) is no longer part of the answer.
 - Gemini: tool parameters are sent as JSON Schema (`parametersJsonSchema`). Tools described with keywords the older field refused, as many MCP servers do (`$ref`, `exclusiveMinimum`, `additionalProperties`, `$schema`, a numeric `enum`...), no longer make every request fail.
 
 ## [0.2.0] - 2026-11-27
