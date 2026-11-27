@@ -1,6 +1,6 @@
 //! Chat completion API
 
-use crate::middleware::auth::Principal;
+use crate::middleware::auth::{Principal, TokenLimit};
 use crate::state::AppState;
 use axum::{
     extract::State,
@@ -20,8 +20,82 @@ fn cost_usd(state: &AppState, model: &str, input_tokens: u32, output_tokens: u32
     })
 }
 
+/// Tokens reserved for a completion whose `max_tokens` is not given.
+const DEFAULT_OUTPUT_RESERVE: u32 = 1024;
+
+/// Tokens set aside for a request against its key's tokens-per-minute limit.
+///
+/// It must end in one of two ways: [`take`](Self::take) hands the amount to
+/// the usage record, which replaces it by the real figure; or the request
+/// fails first, the reservation is dropped, and the tokens are given back.
+pub(crate) struct Reservation {
+    state: AppState,
+    key_id: Option<String>,
+    amount: u32,
+}
+
+impl Reservation {
+    /// Hand the reserved amount over for settlement.
+    pub(crate) fn take(&mut self) -> u32 {
+        std::mem::take(&mut self.amount)
+    }
+}
+
+impl Drop for Reservation {
+    fn drop(&mut self) {
+        let (Some(storage), Some(key_id)) = (self.state.storage.clone(), self.key_id.take()) else {
+            return;
+        };
+        let amount = self.take();
+        if amount == 0 {
+            return;
+        }
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn(async move {
+                if let Err(error) = storage.settle_tokens(&key_id, amount, 0).await {
+                    tracing::warn!(%error, "Failed to give back reserved tokens");
+                }
+            });
+        }
+    }
+}
+
+/// Set aside the tokens a request is expected to use against its key's
+/// tokens-per-minute limit, before calling the provider. Requests running in
+/// parallel therefore count against each other at once, instead of all being
+/// admitted because none has finished yet.
+pub(crate) async fn reserve_tokens(
+    state: &AppState,
+    principal: Option<&Principal>,
+    limit: Option<TokenLimit>,
+    estimate: u32,
+) -> Result<Reservation, ApiError> {
+    let mut reservation = Reservation {
+        state: state.clone(),
+        key_id: principal.and_then(Principal::api_key_id).map(str::to_owned),
+        amount: 0,
+    };
+    let (Some(storage), Some(key_id)) = (&state.storage, &reservation.key_id) else {
+        // The operator token, or no database: nothing to count against.
+        return Ok(reservation);
+    };
+    match storage
+        .reserve_tokens(key_id, estimate, limit.and_then(|limit| limit.0))
+        .await
+    {
+        Ok(Ok(())) => {
+            reservation.amount = estimate;
+            Ok(reservation)
+        }
+        Ok(Err(wait)) => Err(ApiError::RateLimited(wait)),
+        // The count could not be taken: refuse rather than let it through.
+        Err(error) => Err(ApiError::ServiceUnavailable(error.to_string())),
+    }
+}
+
 /// Record what a request consumed: in the usage log shown on the dashboard,
-/// and against the key's tokens-per-minute limit. Never fails the request.
+/// and against the key's tokens-per-minute limit, where it replaces the
+/// `reserved` estimate. Never fails the request.
 pub(crate) async fn record_usage(
     state: &AppState,
     principal: Option<&Principal>,
@@ -29,14 +103,16 @@ pub(crate) async fn record_usage(
     model: &str,
     usage: Option<&gateway_core::llm::Usage>,
     started: std::time::Instant,
+    reserved: u32,
 ) {
     let Some(storage) = &state.storage else {
         return;
     };
     let api_key_id = principal.and_then(Principal::api_key_id);
     let (input, output) = usage.map_or((0, 0), |u| (u.prompt_tokens, u.completion_tokens));
-    if let (Some(id), Some(usage)) = (api_key_id, usage) {
-        if let Err(error) = storage.record_tokens(id, usage.total_tokens).await {
+    if let Some(id) = api_key_id {
+        let actual = usage.map_or(0, |usage| usage.total_tokens);
+        if let Err(error) = storage.settle_tokens(id, reserved, actual).await {
             tracing::warn!(%error, "Failed to count tokens against the key's limit");
         }
     }
@@ -77,6 +153,8 @@ struct StreamUsage {
     usage: Option<gateway_core::llm::Usage>,
     prompt_chars: usize,
     answer_chars: usize,
+    /// Tokens set aside when the request was admitted.
+    reserved: u32,
 }
 
 impl StreamUsage {
@@ -117,7 +195,7 @@ impl Drop for StreamUsage {
             std::mem::take(&mut self.provider),
             std::mem::take(&mut self.model),
         );
-        let started = self.started;
+        let (started, reserved) = (self.started, self.reserved);
         runtime.spawn(async move {
             record_usage(
                 &state,
@@ -126,6 +204,7 @@ impl Drop for StreamUsage {
                 &model,
                 Some(&usage),
                 started,
+                reserved,
             )
             .await;
         });
@@ -136,11 +215,28 @@ impl Drop for StreamUsage {
 pub async fn chat_completions(
     State(state): State<AppState>,
     principal: Option<Extension<Principal>>,
+    limit: Option<Extension<TokenLimit>>,
     Json(mut request): Json<ChatCompletionRequest>,
 ) -> Result<Response, ApiError> {
     let started = std::time::Instant::now();
     let principal = principal.map(|Extension(principal)| principal);
     let model = request.model.clone();
+    // The prompt, plus the most the model may answer.
+    let prompt_chars: usize = request
+        .messages
+        .iter()
+        .map(|message| message.content.chars().count())
+        .sum();
+    let estimate = estimate_tokens(prompt_chars)
+        .saturating_add(request.max_tokens.unwrap_or(DEFAULT_OUTPUT_RESERVE));
+    // Given back automatically if the request fails before it is recorded.
+    let mut reservation = reserve_tokens(
+        &state,
+        principal.as_ref(),
+        limit.map(|Extension(limit)| limit),
+        estimate,
+    )
+    .await?;
     let router = state
         .runtime_router()
         .await
@@ -157,11 +253,6 @@ pub async fn chat_completions(
             .as_ref()
             .and_then(|options| options.include_usage)
             .unwrap_or(false);
-        let prompt_chars = request
-            .messages
-            .iter()
-            .map(|message| message.content.chars().count())
-            .sum();
         let provider = router.provider_name(&model).unwrap_or_default();
         let mut metered = request.clone();
         metered.stream_options = Some(gateway_core::llm::StreamOptions {
@@ -188,6 +279,7 @@ pub async fn chat_completions(
             usage: None,
             prompt_chars,
             answer_chars: 0,
+            reserved: reservation.take(),
         };
         let events = stream.filter_map(move |item| {
             let event = match item {
@@ -242,6 +334,7 @@ pub async fn chat_completions(
         &model,
         response.usage.as_ref(),
         started,
+        reservation.take(),
     )
     .await;
 
@@ -291,11 +384,16 @@ pub enum ApiError {
     Unavailable(String),
     ServiceUnavailable(String),
     Busy(String),
+    /// The API key's limit for the current minute is used up.
+    RateLimited(std::time::Duration),
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, message) = match self {
+            ApiError::RateLimited(wait) => {
+                return crate::middleware::auth::rate_limited(wait);
+            }
             ApiError::Busy(msg) => (StatusCode::TOO_MANY_REQUESTS, msg),
             ApiError::ServiceUnavailable(msg) => (StatusCode::SERVICE_UNAVAILABLE, msg),
             ApiError::Provider(msg) => (StatusCode::BAD_GATEWAY, msg),
