@@ -110,6 +110,14 @@ pub trait Executor: Send + Sync {
     where
         Ctx: ExecutorContext<Self::Message, Self::Output> + Send;
 
+    /// Whether several inputs arriving in the same superstep may be handled
+    /// at the same time. By default they are handled one after the other,
+    /// in order. Return `true` only if `handle` neither relies on that order
+    /// nor on having the shared state to itself.
+    fn concurrent_inputs(&self) -> bool {
+        false
+    }
+
     /// Optional: Human-readable name for logging.
     fn name(&self) -> &str {
         self.id().as_str()
@@ -175,6 +183,12 @@ where
     /// Get errors from previous execution attempts.
     fn previous_errors(&self) -> &[ExecutorError];
 
+    /// Which step of which workflow run this is, when the context knows.
+    /// Identifies an invocation across retries and resumes.
+    fn invocation(&self) -> Option<Invocation> {
+        None
+    }
+
     /// Log a message (convenience method).
     async fn log(&mut self, level: LogLevel, message: &str) -> Result<(), ExecutorError> {
         self.add_event(
@@ -186,6 +200,22 @@ where
         )
         .await
     }
+}
+
+/// One invocation of an executor inside a workflow run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Invocation {
+    /// The workflow definition.
+    pub workflow_id: super::types::WorkflowId,
+    /// The run of that workflow.
+    pub task_id: super::types::TaskId,
+    /// The superstep in which the executor runs.
+    pub superstep: u32,
+    /// The executor.
+    pub executor_id: ExecutorId,
+    /// Position of this input among those the executor received in the
+    /// superstep, from 0.
+    pub input_index: usize,
 }
 
 /// Log levels for executor logging.

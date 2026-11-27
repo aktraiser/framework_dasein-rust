@@ -78,6 +78,8 @@
 mod background;
 mod chat_agent;
 mod error;
+#[cfg(feature = "mcp")]
+mod mcp_tools;
 mod memory;
 mod persistence;
 mod reducer;

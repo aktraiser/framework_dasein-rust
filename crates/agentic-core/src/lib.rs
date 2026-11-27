@@ -61,6 +61,7 @@ pub mod swarm;
 pub mod telemetry;
 pub mod types;
 
+#[allow(deprecated)] // Kept exported until the deprecated type is removed.
 pub use agent::Agent;
 pub use error::AgentError;
 pub use types::{

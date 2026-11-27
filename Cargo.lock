@@ -876,6 +876,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "dasein-agentic-llm",
+ "dasein-agentic-mcp",
  "dasein-agentic-sandbox",
  "futures",
  "md5",

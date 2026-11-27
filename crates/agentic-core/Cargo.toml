@@ -27,6 +27,8 @@ otel = [
     "dep:tracing-opentelemetry",
     "dep:tracing-subscriber",
 ]
+# Let a ChatAgent take its tools from MCP servers
+mcp = ["dep:dasein-agentic-mcp"]
 
 [dependencies]
 # Async
@@ -79,6 +81,7 @@ redis = { workspace = true, optional = true }
 # Internal
 dasein-agentic-llm = { workspace = true, features = ["gemini", "openai", "anthropic"] }
 dasein-agentic-sandbox = { workspace = true }
+dasein-agentic-mcp = { workspace = true, optional = true }
 
 [dev-dependencies]
 metrics-exporter-prometheus = { version = "0.18", default-features = false }
