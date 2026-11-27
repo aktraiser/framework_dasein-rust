@@ -1,6 +1,6 @@
 # Qualified local beta profile
 
-The local beta profile consists of the graph runtime, GroupChat, a durable NATS queue, ephemeral Docker execution, and a single-process gateway with Python Boxes and OpenAI Chat Completions streaming/embeddings. It is intended for controlled laboratory use. The SDK also has a [controlled Firecracker beta](../server/firecracker-guest/README.md), tested with real nested KVM on Apple M4; its authenticated HTTP adapter is separate from the Docker Boxes gateway. The legacy gateway warm-VM pool remains disabled. No release has been published by these local checks.
+The local beta profile consists of the graph runtime, GroupChat, a durable NATS queue, ephemeral Docker execution, and a gateway (one process, or several sharing its SQLite file on one machine) with Python Boxes and OpenAI Chat Completions streaming/embeddings. It is intended for controlled laboratory use. The SDK also has a [controlled Firecracker beta](../server/firecracker-guest/README.md), tested with real nested KVM on Apple M4; its authenticated HTTP adapter is separate from the Docker Boxes gateway. The legacy gateway warm-VM pool remains disabled. No release has been published by these local checks.
 
 ## Runtime and state
 

@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Gateway: per-key request and token limits are enforced; usage, cost and streamed tokens are logged; `trusted_proxies`.
 - LLM adapters: `with_base_url`, `with_timeout`, `with_max_retries` on Anthropic, Gemini and Ollama.
 - Firecracker sandbox: `FirecrackerConfig::jailer` runs each microVM through the jailer, unprivileged, chrooted and in a cgroup with CPU, memory and process limits; `JAILER_BIN` turns it on in the HTTP adapter.
+- Gateway: several processes can serve from one SQLite file on a machine. Box executions, the box limit and failed dashboard logins are coordinated through the database, which is opened in WAL mode.
 
 ### Changed
 - A fan-in edge now waits for its sources and delivers their messages together.
