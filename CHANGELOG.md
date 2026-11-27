@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- A live test of an agent answering from an Obsidian vault through a third-party MCP server, with a small vault as fixture.
+
+### Fixed
+- Gemini: tool parameters are sent as JSON Schema (`parametersJsonSchema`). Tools described with keywords the older field refused, as many MCP servers do (`$ref`, `exclusiveMinimum`, `additionalProperties`, `$schema`, a numeric `enum`...), no longer make every request fail.
+
 ## [0.2.0] - 2026-11-27
 
 Not published on crates.io: depend on the repository at the tag `v0.2.0`.

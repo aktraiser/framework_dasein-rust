@@ -36,6 +36,23 @@ Both connect, list the tools and generate the TypeScript bindings. To call a too
 
 The stdio check downloads and runs the server you name: only use one you trust. The server process gets a minimal environment, not your shell's.
 
+## An agent on an Obsidian vault
+
+A real model answers a question from an Obsidian vault through an MCP server written by someone else: the reference filesystem server of the Model Context Protocol project. An Obsidian vault is a folder of Markdown files, so Obsidian itself need not run.
+
+```bash
+LIVE_GEMINI_MODEL=gemini-flash-latest cargo test -p dasein-agentic-core \
+  --features mcp --test live_obsidian_vault -- --include-ignored --nocapture
+```
+
+It needs `GEMINI_API_KEY`, `LIVE_GEMINI_MODEL` and `npx`, and downloads `@modelcontextprotocol/server-filesystem` from npm on its first run. The vault is the small one in `crates/agentic-core/tests/fixtures/vault`: the answer takes three facts from three notes in three folders, reached through `[[links]]`. The test also checks that the vault is unchanged.
+
+To point an agent of your own at a vault:
+
+- **Read only.** That server can also write, move and edit files. Give the agent a `with_tool_filter` that keeps the reading tools, as the test does: a call to a tool that was not offered is refused, not run.
+- **Environment.** A stdio server gets a minimal environment, so `npx` must be given `PATH` and `HOME` with `MCPServerConfig::env_var`.
+- **What leaves the machine.** The notes the agent reads are sent to the model's provider.
+
 ## Chat platforms
 
 Each check starts the bot, waits for it to connect and posts one message to the channel you name.
