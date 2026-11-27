@@ -31,7 +31,7 @@ The separate crates `dasein-agentic-bus` and `dasein-agentic-orchestrator` are n
 
 ```toml
 [dependencies]
-dasein-agentic-core = { git = "https://github.com/aktraiser/framework_dasein-rust" }
+dasein-agentic-core = { git = "https://github.com/aktraiser/framework_dasein-rust", tag = "v0.2.0" }
 ```
 
 ## Quick Start

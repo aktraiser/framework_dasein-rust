@@ -36,11 +36,11 @@ This is a **local beta**: built to run on one machine, in a controlled setting. 
 
 ## Quick Start
 
-The crates published on crates.io (0.1.0) predate the security and reliability fixes in this repository. Until a new release, depend on the repository:
+The crates published on crates.io (0.1.0) predate the security and reliability fixes in this repository, and version 0.2.0 is not published there. Depend on the repository at its tag:
 
 ```toml
 [dependencies]
-dasein-agentic-llm = { git = "https://github.com/aktraiser/framework_dasein-rust", features = ["anthropic"] }
+dasein-agentic-llm = { git = "https://github.com/aktraiser/framework_dasein-rust", tag = "v0.2.0", features = ["anthropic"] }
 tokio = { version = "1", features = ["full"] }
 ```
 

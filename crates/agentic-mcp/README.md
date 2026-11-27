@@ -13,7 +13,7 @@ MCP (Model Context Protocol) client for the Agentic Framework.
 
 ```toml
 [dependencies]
-agentic-mcp = "0.1"
+dasein-agentic-mcp = { git = "https://github.com/aktraiser/framework_dasein-rust", tag = "v0.2.0" }
 ```
 
 ## Quick Start

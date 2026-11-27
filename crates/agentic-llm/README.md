@@ -13,10 +13,10 @@ LLM adapters for the Agentic Framework.
 
 ```toml
 [dependencies]
-agentic-llm = "0.1"
+dasein-agentic-llm = { git = "https://github.com/aktraiser/framework_dasein-rust", tag = "v0.2.0" }
 
 # Or with specific providers
-agentic-llm = { version = "0.1", features = ["openai", "anthropic"] }
+dasein-agentic-llm = { git = "https://github.com/aktraiser/framework_dasein-rust", tag = "v0.2.0", features = ["openai", "anthropic"] }
 ```
 
 ## Quick Start

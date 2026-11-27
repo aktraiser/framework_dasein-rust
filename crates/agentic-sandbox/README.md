@@ -15,13 +15,13 @@ Sandboxed code execution for the Agentic Framework.
 
 ```toml
 [dependencies]
-dasein-agentic-sandbox = "0.1"
+dasein-agentic-sandbox = { git = "https://github.com/aktraiser/framework_dasein-rust", tag = "v0.2.0" }
 
 # With Docker support
-dasein-agentic-sandbox = { version = "0.1", features = ["docker"] }
+dasein-agentic-sandbox = { git = "https://github.com/aktraiser/framework_dasein-rust", tag = "v0.2.0", features = ["docker"] }
 
 # With Gateway (Python Docker Boxes)
-dasein-agentic-sandbox = { version = "0.1", features = ["gateway"] }
+dasein-agentic-sandbox = { git = "https://github.com/aktraiser/framework_dasein-rust", tag = "v0.2.0", features = ["gateway"] }
 ```
 
 ## Quick Start
