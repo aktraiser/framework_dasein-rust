@@ -1,4 +1,5 @@
 //! Agent implementation - the core autonomous entity.
+#![allow(deprecated)] // This file is the deprecated agent itself.
 
 use std::sync::Arc;
 
@@ -36,6 +37,10 @@ const NON_EXECUTABLE_ACTIONS: &[&str] = &[
 /// - **THINK**: Use LLM to reason and generate code
 /// - **EXECUTE**: Run code in sandbox (if applicable)
 /// - **RESPOND**: Return results
+#[deprecated(
+    since = "0.2.0",
+    note = "first-generation agent: it runs one model call and executes the first code block of the answer. Use `distributed::graph::agent::ChatAgent`, which has a bounded tool loop, timeouts and durable resume."
+)]
 pub struct Agent<L: LLMAdapter, S: Sandbox> {
     id: String,
     config: AgentConfig,

@@ -1,3 +1,5 @@
+#![allow(deprecated)] // Regression tests still cover the deprecated sequencer.
+
 use async_trait::async_trait;
 use dasein_agentic_core::distributed::bus::{
     AuditCollector, AuditEvent, NatsClient, NatsConfig, Sequencer, SequencerConfig, StreamConfig,

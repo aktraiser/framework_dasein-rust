@@ -59,6 +59,7 @@ pub use pipeline_tracer::{
     ValidationRecord, ValidatorStageRecord, TRACE_SCHEMA_VERSION,
 };
 pub use rollback::{Attempt, AttemptScore, RollbackDecision, RollbackManager, RollbackStats};
+#[allow(deprecated)] // Kept exported until the deprecated type is removed.
 pub use sequencer::{Sequencer, SequencerConfig};
 pub use state_store::{extract_imports, extract_types, FunctionSig, StateStore, TypeDef};
 pub use types::{BusError, BusResult, Task, TaskPriority, TimeRange};

@@ -12,5 +12,6 @@ mod orchestrator;
 mod workflow;
 
 pub use error::OrchestratorError;
+#[allow(deprecated)] // Kept exported until the deprecated type is removed.
 pub use orchestrator::{AgentRef, Orchestrator};
 pub use workflow::{Workflow, WorkflowResult, WorkflowStep};
