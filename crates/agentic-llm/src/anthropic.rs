@@ -130,7 +130,9 @@ impl AnthropicAdapter {
 
     /// Extract system message and convert remaining messages.
     fn prepare_messages(messages: &[LLMMessage]) -> (Option<String>, Vec<AnthropicMessage>) {
-        let api_messages = messages
+        // No tool definitions go with these calls, so the API would reject
+        // tool blocks: earlier tool rounds are written out as text.
+        let api_messages = crate::history::tool_rounds_as_text(messages)
             .iter()
             .filter(|m| m.role != Role::System)
             .map(AnthropicMessage::from)

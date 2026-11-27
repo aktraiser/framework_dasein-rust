@@ -488,6 +488,43 @@ async fn silence_limit_is_configurable() {
 }
 
 #[tokio::test]
+async fn streamed_call_after_tool_rounds_keeps_the_tool_exchange_readable() {
+    use dasein_agentic_llm::ToolCall;
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        // What the assistant asked for and what came back are both there,
+        // tied together by the call ID, and no native tool block is sent
+        // (the API rejects them without tool definitions).
+        .and(body_string_contains("Called tool `weather` (call c1)"))
+        .and(body_string_contains("[Result of tool call c1]"))
+        .respond_with(sse(&[
+            json!({ "type": "content_block_delta", "delta": { "text": "12°C" } }),
+            json!({ "type": "message_stop" }),
+        ]))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let history = [
+        LLMMessage::user("Weather in Paris?"),
+        LLMMessage::assistant_with_tool_calls(
+            "",
+            vec![ToolCall::new("c1", "weather", json!({ "city": "Paris" }))],
+        ),
+        LLMMessage::tool_result("c1", "12°C"),
+    ];
+    let chunks: Vec<_> = anthropic(&server).generate_stream(&history).collect().await;
+    assert_eq!(text(&chunks), "12°C");
+
+    let requests = server.received_requests().await.unwrap();
+    let body = String::from_utf8_lossy(&requests[0].body);
+    assert!(
+        !body.contains("tool_use") && !body.contains("tool_result"),
+        "{body}"
+    );
+}
+
+#[tokio::test]
 async fn gemini_sends_back_the_thought_signature_of_a_tool_call() {
     let server = MockServer::start().await;
     // Second round: the call comes back with its signature, the result after.
