@@ -13,7 +13,7 @@
 #![cfg(feature = "mcp")]
 
 use dasein_agentic_core::distributed::graph::agent::{Agent, AgentThread, ChatAgent, ChatMessage};
-use dasein_agentic_llm::GeminiAdapter;
+use dasein_agentic_llm::{GeminiAdapter, LLMAdapter, OllamaAdapter};
 use dasein_agentic_mcp::client::{MCPClientPool, MCPConfig, MCPServerConfig};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -49,6 +49,37 @@ async fn real_model_answers_from_an_obsidian_vault() {
         eprintln!("skipped: GEMINI_API_KEY or LIVE_GEMINI_MODEL is not set");
         return;
     };
+    answers_from_the_vault(GeminiAdapter::new(key, model)).await;
+}
+
+/// The same with a model served by Ollama on this machine, so that the
+/// notes do not leave it. The model must have the `tools` capability, and be
+/// able to chain several calls. Neither local model tried is: `mistral:7b`
+/// describes the calls it would make instead of making them, and `qwen3:8b`
+/// makes real calls but stops after the first note or gives up. This test
+/// fails with both.
+///
+/// ```bash
+/// LIVE_OLLAMA_MODEL=mistral:7b cargo test -p dasein-agentic-core \
+///   --features mcp --test live_obsidian_vault -- --include-ignored --nocapture local_model
+/// ```
+#[tokio::test]
+#[ignore = "needs a running Ollama server and downloads an MCP server from npm"]
+async fn local_model_answers_from_an_obsidian_vault() {
+    let Ok(model) = std::env::var("LIVE_OLLAMA_MODEL") else {
+        eprintln!("skipped: LIVE_OLLAMA_MODEL is not set");
+        return;
+    };
+    let mut adapter = OllamaAdapter::new(model)
+        .with_temperature(0.0)
+        .with_timeout(std::time::Duration::from_secs(300));
+    if let Ok(url) = std::env::var("LIVE_OLLAMA_URL") {
+        adapter = adapter.with_base_url(url);
+    }
+    answers_from_the_vault(adapter).await;
+}
+
+async fn answers_from_the_vault<L: LLMAdapter + 'static>(llm: L) {
     let has_npx = std::env::var_os("PATH").is_some_and(|path| {
         std::env::split_paths(&path).any(|directory| directory.join("npx").is_file())
     });
@@ -92,12 +123,16 @@ async fn real_model_answers_from_an_obsidian_vault() {
             .any(|allowed| name.contains(allowed))
             && !name.contains("write")
     };
-    let agent = ChatAgent::new("vault", GeminiAdapter::new(key, model))
-        .with_system_prompt(
+    let agent = ChatAgent::new("vault", llm)
+        // Where the vault is, said outright: a hosted model finds it by
+        // asking the server, a small local one does not think to.
+        .with_system_prompt(format!(
             "You answer questions about the user's notes. The notes are Markdown files \
-             in an Obsidian vault; [[Name]] links to the note called Name.md, which may \
-             be in another folder. Look things up with your tools before answering.",
-        )
+             in an Obsidian vault, the directory {}; [[Name]] links to the note called \
+             Name.md, which may be in another folder. Look things up with your tools \
+             before answering: search or list that directory, then read the notes.",
+            vault.display()
+        ))
         .with_mcp_tools(Arc::new(pool))
         .await
         .unwrap()

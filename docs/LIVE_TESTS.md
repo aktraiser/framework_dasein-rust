@@ -36,7 +36,7 @@ LIVE_OLLAMA_MODEL=mistral:7b cargo test -p dasein-agentic-core \
   --features mcp --test live_mcp_agent -- --include-ignored --nocapture local_model
 ```
 
-It passed with Ollama 0.9.5 and `mistral:7b`: the model found the tool of the MCP server, called it with the right argument and used its answer. Small local models are less reliable with tools than hosted ones; one question and one tool is what was tried.
+It passed with Ollama 0.9.5, `mistral:7b` and `qwen3:8b`: the model found the tool of the MCP server, called it with the right argument and used its answer. Small local models are less reliable with tools than hosted ones; one question and one tool is what was tried.
 
 ## MCP servers
 
@@ -59,6 +59,15 @@ LIVE_GEMINI_MODEL=gemini-flash-latest cargo test -p dasein-agentic-core \
 ```
 
 It needs `GEMINI_API_KEY`, `LIVE_GEMINI_MODEL` and `npx`, and downloads `@modelcontextprotocol/server-filesystem` from npm on its first run. The vault is the small one in `crates/agentic-core/tests/fixtures/vault`: the answer takes three facts from three notes in three folders, reached through `[[links]]`. The test also checks that the vault is unchanged.
+
+The same test has a variant on a local model (`LIVE_OLLAMA_MODEL`, test name `local_model_answers_from_an_obsidian_vault`), where the notes stay on the machine. It does not pass with the two local models tried, which both manage the single tool call of `live_mcp_agent`:
+
+| Model | On the vault question |
+|---|---|
+| `mistral:7b` | Writes out the calls it would make instead of making them, also when asked through Ollama directly |
+| `qwen3:8b` | Makes real calls; in three runs it once read the project note and named the person, then stopped without following the links, and twice found nothing |
+
+Following links across several notes takes a model that chains tool calls reliably. Models of this size do not; larger local ones have not been tried.
 
 To point an agent of your own at a vault:
 
