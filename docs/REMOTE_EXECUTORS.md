@@ -77,6 +77,34 @@ let workflow = Workflow::with_config(
 - Send back the events a remote executor emits with `add_event`.
 - Move the workflow engine itself: supersteps, routing and checkpoints stay in the workflow process.
 
+## Try it across machines
+
+The example [`remote_steps`](../crates/agentic-core/examples/remote_steps.rs) is a workflow whose second step runs on workers. Start a NATS server with JetStream (`nats-server -js`) where every machine can reach it, then, on each machine that should do work:
+
+```sh
+DASEIN_NATS_URL=nats://nats-host:4222 \
+  cargo run -p dasein-agentic-core --example remote_steps -- worker demo alice
+```
+
+And, from any machine, the workflow with the number of inputs to send:
+
+```sh
+DASEIN_NATS_URL=nats://nats-host:4222 \
+  cargo run -p dasein-agentic-core --example remote_steps -- workflow demo 8
+```
+
+Each output names the worker, the system and the process that produced it, and shows the shared state it read. `DASEIN_WORK_MS` sets how long a worker takes over one input, `DASEIN_WAIT_S` how long the workflow waits for one.
+
+This was run with NATS 2.15.3 and one worker in a Linux virtual machine, and a second worker and the workflow on the macOS host:
+
+| Scenario | Result |
+|---|---|
+| 8 inputs of one second, two workers | 4 on each worker, 8 outputs in input order in 4.0 s |
+| The Linux worker killed with `kill -9` during a task | Its task was done by the other worker after the 5 s acknowledgement deadline; 6 outputs of 6 |
+| NATS stopped for 3 s, then restarted | Both workers kept running and served the next run |
+
+The two systems were on one physical machine: a slow or lossy network between distant machines has not been tried.
+
 ## Without NATS
 
 `InMemoryTaskQueue` has the same contract inside one process, minus durability, for development and tests. `queue.worker(group)` is the source of one group, as with the durable queue; the queue itself is a source for the tasks of every group.
