@@ -46,8 +46,11 @@
 //! - **Shared state needs a shared backend.** A remote executor only sees
 //!   the workflow's shared state if both sides use a backend they can both
 //!   reach, such as [`NatsStateBackend`](super::NatsStateBackend).
-//! - **Events stay local.** Events a remote executor emits with `add_event`
-//!   are not sent back to the workflow.
+//! - **Events come back with the result, if asked for.** A worker started
+//!   with [`RemoteWorker::with_event_reporting`] sends what its executor
+//!   reports (`add_event`, the model and tool calls of an agent) with the
+//!   step's result: a listener of the workflow gets it then, not as it
+//!   happens, and only for a step that succeeded.
 //! - Workers of one group must host the same executors: any of them may
 //!   receive any task of the group.
 
@@ -436,6 +439,23 @@ fn valid_group(group: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
+/// Events sent back with one result, at most.
+const MAX_EVENT_BYTES: usize = 200_000;
+
+/// The size of values once written as JSON.
+mod erased {
+    pub(super) trait Sized {
+        /// Bytes of the value as JSON; counted as huge if it cannot be
+        /// written.
+        fn bytes(&self) -> usize;
+    }
+    impl<T: serde::Serialize> Sized for T {
+        fn bytes(&self) -> usize {
+            serde_json::to_vec(self).map_or(usize::MAX / 4, |bytes| bytes.len())
+        }
+    }
+}
+
 /// What the worker's executor produced.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct RemoteReply {
@@ -443,6 +463,9 @@ struct RemoteReply {
     messages: Vec<Value>,
     #[serde(default)]
     outputs: Vec<Value>,
+    /// What the executor reported while it ran on the worker.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    events: Vec<super::workflow::WorkflowStreamEvent>,
 }
 
 // ============================================================================
@@ -619,6 +642,10 @@ where
 
         let reply: RemoteReply = serde_json::from_value(reply)
             .map_err(|e| fatal(format!("unreadable remote result: {e}")))?;
+        // What happened on the worker, reported here now that it is known.
+        for event in reply.events {
+            super::events::emit(event);
+        }
         for message in reply.messages {
             let message = serde_json::from_value(message)
                 .map_err(|e| fatal(format!("remote message: {e}")))?;
@@ -649,6 +676,7 @@ where
     executor_timeout: Duration,
     heartbeat: Duration,
     max_result_bytes: usize,
+    report_events: bool,
 }
 
 impl<TMessage, TOutput> RemoteWorker<TMessage, TOutput>
@@ -666,6 +694,7 @@ where
             executor_timeout: Duration::from_secs(60),
             heartbeat: Duration::from_secs(5),
             max_result_bytes: 900_000,
+            report_events: false,
         }
     }
 
@@ -676,6 +705,19 @@ where
     #[must_use]
     pub const fn with_max_result_bytes(mut self, bytes: usize) -> Self {
         self.max_result_bytes = bytes;
+        self
+    }
+
+    /// Send back, with each result, what the executor reported while it
+    /// ran: its `add_event`s and the model and tool calls of its agents. A
+    /// listener of the workflow then sees them (see `docs/OBSERVABILITY.md`).
+    ///
+    /// Off by default: the events are stored with every result, whether or
+    /// not anyone listens, up to 200 kB each and within the room the result
+    /// leaves under [`with_max_result_bytes`](Self::with_max_result_bytes).
+    #[must_use]
+    pub const fn with_event_reporting(mut self, report: bool) -> Self {
+        self.report_events = report;
         self
     }
 
@@ -807,11 +849,24 @@ where
             .state_backend(self.state.clone())
             .build();
 
+            // The workflow that listens is in another process: what the
+            // executor reports is collected and sent back with its result,
+            // if this worker was asked to.
+            let (listener, mut reported) = tokio::sync::mpsc::unbounded_channel();
+            let step = super::events::Step {
+                executor_id: executor.id().clone(),
+                input_index: call.input_index,
+            };
             let result = {
-                let work = tokio::time::timeout(
-                    self.executor_timeout,
-                    executor.handle_dyn(call.input.clone(), &mut ctx),
-                );
+                let handled =
+                    super::events::in_step(step, executor.handle_dyn(call.input.clone(), &mut ctx));
+                let work = tokio::time::timeout(self.executor_timeout, async {
+                    if self.report_events {
+                        super::events::with_events(listener, handled).await
+                    } else {
+                        handled.await
+                    }
+                });
                 tokio::pin!(work);
                 // Starting at the first beat, not now: the immediate tick
                 // of a plain interval still goes through the timer, and
@@ -849,8 +904,41 @@ where
                         .map(serde_json::to_value)
                         .collect::<Result<Vec<_>, _>>()
                         .map_err(|e| format!("unserializable output: {e}"))?;
-                    let reply = serde_json::to_value(RemoteReply { messages, outputs })
-                        .map_err(|e| e.to_string())?;
+                    // Events are a courtesy: they only get the room the
+                    // result leaves, and never make it too large to report.
+                    // The first ones are kept.
+                    let mut events = Vec::new();
+                    if self.report_events {
+                        let size_of = |value: &dyn erased::Sized| value.bytes();
+                        let used = size_of(&messages) + size_of(&outputs) + size_of(claim.task());
+                        let room = self
+                            .max_result_bytes
+                            .saturating_sub(used)
+                            // What the reply and the record add around them.
+                            .saturating_sub(1024)
+                            .min(MAX_EVENT_BYTES);
+                        let custom = ctx.drain_events().into_iter().map(|event| {
+                            super::workflow::WorkflowStreamEvent::CustomEvent {
+                                executor_id: event.executor_id,
+                                event_type: event.event_type,
+                                data: event.data,
+                            }
+                        });
+                        let mut size = 0_usize;
+                        for event in std::iter::from_fn(|| reported.try_recv().ok()).chain(custom) {
+                            size = size.saturating_add(size_of(&event).saturating_add(1));
+                            if size > room {
+                                break;
+                            }
+                            events.push(event);
+                        }
+                    }
+                    let reply = serde_json::to_value(RemoteReply {
+                        messages,
+                        outputs,
+                        events,
+                    })
+                    .map_err(|e| e.to_string())?;
                     // The queue records the result next to the task.
                     let size = [serde_json::to_vec(&reply), serde_json::to_vec(claim.task())]
                         .iter()
