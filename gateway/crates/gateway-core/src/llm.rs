@@ -15,6 +15,16 @@ pub struct ChatCompletionRequest {
     pub stream: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream_options: Option<StreamOptions>,
+}
+
+/// Options for streamed completions.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StreamOptions {
+    /// Ask for a final chunk carrying the token usage of the whole stream.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include_usage: Option<bool>,
 }
 
 /// Chat message

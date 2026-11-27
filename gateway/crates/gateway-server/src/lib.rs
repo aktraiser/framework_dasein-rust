@@ -8,6 +8,7 @@
 //! - Admin dashboard
 
 pub mod api;
+pub mod client_addr;
 pub mod dashboard;
 pub mod middleware;
 pub mod state;

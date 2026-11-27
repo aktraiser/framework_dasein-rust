@@ -32,7 +32,7 @@ pub struct OpenAIProvider {
 impl OpenAIProvider {
     pub fn new(api_key: impl Into<String>) -> Self {
         Self {
-            client: Client::new(),
+            client: crate::http_client(),
             api_key: api_key.into(),
             api_base: OPENAI_API_BASE.to_string(),
         }
@@ -72,12 +72,11 @@ impl Provider for OpenAIProvider {
 
         let status = response.status();
         if !status.is_success() {
+            let retry_after_ms = crate::provider::retry_after_ms(&response);
             let error_text = response.text().await.unwrap_or_default();
 
             if status.as_u16() == 429 {
-                return Err(ProviderError::RateLimited {
-                    retry_after_ms: 1000,
-                });
+                return Err(ProviderError::RateLimited { retry_after_ms });
             }
             if status.as_u16() == 401 {
                 return Err(ProviderError::AuthFailed);
@@ -103,7 +102,8 @@ impl Provider for OpenAIProvider {
             .post(format!("{}/chat/completions", self.api_base))
             .bearer_auth(&self.api_key)
             .json(&request)
-            .timeout(std::time::Duration::from_secs(120))
+            // No overall deadline: the shared client cuts a stream only when
+            // it stays silent, not because the answer is long.
             .send()
             .await?;
         super::sse::openai_stream(response).await

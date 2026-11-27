@@ -96,6 +96,23 @@ pub async fn auth_middleware(
             ) || path == "/v1/sandboxes"
                 || path.starts_with("/v1/sandboxes/")
             {
+                // The key's own limits apply to the calls that cost money.
+                if matches!(path, "/v1/chat/completions" | "/v1/embeddings") {
+                    // Counted in the database: limits hold across restarts
+                    // and across processes sharing it. If the count cannot
+                    // be taken, the call is refused rather than let through.
+                    match storage
+                        .admit_request(&key.id, key.rate_limit_rpm, key.rate_limit_tpm)
+                        .await
+                    {
+                        Ok(Ok(())) => {}
+                        Ok(Err(wait)) => return Ok(rate_limited(wait)),
+                        Err(error) => {
+                            tracing::error!(%error, "Rate limit check failed");
+                            return Err(StatusCode::SERVICE_UNAVAILABLE);
+                        }
+                    }
+                }
                 request.extensions_mut().insert(Principal(key.id));
                 return Ok(next.run(request).await);
             }
@@ -112,4 +129,28 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
         return false;
     }
     a.iter().zip(b).fold(0u8, |diff, (x, y)| diff | (x ^ y)) == 0
+}
+
+/// 429 response telling the client when its window resets.
+fn rate_limited(wait: std::time::Duration) -> Response {
+    use axum::response::IntoResponse;
+    let seconds = wait.as_secs().max(1);
+    (
+        StatusCode::TOO_MANY_REQUESTS,
+        [(header::RETRY_AFTER, seconds.to_string())],
+        axum::Json(serde_json::json!({
+            "error": {
+                "message": format!("Rate limit exceeded for this API key. Retry in {seconds}s."),
+                "type": "rate_limit_error",
+            }
+        })),
+    )
+        .into_response()
+}
+
+impl Principal {
+    /// The API key to attribute usage to; `None` for the operator token.
+    pub fn api_key_id(&self) -> Option<&str> {
+        (self.0 != "operator").then_some(self.0.as_str())
+    }
 }

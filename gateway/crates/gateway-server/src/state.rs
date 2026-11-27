@@ -20,6 +20,9 @@ pub struct AppState {
     pub code_executor: Arc<CodeExecutor>,
     pub orchestrator: Option<Arc<FirecrackerOrchestrator>>,
     pub storage: Option<Arc<Storage>>,
+    pub login_throttle: Arc<crate::dashboard::auth::LoginThrottle>,
+    /// Reverse proxies whose `X-Forwarded-*` headers are believed.
+    pub trusted_proxies: Arc<Vec<crate::client_addr::Network>>,
 }
 
 impl AppState {
@@ -80,6 +83,10 @@ impl AppState {
             None
         };
 
+        let trusted_proxies = Arc::new(crate::client_addr::parse_networks(
+            &config.server.trusted_proxies,
+        ));
+
         Self {
             boxes: Arc::new(crate::boxes::Boxes::default()),
             operator_api_key: std::env::var("GATEWAY_API_KEY")
@@ -91,6 +98,8 @@ impl AppState {
             code_executor,
             orchestrator,
             storage: None,
+            login_throttle: Arc::default(),
+            trusted_proxies,
         }
     }
 

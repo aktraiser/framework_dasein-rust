@@ -30,6 +30,33 @@ pub enum ProviderError {
     Unavailable(String),
 }
 
+impl ProviderError {
+    /// Whether sending the same request again is both useful and safe: the
+    /// provider could not be reached, was overloaded or asked us to slow
+    /// down. A request it rejected (bad input, missing permission) will be
+    /// rejected again; one that timed out or broke after it was sent may
+    /// already have been processed and billed, so it is not replayed.
+    pub fn is_retriable(&self) -> bool {
+        match self {
+            Self::Http(error) => error.is_connect(),
+            Self::RateLimited { .. } => true,
+            Self::Api { status, .. } => *status >= 500,
+            Self::AuthFailed | Self::ModelNotSupported(_) | Self::Unavailable(_) => false,
+        }
+    }
+}
+
+/// Delay a provider asks for in its `Retry-After` header (in seconds), or one
+/// second when it gives none.
+pub(crate) fn retry_after_ms(response: &reqwest::Response) -> u64 {
+    response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .map_or(1000, |seconds| seconds.saturating_mul(1000))
+}
+
 pub type CompletionStream =
     std::pin::Pin<Box<dyn futures::Stream<Item = ProviderResult<String>> + Send>>;
 
@@ -118,5 +145,47 @@ impl ProviderRegistry {
 impl Default for ProviderRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn only_calls_that_never_reached_the_provider_are_replayed() {
+        // Nothing listens here: the request was never sent.
+        let refused = reqwest::Client::new()
+            .get("http://127.0.0.1:1/")
+            .send()
+            .await
+            .unwrap_err();
+        assert!(ProviderError::Http(refused).is_retriable());
+
+        // The provider received the request and is slow to answer: it may
+        // well be working on it (and billing it).
+        let server = MockServer::start().await;
+        Mock::given(wiremock::matchers::any())
+            .respond_with(ResponseTemplate::new(200).set_delay(std::time::Duration::from_secs(5)))
+            .mount(&server)
+            .await;
+        let timed_out = reqwest::Client::new()
+            .get(server.uri())
+            .timeout(std::time::Duration::from_millis(100))
+            .send()
+            .await
+            .unwrap_err();
+        assert!(timed_out.is_timeout());
+        assert!(!ProviderError::Http(timed_out).is_retriable());
+
+        assert!(ProviderError::RateLimited { retry_after_ms: 1 }.is_retriable());
+        let api = |status| ProviderError::Api {
+            status,
+            message: String::new(),
+        };
+        assert!(api(503).is_retriable());
+        assert!(!api(400).is_retriable());
+        assert!(!ProviderError::AuthFailed.is_retriable());
     }
 }

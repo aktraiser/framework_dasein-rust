@@ -3,6 +3,8 @@
 host = "127.0.0.1"
 port = 8080
 cors_origins = []
+# Reverse proxies whose X-Forwarded-For / X-Forwarded-Proto are believed.
+# trusted_proxies = ["10.0.0.0/8"]
 
 [llm.providers.openai]
 api_key = "${OPENAI_API_KEY}"
@@ -12,6 +14,10 @@ enabled = true
 [llm.models.gpt-4o-mini]
 provider = "openai"
 fallbacks = []
+# USD per 1,000 tokens, used for the cost shown in the usage log.
+# Take the values from your provider's price list.
+# input_cost_per_1k = 0.0
+# output_cost_per_1k = 0.0
 
 [sandbox]
 # Docker Python Boxes use DASEIN_BOX_IMAGE or python:3.12-alpine.

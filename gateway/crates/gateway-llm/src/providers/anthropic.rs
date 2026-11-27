@@ -32,7 +32,7 @@ pub struct AnthropicProvider {
 impl AnthropicProvider {
     pub fn new(api_key: impl Into<String>) -> Self {
         Self {
-            client: Client::new(),
+            client: crate::http_client(),
             api_key: api_key.into(),
             api_base: ANTHROPIC_API_BASE.to_string(),
         }
@@ -157,12 +157,11 @@ impl Provider for AnthropicProvider {
 
         let status = response.status();
         if !status.is_success() {
+            let retry_after_ms = crate::provider::retry_after_ms(&response);
             let error_text = response.text().await.unwrap_or_default();
 
             if status.as_u16() == 429 {
-                return Err(ProviderError::RateLimited {
-                    retry_after_ms: 1000,
-                });
+                return Err(ProviderError::RateLimited { retry_after_ms });
             }
             if status.as_u16() == 401 {
                 return Err(ProviderError::AuthFailed);
