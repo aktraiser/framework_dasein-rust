@@ -115,8 +115,8 @@ async fn unknown_tool_is_a_call_error() {
 
 #[tokio::test]
 async fn server_gets_configured_env_but_not_ours() {
-    // Present in this process, and it must not reach the server.
-    std::env::set_var("DASEIN_MCP_TEST_SECRET", "leaked");
+    // Cargo sets this for the test process; it must not reach the server.
+    assert!(std::env::var("CARGO_MANIFEST_DIR").is_ok());
     let pool = pool(server().env_var("GREETING", "bonjour")).await;
     let read = |name: &'static str| {
         let pool = &pool;
@@ -128,7 +128,8 @@ async fn server_gets_configured_env_but_not_ours() {
         }
     };
     assert_eq!(read("GREETING").await, "bonjour");
-    assert_eq!(read("DASEIN_MCP_TEST_SECRET").await, "<unset>");
+    assert_eq!(read("CARGO_MANIFEST_DIR").await, "<unset>");
+    assert_ne!(read("PATH").await, "<unset>");
 }
 
 #[tokio::test]
@@ -142,19 +143,48 @@ async fn slow_tool_times_out() {
 }
 
 #[tokio::test]
-async fn server_exit_fails_the_call_instead_of_hanging() {
+async fn server_that_stops_reading_cannot_hang_a_call() {
+    let pool = pool(server().timeout(500)).await;
+    // `slow` keeps the server busy for 5 s, during which it reads nothing.
+    let busy = pool.call_tool("fixture", "slow", json!({}));
+    // Far more than a pipe buffer holds: this write cannot complete.
+    let large = pool.call_tool("fixture", "echo", json!({ "text": "x".repeat(4 << 20) }));
+    let started = std::time::Instant::now();
+    let (busy, large) = tokio::join!(busy, large);
+    assert!(matches!(busy.unwrap_err(), MCPError::Timeout));
+    assert!(matches!(large.unwrap_err(), MCPError::Timeout));
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(3),
+        "a blocked write outlived the timeout: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn server_exit_fails_the_call_then_the_pool_restarts_it() {
     let pool = pool(server()).await;
+    // The call during which the server dies fails, and is not replayed.
     let error = pool
         .call_tool("fixture", "exit", json!({}))
         .await
         .unwrap_err();
     assert!(matches!(error, MCPError::TransportError(_)), "{error}");
-    // Later calls fail fast too.
+    // The next call gets a fresh server process.
+    let result = pool
+        .call_tool("fixture", "echo", json!({ "text": "back" }))
+        .await
+        .unwrap();
+    assert_eq!(result.text(), "back");
+}
+
+#[tokio::test]
+async fn rpc_error_keeps_the_server_details() {
+    let pool = pool(server()).await;
     let error = pool
-        .call_tool("fixture", "echo", json!({ "text": "x" }))
+        .call_tool("fixture", "invalid", json!({}))
         .await
         .unwrap_err();
-    assert!(matches!(error, MCPError::TransportError(_)), "{error}");
+    assert!(error.to_string().contains("libraryId"), "{error}");
 }
 
 #[tokio::test]

@@ -27,7 +27,11 @@ pub struct MCPServerConfig {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub headers: HashMap<String, String>,
 
-    /// Command to run (for stdio transport)
+    /// Command to run (for stdio transport).
+    ///
+    /// It is started directly, not through a shell. On Windows, script
+    /// launchers such as `npx` are `.cmd` files: use `cmd` with
+    /// `["/c", "npx", ...]` as arguments.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
 

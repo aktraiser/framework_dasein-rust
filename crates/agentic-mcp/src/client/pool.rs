@@ -136,6 +136,8 @@ struct ConnectedServer {
 pub struct MCPClientPool {
     servers: Arc<RwLock<HashMap<String, ConnectedServer>>>,
     failures: Arc<RwLock<HashMap<String, String>>>,
+    /// Serializes reconnections, so a dead server is restarted once.
+    reconnecting: tokio::sync::Mutex<()>,
     config: MCPConfig,
 }
 
@@ -155,6 +157,7 @@ impl MCPClientPool {
         let pool = Self {
             servers: Arc::new(RwLock::new(HashMap::new())),
             failures: Arc::new(RwLock::new(HashMap::new())),
+            reconnecting: tokio::sync::Mutex::new(()),
             config,
         };
         pool.connect_all().await;
@@ -230,9 +233,10 @@ impl MCPClientPool {
                 .and_then(Value::as_str)
                 .map(str::to_owned);
             if cursor.is_none() {
-                break;
+                return Ok(tools);
             }
         }
+        warn!("Tool list still paginating after {MAX_TOOL_PAGES} pages; later tools are ignored");
         Ok(tools)
     }
 
@@ -282,15 +286,22 @@ impl MCPClientPool {
         tool_name: &str,
         arguments: Value,
     ) -> Result<ToolResult, MCPError> {
-        // Clone the handle so the registry lock is not held during the call.
-        let connection = self
-            .servers
-            .read()
-            .await
-            .get(server_name)
-            .ok_or_else(|| MCPError::ServerNotFound(server_name.to_string()))?
-            .connection
-            .clone();
+        let mut connection = self.connection(server_name).await?;
+        if connection.is_closed() {
+            // The server process is gone. Start a new one before this call;
+            // a call that was in flight when it died is not replayed, since
+            // the tool may already have run.
+            let _guard = self.reconnecting.lock().await;
+            connection = self.connection(server_name).await?;
+            if connection.is_closed() {
+                let config = self
+                    .config
+                    .get(server_name)
+                    .ok_or_else(|| MCPError::ServerNotFound(server_name.to_string()))?;
+                self.connect_server(server_name, config).await?;
+                connection = self.connection(server_name).await?;
+            }
+        }
 
         let params = serde_json::json!({ "name": tool_name, "arguments": arguments });
         let result = connection
@@ -302,6 +313,17 @@ impl MCPClientPool {
             })?;
         serde_json::from_value(result)
             .map_err(|e| MCPError::SerializationError(format!("Failed to parse result: {e}")))
+    }
+
+    /// Clone a server's connection handle, so the registry lock is not held
+    /// while a call is in progress.
+    async fn connection(&self, server_name: &str) -> Result<Arc<Connection>, MCPError> {
+        self.servers
+            .read()
+            .await
+            .get(server_name)
+            .map(|server| server.connection.clone())
+            .ok_or_else(|| MCPError::ServerNotFound(server_name.to_string()))
     }
 
     /// Generate TypeScript files for all tools.
@@ -316,10 +338,22 @@ impl MCPClientPool {
     pub async fn generate_typescript(&self, output_dir: &std::path::Path) -> Result<(), MCPError> {
         let io_error =
             |what: &str, e: std::io::Error| MCPError::TransportError(format!("{what}: {e}"));
-        for (server_name, server) in self.servers.read().await.iter() {
-            let server_dir = output_dir
-                .join("servers")
-                .join(Self::safe_file_stem(server_name));
+        let servers = self.servers.read().await;
+        // Sorted, so that names reducing to the same directory are told apart
+        // the same way on every run.
+        let mut names: Vec<&String> = servers.keys().collect();
+        names.sort();
+        let mut used_dirs = std::collections::HashSet::new();
+        for server_name in names {
+            let server = &servers[server_name];
+            let base = Self::safe_file_stem(server_name);
+            let mut dir_name = base.clone();
+            let mut suffix = 2;
+            while !used_dirs.insert(dir_name.clone()) {
+                dir_name = format!("{base}_{suffix}");
+                suffix += 1;
+            }
+            let server_dir = output_dir.join("servers").join(dir_name);
             std::fs::create_dir_all(&server_dir)
                 .map_err(|e| io_error("Failed to create dir", e))?;
 

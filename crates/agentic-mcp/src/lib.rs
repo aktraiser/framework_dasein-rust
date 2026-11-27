@@ -46,7 +46,7 @@
 //! │              │                              │                   │
 //! │              │  ./servers/                  │                   │
 //! │              │    ├── context7/             │                   │
-//! │              │    │   └── queryDocs.ts      │                   │
+//! │              │    │   └── query_docs.ts      │                   │
 //! │              │    ├── github/               │                   │
 //! │              │    │   └── createPR.ts       │                   │
 //! │              │    └── ...                   │                   │
@@ -86,9 +86,9 @@
 //!
 //! // 3. Agent writes code that uses MCP tools
 //! let code = r#"
-//!     import { queryDocs } from './servers/context7';
+//!     import { query_docs } from './servers/context7';
 //!
-//!     const docs = await queryDocs({
+//!     const docs = await query_docs({
 //!         libraryId: '/vercel/next.js',
 //!         query: 'app router'
 //!     });

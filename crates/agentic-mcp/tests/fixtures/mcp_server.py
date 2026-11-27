@@ -83,6 +83,10 @@ def main():
             else:
                 result = {"tools": TOOLS[:3], "nextCursor": "page-2"}
         elif method == "tools/call":
+            if params.get("name") == "invalid":
+                error = {"code": -32602, "message": "Invalid params", "data": {"field": "libraryId"}}
+                send({"jsonrpc": "2.0", "id": request_id, "error": error})
+                continue
             result = call(params.get("name"), params.get("arguments") or {}, request_id)
             if result is None:
                 send({"jsonrpc": "2.0", "id": request_id, "error": {"code": -32602, "message": "Unknown tool"}})

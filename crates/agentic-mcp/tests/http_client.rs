@@ -95,8 +95,10 @@ async fn http_error_status_is_reported() {
 
     let pool = connect(&server).await;
     let error = pool.call_tool("mock", "echo", json!({})).await.unwrap_err();
-    assert!(matches!(error, MCPError::TransportError(_)), "{error}");
-    assert!(error.to_string().contains("503"), "{error}");
+    assert!(
+        matches!(error, MCPError::Http { status: 503, .. }),
+        "{error}"
+    );
     assert!(error.to_string().contains("upstream down"), "{error}");
 }
 
@@ -138,6 +140,83 @@ async fn endpoint_without_handshake_still_works() {
 
     let pool = connect(&server).await;
     assert_eq!(pool.list_servers().await, ["mock"]);
+}
+
+#[tokio::test]
+async fn endpoint_rejecting_the_handshake_with_plain_http_still_works() {
+    let server = MockServer::start().await;
+    // No JSON-RPC error body, just a status and some text.
+    Mock::given(method("POST"))
+        .and(body_partial_json(json!({ "method": "initialize" })))
+        .respond_with(ResponseTemplate::new(400).set_body_string("unsupported method"))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(body_partial_json(json!({ "method": "tools/list" })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(rpc(2, json!({ "tools": [] }))))
+        .mount(&server)
+        .await;
+
+    let pool = connect(&server).await;
+    assert!(pool.connection_errors().await.is_empty());
+    assert_eq!(pool.list_servers().await, ["mock"]);
+}
+
+#[tokio::test]
+async fn expired_session_is_renewed_and_the_call_retried() {
+    let server = MockServer::start().await;
+    // First handshake opens s-1, the second one (after expiry) opens s-2.
+    for (session, times) in [("s-1", 1), ("s-2", 1)] {
+        Mock::given(method("POST"))
+            .and(body_partial_json(json!({ "method": "initialize" })))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("Mcp-Session-Id", session)
+                    .set_body_json(json!({
+                        "jsonrpc": "2.0", "id": 0, "result": { "protocolVersion": "2025-06-18" }
+                    })),
+            )
+            .up_to_n_times(times)
+            .mount(&server)
+            .await;
+    }
+    Mock::given(method("POST"))
+        .and(body_partial_json(
+            json!({ "method": "notifications/initialized" }),
+        ))
+        .respond_with(ResponseTemplate::new(202))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(body_partial_json(json!({ "method": "tools/list" })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "jsonrpc": "2.0", "id": 0, "result": { "tools": [] }
+        })))
+        .mount(&server)
+        .await;
+    // The server forgot s-1; calls only work in s-2.
+    Mock::given(method("POST"))
+        .and(body_partial_json(json!({ "method": "tools/call" })))
+        .and(header("Mcp-Session-Id", "s-1"))
+        .respond_with(ResponseTemplate::new(404).set_body_string("unknown session"))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(body_partial_json(json!({ "method": "tools/call" })))
+        .and(header("Mcp-Session-Id", "s-2"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "jsonrpc": "2.0", "id": 0,
+            "result": { "content": [{ "type": "text", "text": "after renewal" }] }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let pool = connect(&server).await;
+    assert!(pool.connection_errors().await.is_empty());
+    let result = pool.call_tool("mock", "echo", json!({})).await.unwrap();
+    assert_eq!(result.text(), "after renewal");
 }
 
 #[tokio::test]

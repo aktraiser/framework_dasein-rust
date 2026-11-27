@@ -50,8 +50,38 @@ impl Connection {
         Ok(connection)
     }
 
+    /// Whether the connection can no longer carry requests and must be
+    /// replaced (a stdio server that exited or whose pipe is broken).
+    pub(super) fn is_closed(&self) -> bool {
+        match self {
+            Self::Http(_) => false,
+            Self::Stdio(stdio) => stdio.closed.load(Ordering::SeqCst),
+        }
+    }
+
     /// Send a request and return the `result` of its response.
     pub(super) async fn request(&self, method: &str, params: Value) -> Result<Value, MCPError> {
+        match self.request_once(method, params.clone()).await {
+            // The server no longer knows our session (it restarted or expired
+            // it). It did not process the request, so a new handshake and one
+            // retry are safe.
+            Err(MCPError::Http { status: 404, .. }) if self.forget_http_session() => {
+                self.initialize().await?;
+                self.request_once(method, params).await
+            }
+            other => other,
+        }
+    }
+
+    /// Drop the HTTP session, if there is one. Returns whether there was.
+    fn forget_http_session(&self) -> bool {
+        match self {
+            Self::Http(http) => std::mem::take(&mut *http.session()).id.is_some(),
+            Self::Stdio(_) => false,
+        }
+    }
+
+    async fn request_once(&self, method: &str, params: Value) -> Result<Value, MCPError> {
         let response = match self {
             Self::Http(http) => http.request(method, params).await?,
             Self::Stdio(stdio) => stdio.request(method, params).await?,
@@ -63,6 +93,7 @@ impl Connection {
                     .get("message")
                     .and_then(Value::as_str)
                     .map_or_else(|| error.to_string(), str::to_owned),
+                data: error.get("data").filter(|data| !data.is_null()).cloned(),
             });
         }
         response
@@ -88,7 +119,7 @@ impl Connection {
                 "version": env!("CARGO_PKG_VERSION"),
             },
         });
-        match self.request("initialize", params).await {
+        match self.request_once("initialize", params).await {
             Ok(result) => {
                 if let (Self::Http(http), Some(version)) =
                     (self, result.get("protocolVersion").and_then(Value::as_str))
@@ -96,12 +127,18 @@ impl Connection {
                     http.set_protocol_version(version);
                 }
             }
-            // Plain JSON-RPC endpoints that predate the handshake still work.
+            // Plain JSON-RPC endpoints that predate the handshake still work:
+            // they reject `initialize` as an unknown method, in JSON-RPC or
+            // with a bare HTTP status.
             Err(MCPError::Rpc { code, .. })
                 if code == METHOD_NOT_FOUND && matches!(self, Self::Http(_)) =>
             {
                 return Ok(());
             }
+            Err(MCPError::Http {
+                status: 400 | 404 | 405,
+                ..
+            }) => return Ok(()),
             Err(e) => return Err(e),
         }
         self.notify("notifications/initialized", json!({})).await
@@ -215,7 +252,7 @@ impl HttpConnection {
             .is_some_and(|v| v.starts_with("text/event-stream"));
 
         let mut body = Vec::new();
-        let mut scanned = 0;
+        let mut scan = SseScan::default();
         while let Some(chunk) = response.chunk().await.map_err(http_error)? {
             if body.len() + chunk.len() > MAX_MESSAGE_BYTES {
                 return Err(MCPError::TransportError(format!(
@@ -226,7 +263,7 @@ impl HttpConnection {
             // An SSE stream may stay open after our answer: return as soon as
             // the response to this request has arrived.
             if is_sse && status.is_success() {
-                if let Some(found) = take_sse_response(&body, &mut scanned, id) {
+                if let Some(found) = take_sse_response(&body, &mut scan, id) {
                     return Ok(found);
                 }
             }
@@ -238,18 +275,15 @@ impl HttpConnection {
                     return Ok(value);
                 }
             }
-            return Err(MCPError::TransportError(format!(
-                "HTTP {status}: {}",
-                String::from_utf8_lossy(&body)
-                    .chars()
-                    .take(200)
-                    .collect::<String>()
-            )));
+            return Err(MCPError::Http {
+                status: status.as_u16(),
+                body: String::from_utf8_lossy(&body).chars().take(200).collect(),
+            });
         }
         if is_sse {
             // Stream ended; the last event may lack its trailing blank line.
             body.extend_from_slice(b"\n\n");
-            return take_sse_response(&body, &mut scanned, id).ok_or_else(|| {
+            return take_sse_response(&body, &mut scan, id).ok_or_else(|| {
                 MCPError::TransportError("Event stream ended without a response".into())
             });
         }
@@ -266,22 +300,30 @@ fn http_error(error: reqwest::Error) -> MCPError {
     MCPError::TransportError(format!("HTTP request failed: {}", error.without_url()))
 }
 
-/// Scan complete SSE events in `body[*scanned..]` for the JSON-RPC response
-/// with the given ID. `scanned` advances past the events already examined.
-fn take_sse_response(body: &[u8], scanned: &mut usize, id: u64) -> Option<Value> {
+/// Progress of the SSE scan over a growing response body.
+#[derive(Default)]
+struct SseScan {
+    /// Start of the first event not yet examined.
+    consumed: usize,
+    /// How far the search for that event's end has already looked.
+    searched: usize,
+}
+
+/// Scan the complete SSE events of `body` not examined yet for the JSON-RPC
+/// response with the given ID. Each byte is searched once however the body is
+/// split across network chunks.
+fn take_sse_response(body: &[u8], scan: &mut SseScan, id: u64) -> Option<Value> {
     loop {
-        let rest = &body[*scanned..];
-        // Events end with a blank line; servers use either line ending.
-        let (end, separator) = [&b"\r\n\r\n"[..], b"\n\n"]
-            .into_iter()
-            .filter_map(|sep| {
-                rest.windows(sep.len())
-                    .position(|w| w == sep)
-                    .map(|at| (at, sep.len()))
-            })
-            .min()?;
-        let event = String::from_utf8_lossy(&rest[..end]);
-        *scanned += end + separator;
+        // A separator may straddle the point where the last search stopped.
+        let from = scan.searched.saturating_sub(3).max(scan.consumed);
+        let Some((at, separator)) = find_blank_line(&body[from..]) else {
+            scan.searched = body.len();
+            return None;
+        };
+        let end = from + at;
+        let event = String::from_utf8_lossy(&body[scan.consumed..end]);
+        scan.consumed = end + separator;
+        scan.searched = scan.consumed;
 
         let data = event
             .lines()
@@ -298,11 +340,32 @@ fn take_sse_response(body: &[u8], scanned: &mut usize, id: u64) -> Option<Value>
     }
 }
 
+/// Find the blank line ending an SSE event (`\n\n` or `\r\n\r\n`): where
+/// the event's text stops and how many bytes the terminator takes.
+fn find_blank_line(bytes: &[u8]) -> Option<(usize, usize)> {
+    let mut search = 0;
+    while let Some(offset) = bytes[search..].iter().position(|byte| *byte == b'\n') {
+        let newline = search + offset;
+        match &bytes[newline + 1..] {
+            [b'\n', ..] => return Some((newline, 2)),
+            [b'\r', b'\n', ..] => {
+                let start = newline - usize::from(newline > 0 && bytes[newline - 1] == b'\r');
+                return Some((start, newline + 3 - start));
+            }
+            _ => search = newline + 1,
+        }
+    }
+    None
+}
+
 // ============================================================================
 // STDIO
 // ============================================================================
 
 type Pending = Arc<std::sync::Mutex<HashMap<u64, oneshot::Sender<Value>>>>;
+
+/// Bound on best-effort writes (cancellations, replies to the server).
+const COURTESY_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Stdio transport: the server is a child process exchanging one JSON message
 /// per line on stdin/stdout.
@@ -377,10 +440,11 @@ impl StdioConnection {
     }
 
     async fn write(&self, message: &Value) -> Result<(), MCPError> {
-        write_message(&self.stdin, message).await
+        write_message(&self.stdin, &self.closed, message, self.timeout).await
     }
 
     async fn request(&self, method: &str, params: Value) -> Result<Value, MCPError> {
+        let started = std::time::Instant::now();
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (sender, receiver) = oneshot::channel();
         lock(&self.pending).insert(id, sender);
@@ -391,23 +455,33 @@ impl StdioConnection {
             lock(&self.pending).remove(&id);
             return Err(closed());
         }
+        // Writing counts against the timeout too: a server that stopped
+        // reading its input must not hang the caller.
         let message = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
         if let Err(e) = self.write(&message).await {
             lock(&self.pending).remove(&id);
             return Err(e);
         }
-        match tokio::time::timeout(self.timeout, receiver).await {
+        let remaining = self.timeout.saturating_sub(started.elapsed());
+        match tokio::time::timeout(remaining, receiver).await {
             Ok(Ok(response)) => Ok(response),
             Ok(Err(_)) => Err(closed()),
             Err(_) => {
                 lock(&self.pending).remove(&id);
-                // Best effort: let the server stop working on it.
-                let cancel = json!({
-                    "jsonrpc": "2.0",
-                    "method": "notifications/cancelled",
-                    "params": { "requestId": id, "reason": "timeout" },
-                });
-                let _ = self.write(&cancel).await;
+                // Best effort, and in the background: let the server stop
+                // working on it without making the caller wait for the pipe.
+                if !self.closed.load(Ordering::SeqCst) {
+                    let cancel = json!({
+                        "jsonrpc": "2.0",
+                        "method": "notifications/cancelled",
+                        "params": { "requestId": id, "reason": "timeout" },
+                    });
+                    let (stdin, closed) = (self.stdin.clone(), self.closed.clone());
+                    tokio::spawn(async move {
+                        let _ =
+                            write_message(&stdin, &closed, &cancel, COURTESY_WRITE_TIMEOUT).await;
+                    });
+                }
                 Err(MCPError::Timeout)
             }
         }
@@ -420,18 +494,33 @@ fn lock(pending: &Pending) -> std::sync::MutexGuard<'_, HashMap<u64, oneshot::Se
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-async fn write_message(stdin: &Mutex<ChildStdin>, message: &Value) -> Result<(), MCPError> {
+/// Write one message to the server within `limit`.
+///
+/// A write that fails or runs out of time may have left half a line in the
+/// pipe, after which nothing the server reads makes sense: the connection is
+/// marked closed so it gets replaced instead of reused.
+async fn write_message(
+    stdin: &Mutex<ChildStdin>,
+    closed: &AtomicBool,
+    message: &Value,
+    limit: Duration,
+) -> Result<(), MCPError> {
     // Compact JSON never contains a raw newline, so one line is one message.
     let mut line =
         serde_json::to_vec(message).map_err(|e| MCPError::SerializationError(e.to_string()))?;
     line.push(b'\n');
-    let mut stdin = stdin.lock().await;
     let sent = async {
+        let mut stdin = stdin.lock().await;
         stdin.write_all(&line).await?;
         stdin.flush().await
     };
-    sent.await
-        .map_err(|e| MCPError::TransportError(format!("Failed to write to MCP server: {e}")))
+    let result = match tokio::time::timeout(limit, sent).await {
+        Ok(Ok(())) => return Ok(()),
+        Ok(Err(e)) => MCPError::TransportError(format!("Failed to write to MCP server: {e}")),
+        Err(_) => MCPError::Timeout,
+    };
+    closed.store(true, Ordering::SeqCst);
+    Err(result)
 }
 
 /// Route every message the server prints until its stdout closes.
@@ -467,9 +556,12 @@ async fn read_messages<R: AsyncBufRead + Unpin>(
                         "error": { "code": METHOD_NOT_FOUND, "message": "Method not supported" },
                     })
                 };
-                if write_message(&stdin, &reply).await.is_err() {
-                    break;
-                }
+                // Answered from its own task: if reading waited on writing,
+                // a server blocked on its output could never drain its input.
+                let (stdin, closed) = (stdin.clone(), closed.clone());
+                tokio::spawn(async move {
+                    let _ = write_message(&stdin, &closed, &reply, COURTESY_WRITE_TIMEOUT).await;
+                });
             }
         } else if let Some(id) = message.get("id").and_then(Value::as_u64) {
             if let Some(waiting) = lock(&pending).remove(&id) {
@@ -513,17 +605,31 @@ async fn read_line_limited<R: AsyncBufRead + Unpin>(
     }
 }
 
-/// Variables a child process needs to start at all. Anything else the server
-/// requires must be listed in its `env` configuration.
+/// Variables a child process needs to start and to reach the network:
+/// location, locale, proxy and certificate settings. Anything else the server
+/// requires, credentials above all, must be listed in its `env` configuration.
 fn inherited_environment() -> impl Iterator<Item = (String, String)> {
-    const NAMES: &[&str] = if cfg!(windows) {
+    const COMMON: &[&str] = &[
+        "PATH",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "no_proxy",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "NODE_EXTRA_CA_CERTS",
+    ];
+    const PLATFORM: &[&str] = if cfg!(windows) {
         &[
             "APPDATA",
             "COMSPEC",
             "HOMEDRIVE",
             "HOMEPATH",
             "LOCALAPPDATA",
-            "PATH",
             "PATHEXT",
             "PROCESSOR_ARCHITECTURE",
             "SYSTEMDRIVE",
@@ -534,10 +640,20 @@ fn inherited_environment() -> impl Iterator<Item = (String, String)> {
         ]
     } else {
         &[
-            "HOME", "LANG", "LC_ALL", "LOGNAME", "PATH", "SHELL", "TERM", "TMPDIR", "USER",
+            "HOME",
+            "LANG",
+            "LC_ALL",
+            "LOGNAME",
+            "SHELL",
+            "TERM",
+            "TMPDIR",
+            "USER",
+            "XDG_CACHE_HOME",
+            "XDG_CONFIG_HOME",
+            "XDG_DATA_HOME",
         ]
     };
-    NAMES.iter().filter_map(|name| {
+    COMMON.iter().chain(PLATFORM).filter_map(|name| {
         std::env::var(name)
             .ok()
             .map(|value| ((*name).to_owned(), value))
@@ -556,18 +672,27 @@ mod tests {
             "event: message\r\ndata: {\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"ok\":true}}\r\n\r\n",
         )
         .as_bytes();
-        let mut scanned = 0;
-        let found = take_sse_response(body, &mut scanned, 7).unwrap();
+        let mut scan = SseScan::default();
+        let found = take_sse_response(body, &mut scan, 7).unwrap();
         assert_eq!(found["result"]["ok"], true);
-        assert_eq!(scanned, body.len());
+        assert_eq!(scan.consumed, body.len());
     }
 
     #[test]
-    fn sse_incomplete_event_waits_for_more() {
-        let mut scanned = 0;
-        let partial = b"data: {\"jsonrpc\":\"2.0\",\"id\":1,\"res";
-        assert!(take_sse_response(partial, &mut scanned, 1).is_none());
-        assert_eq!(scanned, 0, "an unfinished event must be re-read later");
+    fn sse_response_is_found_whatever_the_chunking() {
+        let body = concat!(
+            "data: {\"jsonrpc\":\"2.0\",\"method\":\"x\"}\r\n\r\n",
+            "data: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"h\u{e9}llo\"}\n\n",
+        )
+        .as_bytes();
+        // Feed the body one more byte at a time: the answer must appear
+        // exactly when its event is complete, never before, never missed.
+        let mut scan = SseScan::default();
+        for received in 0..body.len() {
+            assert!(take_sse_response(&body[..received], &mut scan, 1).is_none());
+        }
+        let found = take_sse_response(body, &mut scan, 1).unwrap();
+        assert_eq!(found["result"], "h\u{e9}llo");
     }
 
     #[tokio::test]
