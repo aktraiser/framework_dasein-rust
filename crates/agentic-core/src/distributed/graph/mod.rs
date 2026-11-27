@@ -53,13 +53,22 @@ mod executor;
 pub mod executors;
 #[cfg(test)]
 mod integration_test;
+mod nats_state;
 mod persistence;
+mod remote;
 mod superstep;
 mod types;
 mod workflow;
 
 // PR #1: Executor Trait
-pub use executor::{Executor, ExecutorContext, ExecutorKind, LogLevel, ValidationResult};
+pub use executor::{
+    Executor, ExecutorContext, ExecutorKind, Invocation, LogLevel, ValidationResult,
+};
+pub use nats_state::NatsStateBackend;
+pub use remote::{
+    InMemoryClaim, InMemoryTaskQueue, RemoteExecutor, RemoteWorker, TaskClaim, TaskQueue,
+    TaskSource,
+};
 pub use types::{
     EdgeEvent, ErrorCategory, ExecutorError, ExecutorEvent, ExecutorId, GraphError, GraphResult,
     TaskId, WorkflowId,

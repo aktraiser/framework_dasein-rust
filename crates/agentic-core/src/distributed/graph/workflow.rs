@@ -300,6 +300,11 @@ where
     /// Get the executor ID.
     fn id(&self) -> &ExecutorId;
 
+    /// Whether inputs of one superstep may be handled at the same time.
+    fn concurrent_inputs(&self) -> bool {
+        false
+    }
+
     /// Process serialized input and return serialized messages.
     async fn handle_dyn(
         &self,
@@ -387,6 +392,10 @@ where
 {
     fn id(&self) -> &ExecutorId {
         self.executor.id()
+    }
+
+    fn concurrent_inputs(&self) -> bool {
+        self.executor.concurrent_inputs()
     }
 
     async fn handle_dyn(
@@ -869,36 +878,78 @@ where
                 .registry
                 .get(&id)
                 .ok_or_else(|| GraphError::ExecutorNotFound(id.clone()))?;
+            // One input, with its retries.
+            let run = |index: usize, input: serde_json::Value| {
+                let (executor, id) = (executor.clone(), &id);
+                async move {
+                    let mut attempt = 0;
+                    loop {
+                        match self
+                            .execute_single(
+                                executor.clone(),
+                                input.clone(),
+                                superstep,
+                                index,
+                                task_id,
+                            )
+                            .await
+                        {
+                            Ok((messages, values)) => return Ok((messages, values, attempt)),
+                            Err(e) => {
+                                if !e.retriable || attempt >= self.config.max_retries_per_executor {
+                                    return Err(GraphError::ExecutorFailed(format!(
+                                        "Executor {id} failed after {} attempts: {e}",
+                                        attempt + 1
+                                    )));
+                                }
+                                tokio::time::sleep(self.config.calculate_backoff(attempt)).await;
+                                attempt += 1;
+                            }
+                        }
+                    }
+                }
+            };
+            // Inputs go one after the other unless the executor accepts them
+            // together; results are kept in input order either way.
+            let concurrent = executor.concurrent_inputs();
+            let at_once = if concurrent {
+                self.config.max_concurrent_executors.max(1)
+            } else {
+                1
+            };
+            let mut runs = futures::stream::iter(
+                inputs
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, input)| run(index, input)),
+            )
+            .buffered(at_once);
             let mut routed = Vec::new();
             let mut outputs = Vec::new();
             let mut retries = 0;
-            for input in inputs {
-                let mut attempt = 0;
-                loop {
-                    match self
-                        .execute_single(executor.clone(), input.clone(), superstep, task_id)
-                        .await
-                    {
-                        Ok((messages, values)) => {
-                            routed.extend(messages);
-                            outputs.extend(values);
+            let mut failure = None;
+            while let Some(result) = runs.next().await {
+                match result {
+                    Ok((messages, values, attempts)) => {
+                        routed.extend(messages);
+                        outputs.extend(values);
+                        retries += attempts;
+                    }
+                    Err(error) => {
+                        failure.get_or_insert(error);
+                        // Inputs already started are awaited, not dropped;
+                        // in sequence, none after the failed one is started.
+                        if !concurrent {
                             break;
-                        }
-                        Err(e) => {
-                            if !e.retriable || attempt >= self.config.max_retries_per_executor {
-                                return Err(GraphError::ExecutorFailed(format!(
-                                    "Executor {id} failed after {} attempts: {e}",
-                                    attempt + 1
-                                )));
-                            }
-                            tokio::time::sleep(self.config.calculate_backoff(attempt)).await;
-                            attempt += 1;
-                            retries += 1;
                         }
                     }
                 }
             }
-            Ok((id, routed, outputs, retries))
+            drop(runs);
+            match failure {
+                Some(error) => Err(error),
+                None => Ok((id, routed, outputs, retries)),
+            }
         });
         // Collect every branch before returning: no detached work on failure.
         let results: Vec<GraphResult<_>> = futures::stream::iter(jobs)
@@ -1093,7 +1144,7 @@ where
         let mut attempt = 0;
         let (messages, outputs) = loop {
             match self
-                .execute_single(executor.clone(), input.clone(), superstep, task_id)
+                .execute_single(executor.clone(), input.clone(), superstep, 0, task_id)
                 .await
             {
                 Ok(result) => break result,
@@ -1145,6 +1196,7 @@ where
         executor: Arc<dyn DynExecutor<TMessage, TOutput>>,
         input_json: serde_json::Value,
         superstep: u32,
+        input_index: usize,
         task_id: &TaskId,
     ) -> Result<(Vec<TMessage>, Vec<TOutput>), ExecutorError> {
         // Create context for this executor
@@ -1154,6 +1206,7 @@ where
             executor.id().clone(),
         )
         .superstep(superstep)
+        .input_index(input_index)
         .state_backend(self.state_backend.clone())
         .build();
 
