@@ -14,11 +14,11 @@
 //! │              ┌──────────────────────────────┐                   │
 //! │              │      Sandbox (Process)        │                   │
 //! │              │                              │                   │
-//! │              │  import { queryDocs } from   │                   │
+//! │              │  import { query_docs } from   │                   │
 //! │              │    './servers/context7';     │                   │
 //! │              │                              │                   │
 //! │              │  const docs = await          │                   │
-//! │              │    queryDocs({...});         │                   │
+//! │              │    query_docs({...});         │                   │
 //! │              │                              │                   │
 //! │              │  console.log(docs.summary);  │                   │
 //! │              └──────────────┬───────────────┘                   │
@@ -142,8 +142,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 I need to find documentation about Next.js App Router.
 
 Instead of calling MCP tools directly, write TypeScript code that:
-1. Imports the queryDocs function from './servers/context7'
-2. Calls queryDocs with libraryId '/vercel/next.js' and query 'app router server components'
+1. Imports the query_docs function from './servers/context7'
+2. Calls query_docs with libraryId '/vercel/next.js' and query 'app router server components'
 3. Logs a summary of the results
 
 Return ONLY the TypeScript code, no explanations.
@@ -152,8 +152,8 @@ Return ONLY the TypeScript code, no explanations.
     let system_prompt = r#"You are a developer writing TypeScript code.
 You have access to MCP tool functions that you can import and call.
 Available imports:
-- import { queryDocs } from './servers/context7'
-  - queryDocs({ libraryId: string, query: string }): Promise<{ summary: string, snippets: string[] }>
+- import { query_docs } from './servers/context7'
+  - query_docs({ libraryId: string, query: string }): Promise<{ summary: string, snippets: string[] }>
 
 Write clean TypeScript that imports these functions and calls them.
 Use console.log() to output results.
@@ -204,8 +204,8 @@ fn create_mock_workspace() -> Result<(), Box<dyn std::error::Error>> {
     let workspace = Path::new("/tmp/code-mode-workspace");
     std::fs::create_dir_all(workspace.join("servers/context7"))?;
 
-    // Create mock queryDocs.ts
-    let mock_tool = r#"// Mock Context7 queryDocs tool
+    // Create mock query_docs.ts
+    let mock_tool = r#"// Mock Context7 query_docs tool
 export interface QueryDocsInput {
   libraryId: string;
   query: string;
@@ -216,7 +216,7 @@ export interface QueryDocsResult {
   snippets: string[];
 }
 
-export async function queryDocs(input: QueryDocsInput): Promise<QueryDocsResult> {
+export async function query_docs(input: QueryDocsInput): Promise<QueryDocsResult> {
   console.log(`[Mock] Querying ${input.libraryId} for: ${input.query}`);
 
   // Simulated response
@@ -231,12 +231,12 @@ export async function queryDocs(input: QueryDocsInput): Promise<QueryDocsResult>
 }
 "#;
 
-    std::fs::write(workspace.join("servers/context7/queryDocs.ts"), mock_tool)?;
+    std::fs::write(workspace.join("servers/context7/query_docs.ts"), mock_tool)?;
 
     // Create index.ts
     std::fs::write(
         workspace.join("servers/context7/index.ts"),
-        "export { queryDocs } from './queryDocs';\n",
+        "export { query_docs } from './query_docs';\n",
     )?;
 
     println!("     Created mock workspace at {:?}", workspace);
@@ -253,7 +253,7 @@ async fn run_mock_demo() -> Result<(), Box<dyn std::error::Error>> {
 
     let task = r#"
 Write TypeScript code that:
-1. Imports queryDocs from './servers/context7'
+1. Imports query_docs from './servers/context7'
 2. Calls it to find Next.js App Router docs
 3. Logs the summary
 
@@ -261,8 +261,8 @@ Return ONLY TypeScript code.
 "#;
 
     let system_prompt = r#"You write TypeScript code.
-Available: import { queryDocs } from './servers/context7'
-queryDocs takes { libraryId: string, query: string }
+Available: import { query_docs } from './servers/context7'
+query_docs takes { libraryId: string, query: string }
 Use console.log for output.
 Return ONLY code."#;
 

@@ -64,6 +64,7 @@
 
 mod config;
 mod pool;
+mod transport;
 
 pub use config::{MCPConfig, MCPServerConfig, TransportType};
-pub use pool::{ContentItem, MCPClientPool, ToolDefinition, ToolResult};
+pub use pool::{ContentItem, MCPClientPool, ResourceContents, ToolDefinition, ToolResult};

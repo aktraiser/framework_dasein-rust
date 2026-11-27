@@ -198,7 +198,7 @@ fn create_mock_mcp_tools(workspace: &Path) -> Result<(), Box<dyn std::error::Err
     std::fs::create_dir_all(&server_dir)?;
 
     // Minimal mock - we provide better docs directly in query_documentation
-    std::fs::write(server_dir.join("queryDocs.ts"), "// mock")?;
+    std::fs::write(server_dir.join("query_docs.ts"), "// mock")?;
     std::fs::write(server_dir.join("index.ts"), "// mock\n")?;
 
     Ok(())
