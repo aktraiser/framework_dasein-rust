@@ -18,6 +18,7 @@ pub struct OllamaAdapter {
     base_url: String,
     model: String,
     temperature: f32,
+    max_retries: u32,
 }
 
 impl OllamaAdapter {
@@ -29,10 +30,11 @@ impl OllamaAdapter {
     #[must_use]
     pub fn new(model: impl Into<String>) -> Self {
         Self {
-            client: Client::new(),
+            client: crate::http::client(crate::http::DEFAULT_IDLE_TIMEOUT),
             base_url: "http://localhost:11434".to_string(),
             model: model.into(),
             temperature: 0.7,
+            max_retries: crate::http::DEFAULT_MAX_RETRIES,
         }
     }
 
@@ -47,6 +49,23 @@ impl OllamaAdapter {
     #[must_use]
     pub const fn with_temperature(mut self, temperature: f32) -> Self {
         self.temperature = temperature;
+        self
+    }
+
+    /// Set how long the server may stay silent before a call fails (default
+    /// 10 minutes). A non-streamed generation sends nothing until it is
+    /// complete, so slow hardware or long answers may need more.
+    #[must_use]
+    pub fn with_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.client = crate::http::client(timeout);
+        self
+    }
+
+    /// Set how many times a call is repeated when the server cannot be
+    /// reached, limits the rate or is overloaded.
+    #[must_use]
+    pub const fn with_max_retries(mut self, max_retries: u32) -> Self {
+        self.max_retries = max_retries;
         self
     }
 }
@@ -72,17 +91,46 @@ struct OllamaOptions {
 
 #[derive(Deserialize)]
 struct OllamaChatResponse {
+    #[serde(default)]
     message: OllamaResponseMessage,
+    #[serde(default)]
     done: bool,
+    /// Why generation stopped: "stop", "length"...
+    #[serde(default)]
+    done_reason: Option<String>,
+    /// Set instead of a message when the server fails mid-stream.
+    #[serde(default)]
+    error: Option<String>,
     #[serde(default)]
     prompt_eval_count: Option<u32>,
     #[serde(default)]
     eval_count: Option<u32>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 struct OllamaResponseMessage {
+    #[serde(default)]
     content: String,
+}
+
+impl OllamaChatResponse {
+    fn usage(&self) -> TokenUsage {
+        let prompt = self.prompt_eval_count.unwrap_or(0);
+        let completion = self.eval_count.unwrap_or(0);
+        TokenUsage {
+            details: None,
+            prompt,
+            completion,
+            total: prompt.saturating_add(completion),
+        }
+    }
+
+    fn finish_reason(&self) -> FinishReason {
+        match self.done_reason.as_deref() {
+            Some("length") => FinishReason::Length,
+            _ => FinishReason::Stop,
+        }
+    }
 }
 
 impl From<&LLMMessage> for OllamaMessage {
@@ -122,38 +170,22 @@ impl LLMAdapter for OllamaAdapter {
             },
         };
 
-        let response = self
-            .client
-            .post(format!("{}/api/chat", self.base_url))
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| LLMError::ConnectionError(e.to_string()))?;
-
-        if !response.status().is_success() {
-            return Err(LLMError::ApiError(format!(
-                "Ollama returned status {}",
-                response.status()
-            )));
-        }
+        let url = format!("{}/api/chat", self.base_url);
+        let response =
+            crate::http::send(|| self.client.post(&url).json(&request), self.max_retries).await?;
 
         let chat_response: OllamaChatResponse = response
             .json()
             .await
-            .map_err(|e| LLMError::InvalidResponse(e.to_string()))?;
-
-        let prompt_tokens = chat_response.prompt_eval_count.unwrap_or(0);
-        let completion_tokens = chat_response.eval_count.unwrap_or(0);
+            .map_err(|e| LLMError::InvalidResponse(e.without_url().to_string()))?;
+        if let Some(error) = &chat_response.error {
+            return Err(LLMError::ApiError(error.clone()));
+        }
 
         Ok(LLMResponse {
+            tokens_used: chat_response.usage(),
+            finish_reason: chat_response.finish_reason(),
             content: chat_response.message.content,
-            tokens_used: TokenUsage {
-                details: None,
-                prompt: prompt_tokens,
-                completion: completion_tokens,
-                total: prompt_tokens + completion_tokens,
-            },
-            finish_reason: FinishReason::Stop,
             model: self.model.clone(),
             tool_calls: vec![],
         })
@@ -174,49 +206,44 @@ impl LLMAdapter for OllamaAdapter {
 
         let client = self.client.clone();
         let url = format!("{}/api/chat", self.base_url);
+        let max_retries = self.max_retries;
 
         Box::pin(async_stream::try_stream! {
-            let response = client
-                .post(&url)
-                .json(&request)
-                .send()
-                .await
-                .map_err(|e| LLMError::ConnectionError(e.to_string()))?;
+            let mut response =
+                crate::http::send(|| client.post(&url).json(&request), max_retries).await?;
 
-            let mut stream = response.bytes_stream();
-
-            use futures::StreamExt;
-            while let Some(chunk) = stream.next().await {
-                let bytes = chunk.map_err(|e| LLMError::ConnectionError(e.to_string()))?;
-                let text = String::from_utf8_lossy(&bytes);
-
-                for line in text.lines() {
-                    if line.is_empty() {
-                        continue;
+            // One JSON object per line; a line may arrive in several pieces.
+            let mut lines = crate::http::LineBuffer::default();
+            let mut finished = false;
+            loop {
+                let chunk = response.chunk().await.map_err(crate::http::transport_error)?;
+                let ready = match &chunk {
+                    Some(bytes) => lines.push(bytes)?,
+                    None => lines.finish().into_iter().collect(),
+                };
+                for line in ready.iter().filter(|line| !line.trim().is_empty()) {
+                    let part: OllamaChatResponse = serde_json::from_str(line)
+                        .map_err(|e| LLMError::InvalidResponse(e.to_string()))?;
+                    if let Some(error) = &part.error {
+                        Err(LLMError::ApiError(error.clone()))?;
                     }
-
-                    if let Ok(response) = serde_json::from_str::<OllamaChatResponse>(line) {
-                        yield StreamChunk {
-                            content: response.message.content,
-                            done: response.done,
-                            tokens_used: if response.done {
-                                Some(TokenUsage { details: None,
-                                    prompt: response.prompt_eval_count.unwrap_or(0),
-                                    completion: response.eval_count.unwrap_or(0),
-                                    total: response.prompt_eval_count.unwrap_or(0)
-                                        + response.eval_count.unwrap_or(0),
-                                })
-                            } else {
-                                None
-                            },
-                            finish_reason: if response.done {
-                                Some(FinishReason::Stop)
-                            } else {
-                                None
-                            },
-                        };
-                    }
+                    finished |= part.done;
+                    yield StreamChunk {
+                        tokens_used: part.done.then(|| part.usage()),
+                        finish_reason: part.done.then(|| part.finish_reason()),
+                        done: part.done,
+                        content: part.message.content,
+                    };
                 }
+                if chunk.is_none() {
+                    break;
+                }
+            }
+            if !finished {
+                // Not a complete answer: do not let it pass for one.
+                Err(LLMError::ConnectionError(
+                    "stream ended before the model finished".into(),
+                ))?;
             }
         })
     }
@@ -227,7 +254,7 @@ impl LLMAdapter for OllamaAdapter {
             .get(format!("{}/api/tags", self.base_url))
             .send()
             .await
-            .map_err(|e| LLMError::ConnectionError(e.to_string()))?;
+            .map_err(crate::http::transport_error)?;
 
         Ok(response.status().is_success())
     }

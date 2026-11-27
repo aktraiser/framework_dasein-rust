@@ -30,6 +30,8 @@
 //! ```
 
 mod error;
+#[allow(dead_code)] // Which helpers are used depends on the enabled providers.
+mod http;
 mod traits;
 
 #[cfg(feature = "openai")]

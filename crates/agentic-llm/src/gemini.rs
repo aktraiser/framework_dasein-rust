@@ -15,16 +15,18 @@ use crate::{
     },
 };
 
-const GEMINI_API_BASE: &str = "https://generativelanguage.googleapis.com/v1beta/models";
+const GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com";
 const API_KEY_HEADER: &str = "x-goog-api-key";
 
 /// Google Gemini adapter.
 pub struct GeminiAdapter {
     client: Client,
     api_key: String,
+    base_url: String,
     model: String,
     temperature: f32,
     max_tokens: Option<u32>,
+    max_retries: u32,
 }
 
 impl GeminiAdapter {
@@ -37,11 +39,112 @@ impl GeminiAdapter {
     #[must_use]
     pub fn new(api_key: impl Into<String>, model: impl Into<String>) -> Self {
         Self {
-            client: Client::new(),
+            client: crate::http::client(crate::http::DEFAULT_IDLE_TIMEOUT),
             api_key: api_key.into(),
+            base_url: GEMINI_BASE_URL.to_string(),
             model: model.into(),
             temperature: 0.7,
             max_tokens: None,
+            max_retries: crate::http::DEFAULT_MAX_RETRIES,
+        }
+    }
+
+    /// Send requests to another server (a proxy, a gateway, a test server)
+    /// instead of `https://generativelanguage.googleapis.com`. The adapter
+    /// adds `/v1beta/models/{model}:{action}` to it.
+    #[must_use]
+    pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
+        self.base_url = base_url.into().trim_end_matches('/').to_string();
+        self
+    }
+
+    /// Set how long the API may stay silent before a call fails (default 10
+    /// minutes).
+    #[must_use]
+    pub fn with_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.client = crate::http::client(timeout);
+        self
+    }
+
+    /// Set how many times a call is repeated when the API cannot be reached,
+    /// limits the rate or is overloaded.
+    #[must_use]
+    pub const fn with_max_retries(mut self, max_retries: u32) -> Self {
+        self.max_retries = max_retries;
+        self
+    }
+
+    /// A POST to a model action with the authentication header.
+    fn post(&self, stream: bool) -> reqwest::RequestBuilder {
+        let request = self
+            .client
+            .post(self.api_url(stream))
+            .header(API_KEY_HEADER, &self.api_key);
+        // `alt=sse` frames the stream as server-sent events; the default is
+        // one large JSON array, which cannot be parsed reliably piece by piece.
+        if stream {
+            request.query(&[("alt", "sse")])
+        } else {
+            request
+        }
+    }
+
+    /// All system messages, in order, as the one instruction the API takes.
+    fn system_instruction(messages: &[LLMMessage]) -> Option<GeminiSystemInstruction> {
+        let parts: Vec<&str> = messages
+            .iter()
+            .filter(|m| m.role == Role::System)
+            .map(|m| m.content.as_str())
+            .collect();
+        (!parts.is_empty()).then(|| GeminiSystemInstruction {
+            parts: vec![GeminiPart {
+                text: parts.join("\n\n"),
+            }],
+        })
+    }
+
+    fn usage(usage: Option<&GeminiUsageMetadata>) -> TokenUsage {
+        usage.map_or(
+            TokenUsage {
+                details: None,
+                prompt: 0,
+                completion: 0,
+                total: 0,
+            },
+            |usage| TokenUsage {
+                details: serde_json::to_value(usage).ok(),
+                prompt: usage.prompt_token_count,
+                completion: usage.candidates_token_count,
+                total: usage.total_token_count,
+            },
+        )
+    }
+
+    /// `has_tool_calls`: Gemini reports `STOP` when it asks for a tool.
+    fn finish_reason(reason: Option<&str>, has_tool_calls: bool) -> FinishReason {
+        match reason {
+            Some("MAX_TOKENS") => FinishReason::Length,
+            // The answer was withheld or cut by a filter: not a normal end.
+            Some(
+                "SAFETY"
+                | "RECITATION"
+                | "BLOCKLIST"
+                | "PROHIBITED_CONTENT"
+                | "SPII"
+                | "MALFORMED_FUNCTION_CALL"
+                | "OTHER",
+            ) => FinishReason::Error,
+            _ if has_tool_calls => FinishReason::ToolCalls,
+            _ => FinishReason::Stop,
+        }
+    }
+
+    /// The error for a response without any candidate: usually the prompt
+    /// itself was blocked, and the API says why.
+    fn no_candidate(feedback: Option<&GeminiPromptFeedback>) -> LLMError {
+        match feedback.and_then(|feedback| feedback.block_reason.as_deref()) {
+            Some(reason) => LLMError::ApiError(format!("Prompt blocked by Gemini: {reason}")),
+            None => LLMError::EmptyResponse,
         }
     }
 
@@ -68,7 +171,7 @@ impl GeminiAdapter {
         };
         // The key travels in the `x-goog-api-key` header, never in the URL:
         // URLs end up in error messages, logs and proxies.
-        format!("{}/{}:{}", GEMINI_API_BASE, self.model, action)
+        format!("{}/v1beta/models/{}:{action}", self.base_url, self.model)
     }
 
     /// Preserve native tool calls and group the corresponding function responses.
@@ -146,15 +249,7 @@ impl GeminiAdapter {
     fn convert_messages(
         messages: &[LLMMessage],
     ) -> (Option<GeminiSystemInstruction>, Vec<GeminiContent>) {
-        let system_instruction =
-            messages
-                .iter()
-                .find(|m| m.role == Role::System)
-                .map(|m| GeminiSystemInstruction {
-                    parts: vec![GeminiPart {
-                        text: m.content.clone(),
-                    }],
-                });
+        let system_instruction = Self::system_instruction(messages);
 
         let contents = messages
             .iter()
@@ -190,15 +285,26 @@ struct GeminiSystemInstruction {
     parts: Vec<GeminiPart>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 struct GeminiContent {
+    #[serde(default)]
     role: String,
+    #[serde(default)]
     parts: Vec<GeminiPart>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct GeminiPart {
+    /// Absent on parts that are not text (function calls, thoughts...).
+    #[serde(default)]
     text: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GeminiPromptFeedback {
+    #[serde(default)]
+    block_reason: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -213,7 +319,11 @@ struct GeminiGenerationConfig {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GeminiResponse {
+    /// Absent when the prompt was blocked.
+    #[serde(default)]
     candidates: Vec<GeminiCandidate>,
+    #[serde(default)]
+    prompt_feedback: Option<GeminiPromptFeedback>,
     #[serde(default)]
     usage_metadata: Option<GeminiUsageMetadata>,
     #[serde(default)]
@@ -223,6 +333,8 @@ struct GeminiResponse {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GeminiCandidate {
+    /// Absent when the answer was withheld by a filter.
+    #[serde(default)]
     content: GeminiContent,
     #[serde(default)]
     finish_reason: Option<String>,
@@ -236,19 +348,13 @@ struct GeminiUsageMetadata {
     cached_content_token_count: Option<u32>,
     #[serde(default)]
     thoughts_token_count: Option<u32>,
+    // All default: intermediate stream chunks report only some of them.
+    #[serde(default)]
     prompt_token_count: u32,
+    #[serde(default)]
     candidates_token_count: u32,
+    #[serde(default)]
     total_token_count: u32,
-}
-
-#[derive(Deserialize)]
-struct GeminiError {
-    error: GeminiErrorDetail,
-}
-
-#[derive(Deserialize)]
-struct GeminiErrorDetail {
-    message: String,
 }
 
 // ============================================================================
@@ -297,18 +403,23 @@ struct GeminiFunctionCall {
     args: serde_json::Value,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 struct GeminiContentWithFunction {
+    #[serde(default)]
     role: String,
+    #[serde(default)]
     parts: Vec<GeminiPartWithFunction>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GeminiResponseWithFunction {
+    #[serde(default)]
     candidates: Vec<GeminiCandidateWithFunction>,
+    #[serde(default)]
+    prompt_feedback: Option<GeminiPromptFeedback>,
     #[serde(default)]
     usage_metadata: Option<GeminiUsageMetadata>,
     #[serde(default)]
@@ -318,6 +429,7 @@ struct GeminiResponseWithFunction {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GeminiCandidateWithFunction {
+    #[serde(default)]
     content: GeminiContentWithFunction,
     #[serde(default)]
     finish_reason: Option<String>,
@@ -348,23 +460,8 @@ impl LLMAdapter for GeminiAdapter {
             }),
         };
 
-        let response = self
-            .client
-            .post(self.api_url(false))
-            .header(API_KEY_HEADER, &self.api_key)
-            .header("content-type", "application/json")
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| LLMError::ConnectionError(e.without_url().to_string()))?;
-
-        if !response.status().is_success() {
-            let error: GeminiError = response
-                .json()
-                .await
-                .map_err(|e| LLMError::InvalidResponse(e.without_url().to_string()))?;
-            return Err(LLMError::ApiError(error.error.message));
-        }
+        let response =
+            crate::http::send(|| self.post(false).json(&request), self.max_retries).await?;
 
         let api_response: GeminiResponse = response
             .json()
@@ -374,37 +471,19 @@ impl LLMAdapter for GeminiAdapter {
         let candidate = api_response
             .candidates
             .first()
-            .ok_or(LLMError::EmptyResponse)?;
+            .ok_or_else(|| Self::no_candidate(api_response.prompt_feedback.as_ref()))?;
 
         let content = candidate
             .content
             .parts
             .iter()
-            .map(|p| p.text.clone())
+            .map(|p| p.text.as_str())
             .collect::<String>();
-
-        let finish_reason = match candidate.finish_reason.as_deref() {
-            Some("MAX_TOKENS") => FinishReason::Length,
-            _ => FinishReason::Stop,
-        };
-
-        let usage = api_response.usage_metadata.unwrap_or(GeminiUsageMetadata {
-            cached_content_token_count: None,
-            thoughts_token_count: None,
-            prompt_token_count: 0,
-            candidates_token_count: 0,
-            total_token_count: 0,
-        });
 
         Ok(LLMResponse {
             content,
-            tokens_used: TokenUsage {
-                details: serde_json::to_value(&usage).ok(),
-                prompt: usage.prompt_token_count,
-                completion: usage.candidates_token_count,
-                total: usage.total_token_count,
-            },
-            finish_reason,
+            tokens_used: Self::usage(api_response.usage_metadata.as_ref()),
+            finish_reason: Self::finish_reason(candidate.finish_reason.as_deref(), false),
             model: api_response
                 .model_version
                 .unwrap_or_else(|| self.model.clone()),
@@ -427,106 +506,76 @@ impl LLMAdapter for GeminiAdapter {
             }),
         };
 
-        let client = self.client.clone();
-        let url = self.api_url(true);
-        let api_key = self.api_key.clone();
-
         Box::pin(async_stream::try_stream! {
-            let response = client
-                .post(&url)
-                .header(API_KEY_HEADER, &api_key)
-                .header("content-type", "application/json")
-                .json(&request)
-                .send()
-                .await
-                .map_err(|e| LLMError::ConnectionError(e.without_url().to_string()))?;
+            let mut response =
+                crate::http::send(|| self.post(true).json(&request), self.max_retries).await?;
 
-            let status = response.status();
-            if !status.is_success() {
-                Err(LLMError::ApiError(format!("API returned status {status}")))?;
-            }
-
-            let mut stream = response.bytes_stream();
-            let mut buffer = String::new();
-
-            use futures::StreamExt;
-            while let Some(chunk) = stream.next().await {
-                let bytes = chunk.map_err(|e| LLMError::ConnectionError(e.without_url().to_string()))?;
-                buffer.push_str(&String::from_utf8_lossy(&bytes));
-
-                // Gemini streams JSON array elements
-                // Try to parse complete JSON objects from the buffer
-                while let Some(obj_start) = buffer.find('{') {
-                    // Find matching closing brace
-                    let mut depth = 0;
-                    let mut obj_end = None;
-
-                    for (i, c) in buffer[obj_start..].char_indices() {
-                        match c {
-                            '{' => depth += 1,
-                            '}' => {
-                                depth -= 1;
-                                if depth == 0 {
-                                    obj_end = Some(obj_start + i + 1);
-                                    break;
-                                }
-                            }
-                            _ => {}
-                        }
+            // One JSON response per server-sent event.
+            let mut events = crate::http::SseBuffer::default();
+            let mut finished = false;
+            // Usage may come with any chunk; the last one seen is the total.
+            let mut usage: Option<GeminiUsageMetadata> = None;
+            loop {
+                let chunk = response.chunk().await.map_err(crate::http::transport_error)?;
+                let ready = match &chunk {
+                    Some(bytes) => events.push(bytes)?,
+                    None => events.finish().into_iter().collect(),
+                };
+                for data in ready {
+                    let event: serde_json::Value = serde_json::from_str(&data)
+                        .map_err(|e| LLMError::InvalidResponse(e.to_string()))?;
+                    // The API can fail after the stream has started.
+                    if let Some(error) = event.get("error") {
+                        let status = error
+                            .get("code")
+                            .and_then(serde_json::Value::as_u64)
+                            .and_then(|code| u16::try_from(code).ok())
+                            .and_then(|code| reqwest::StatusCode::from_u16(code).ok())
+                            .unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
+                        Err(crate::http::status_error(status, &data))?;
                     }
-
-                    if let Some(end) = obj_end {
-                        let json_str = &buffer[obj_start..end];
-
-                        if let Ok(response) = serde_json::from_str::<GeminiResponse>(json_str) {
-                            if let Some(candidate) = response.candidates.first() {
-                                let content = candidate
-                                    .content
-                                    .parts
-                                    .iter()
-                                    .map(|p| p.text.clone())
-                                    .collect::<String>();
-
-                                let done = candidate.finish_reason.is_some();
-                                let finish_reason = candidate.finish_reason.as_ref().map(|r| {
-                                    match r.as_str() {
-                                        "MAX_TOKENS" => FinishReason::Length,
-                                        _ => FinishReason::Stop,
-                                    }
-                                });
-
-                                let tokens_used = if done {
-                                    response.usage_metadata.map(|u| TokenUsage { details: serde_json::to_value(&u).ok(),
-                                        prompt: u.prompt_token_count,
-                                        completion: u.candidates_token_count,
-                                        total: u.total_token_count,
-                                    })
-                                } else {
-                                    None
-                                };
-
-                                yield StreamChunk {
-                                    content,
-                                    done,
-                                    tokens_used,
-                                    finish_reason,
-                                };
-                            }
+                    let part: GeminiResponse = serde_json::from_value(event)
+                        .map_err(|e| LLMError::InvalidResponse(e.to_string()))?;
+                    usage = part.usage_metadata.or(usage);
+                    let Some(candidate) = part.candidates.first() else {
+                        if part.prompt_feedback.is_some() {
+                            Err(Self::no_candidate(part.prompt_feedback.as_ref()))?;
                         }
-
-                        buffer = buffer[end..].to_string();
-                    } else {
-                        // Incomplete JSON object, wait for more data
-                        break;
-                    }
+                        // A chunk with usage only: nothing to pass on.
+                        continue;
+                    };
+                    let done = candidate.finish_reason.is_some();
+                    finished |= done;
+                    yield StreamChunk {
+                        content: candidate
+                            .content
+                            .parts
+                            .iter()
+                            .map(|p| p.text.as_str())
+                            .collect(),
+                        done,
+                        tokens_used: done.then(|| Self::usage(usage.as_ref())),
+                        finish_reason: done.then(|| {
+                            Self::finish_reason(candidate.finish_reason.as_deref(), false)
+                        }),
+                    };
                 }
+                if chunk.is_none() {
+                    break;
+                }
+            }
+            if !finished {
+                // Not a complete answer: do not let it pass for one.
+                Err(LLMError::ConnectionError(
+                    "stream ended before the model finished".into(),
+                ))?;
             }
         })
     }
 
     async fn health_check(&self) -> Result<bool, LLMError> {
         // List models endpoint to check API connectivity
-        let url = format!("{}/{}", GEMINI_API_BASE, self.model);
+        let url = format!("{}/v1beta/models/{}", self.base_url, self.model);
 
         let response = self
             .client
@@ -534,7 +583,7 @@ impl LLMAdapter for GeminiAdapter {
             .header(API_KEY_HEADER, &self.api_key)
             .send()
             .await
-            .map_err(|e| LLMError::ConnectionError(e.without_url().to_string()))?;
+            .map_err(crate::http::transport_error)?;
 
         Ok(response.status().is_success())
     }
@@ -555,7 +604,7 @@ impl LLMAdapter for GeminiAdapter {
 
         debug!("Generating with {} tools", tools.len());
 
-        let (system_instruction, _) = Self::convert_messages(messages);
+        let system_instruction = Self::system_instruction(messages);
 
         let contents = Self::convert_tool_messages(messages)?;
 
@@ -581,23 +630,8 @@ impl LLMAdapter for GeminiAdapter {
             tools: Some(gemini_tools),
         };
 
-        let response = self
-            .client
-            .post(self.api_url(false))
-            .header(API_KEY_HEADER, &self.api_key)
-            .header("content-type", "application/json")
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| LLMError::ConnectionError(e.without_url().to_string()))?;
-
-        if !response.status().is_success() {
-            let error: GeminiError = response
-                .json()
-                .await
-                .map_err(|e| LLMError::InvalidResponse(e.without_url().to_string()))?;
-            return Err(LLMError::ApiError(error.error.message));
-        }
+        let response =
+            crate::http::send(|| self.post(false).json(&request), self.max_retries).await?;
 
         let api_response: GeminiResponseWithFunction = response
             .json()
@@ -607,7 +641,7 @@ impl LLMAdapter for GeminiAdapter {
         let candidate = api_response
             .candidates
             .first()
-            .ok_or(LLMError::EmptyResponse)?;
+            .ok_or_else(|| Self::no_candidate(api_response.prompt_feedback.as_ref()))?;
 
         // Extract text content and tool calls
         let mut content = String::new();
@@ -626,28 +660,13 @@ impl LLMAdapter for GeminiAdapter {
             }
         }
 
-        let finish_reason = match candidate.finish_reason.as_deref() {
-            Some("MAX_TOKENS") => FinishReason::Length,
-            _ => FinishReason::Stop,
-        };
-
-        let usage = api_response.usage_metadata.unwrap_or(GeminiUsageMetadata {
-            cached_content_token_count: None,
-            thoughts_token_count: None,
-            prompt_token_count: 0,
-            candidates_token_count: 0,
-            total_token_count: 0,
-        });
-
         Ok(LLMResponse {
             content,
-            tokens_used: TokenUsage {
-                details: serde_json::to_value(&usage).ok(),
-                prompt: usage.prompt_token_count,
-                completion: usage.candidates_token_count,
-                total: usage.total_token_count,
-            },
-            finish_reason,
+            tokens_used: Self::usage(api_response.usage_metadata.as_ref()),
+            finish_reason: Self::finish_reason(
+                candidate.finish_reason.as_deref(),
+                !tool_calls.is_empty(),
+            ),
             model: api_response
                 .model_version
                 .unwrap_or_else(|| self.model.clone()),

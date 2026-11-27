@@ -15,16 +15,18 @@ use crate::{
     },
 };
 
-const ANTHROPIC_API_URL: &str = "https://api.anthropic.com/v1/messages";
+const ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 
 /// Anthropic adapter for Claude models.
 pub struct AnthropicAdapter {
     client: Client,
     api_key: String,
+    base_url: String,
     model: String,
     temperature: f32,
     max_tokens: u32,
+    max_retries: u32,
 }
 
 impl AnthropicAdapter {
@@ -37,11 +39,78 @@ impl AnthropicAdapter {
     #[must_use]
     pub fn new(api_key: impl Into<String>, model: impl Into<String>) -> Self {
         Self {
-            client: Client::new(),
+            client: crate::http::client(crate::http::DEFAULT_IDLE_TIMEOUT),
             api_key: api_key.into(),
+            base_url: ANTHROPIC_BASE_URL.to_string(),
             model: model.into(),
             temperature: 0.7,
             max_tokens: 4096,
+            max_retries: crate::http::DEFAULT_MAX_RETRIES,
+        }
+    }
+
+    /// Send requests to another server (a proxy, a gateway, a test server)
+    /// instead of `https://api.anthropic.com`. The adapter adds
+    /// `/v1/messages` to it.
+    #[must_use]
+    pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
+        self.base_url = base_url.into().trim_end_matches('/').to_string();
+        self
+    }
+
+    /// Set how long the API may stay silent before a call fails (default 10
+    /// minutes).
+    #[must_use]
+    pub fn with_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.client = crate::http::client(timeout);
+        self
+    }
+
+    /// Set how many times a call is repeated when the API cannot be reached,
+    /// limits the rate or is overloaded.
+    #[must_use]
+    pub const fn with_max_retries(mut self, max_retries: u32) -> Self {
+        self.max_retries = max_retries;
+        self
+    }
+
+    /// A POST to the Messages endpoint with the authentication headers.
+    fn post(&self) -> reqwest::RequestBuilder {
+        self.client
+            .post(format!("{}/v1/messages", self.base_url))
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", ANTHROPIC_VERSION)
+    }
+
+    /// All system messages, in order. The API takes one system prompt.
+    fn system_prompt(messages: &[LLMMessage]) -> Option<String> {
+        let parts: Vec<&str> = messages
+            .iter()
+            .filter(|m| m.role == Role::System)
+            .map(|m| m.content.as_str())
+            .collect();
+        (!parts.is_empty()).then(|| parts.join("\n\n"))
+    }
+
+    fn usage(usage: &AnthropicUsage) -> TokenUsage {
+        // Cached tokens are input too; the API reports them separately.
+        let prompt = usage
+            .input_tokens
+            .saturating_add(usage.cache_read_input_tokens.unwrap_or(0))
+            .saturating_add(usage.cache_creation_input_tokens.unwrap_or(0));
+        TokenUsage {
+            details: serde_json::to_value(usage).ok(),
+            prompt,
+            completion: usage.output_tokens,
+            total: prompt.saturating_add(usage.output_tokens),
+        }
+    }
+
+    fn finish_reason(stop_reason: Option<&str>) -> FinishReason {
+        match stop_reason {
+            Some("max_tokens") => FinishReason::Length,
+            Some("tool_use") => FinishReason::ToolCalls,
+            _ => FinishReason::Stop,
         }
     }
 
@@ -61,18 +130,13 @@ impl AnthropicAdapter {
 
     /// Extract system message and convert remaining messages.
     fn prepare_messages(messages: &[LLMMessage]) -> (Option<String>, Vec<AnthropicMessage>) {
-        let system = messages
-            .iter()
-            .find(|m| m.role == Role::System)
-            .map(|m| m.content.clone());
-
-        let messages = messages
+        let api_messages = messages
             .iter()
             .filter(|m| m.role != Role::System)
             .map(AnthropicMessage::from)
             .collect();
 
-        (system, messages)
+        (Self::system_prompt(messages), api_messages)
     }
 }
 
@@ -105,16 +169,21 @@ struct AnthropicResponse {
 
 #[derive(Deserialize)]
 struct AnthropicContent {
+    /// Absent on blocks that are not text (thinking, tool use...).
+    #[serde(default)]
     text: String,
 }
 
-#[derive(Deserialize, serde::Serialize)]
+#[derive(Deserialize, serde::Serialize, Default, Clone)]
 struct AnthropicUsage {
     #[serde(default)]
     cache_read_input_tokens: Option<u32>,
     #[serde(default)]
     cache_creation_input_tokens: Option<u32>,
+    // Both default: stream events report input and output separately.
+    #[serde(default)]
     input_tokens: u32,
+    #[serde(default)]
     output_tokens: u32,
 }
 
@@ -124,10 +193,15 @@ struct AnthropicStreamEvent {
     event_type: String,
     #[serde(default)]
     delta: Option<AnthropicDelta>,
-    /// Message with usage info (reserved for future use)
+    /// `message_start`: the message so far, with the input token counts.
     #[serde(default)]
-    #[allow(dead_code)]
     message: Option<AnthropicStreamMessage>,
+    /// `message_delta`: the output token count.
+    #[serde(default)]
+    usage: Option<AnthropicUsage>,
+    /// `error`: the API failed after the stream had started.
+    #[serde(default)]
+    error: Option<AnthropicErrorDetail>,
 }
 
 #[derive(Deserialize, Default)]
@@ -139,15 +213,9 @@ struct AnthropicDelta {
 }
 
 #[derive(Deserialize)]
-#[allow(dead_code)]
 struct AnthropicStreamMessage {
-    /// Token usage (reserved for future use)
+    #[serde(default)]
     usage: AnthropicUsage,
-}
-
-#[derive(Deserialize)]
-struct AnthropicError {
-    error: AnthropicErrorDetail,
 }
 
 #[derive(Deserialize)]
@@ -208,6 +276,10 @@ enum AnthropicContentBlock {
         tool_use_id: String,
         content: String,
     },
+    /// A block type this adapter does not use (thinking, server tools...).
+    /// Without it one such block would make the whole response unreadable.
+    #[serde(other)]
+    Other,
 }
 
 #[derive(Deserialize)]
@@ -256,29 +328,12 @@ impl LLMAdapter for AnthropicAdapter {
             stream: None,
         };
 
-        let response = self
-            .client
-            .post(ANTHROPIC_API_URL)
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", ANTHROPIC_VERSION)
-            .header("content-type", "application/json")
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| LLMError::ConnectionError(e.to_string()))?;
-
-        if !response.status().is_success() {
-            let error: AnthropicError = response
-                .json()
-                .await
-                .map_err(|e| LLMError::InvalidResponse(e.to_string()))?;
-            return Err(LLMError::ApiError(error.error.message));
-        }
+        let response = crate::http::send(|| self.post().json(&request), self.max_retries).await?;
 
         let api_response: AnthropicResponse = response
             .json()
             .await
-            .map_err(|e| LLMError::InvalidResponse(e.to_string()))?;
+            .map_err(|e| LLMError::InvalidResponse(e.without_url().to_string()))?;
 
         let content = api_response
             .content
@@ -286,29 +341,10 @@ impl LLMAdapter for AnthropicAdapter {
             .map(|c| c.text)
             .collect::<String>();
 
-        let finish_reason = match api_response.stop_reason.as_deref() {
-            Some("max_tokens") => FinishReason::Length,
-            _ => FinishReason::Stop,
-        };
-
         Ok(LLMResponse {
             content,
-            tokens_used: TokenUsage {
-                details: serde_json::to_value(&api_response.usage).ok(),
-                prompt: api_response
-                    .usage
-                    .input_tokens
-                    .saturating_add(api_response.usage.cache_read_input_tokens.unwrap_or(0))
-                    .saturating_add(api_response.usage.cache_creation_input_tokens.unwrap_or(0)),
-                completion: api_response.usage.output_tokens,
-                total: api_response
-                    .usage
-                    .input_tokens
-                    .saturating_add(api_response.usage.cache_read_input_tokens.unwrap_or(0))
-                    .saturating_add(api_response.usage.cache_creation_input_tokens.unwrap_or(0))
-                    .saturating_add(api_response.usage.output_tokens),
-            },
-            finish_reason,
+            tokens_used: Self::usage(&api_response.usage),
+            finish_reason: Self::finish_reason(api_response.stop_reason.as_deref()),
             model: api_response.model,
             tool_calls: vec![],
         })
@@ -329,81 +365,81 @@ impl LLMAdapter for AnthropicAdapter {
             stream: Some(true),
         };
 
-        let client = self.client.clone();
-        let api_key = self.api_key.clone();
-
         Box::pin(async_stream::try_stream! {
-            let response = client
-                .post(ANTHROPIC_API_URL)
-                .header("x-api-key", &api_key)
-                .header("anthropic-version", ANTHROPIC_VERSION)
-                .header("content-type", "application/json")
-                .json(&request)
-                .send()
-                .await
-                .map_err(|e| LLMError::ConnectionError(e.to_string()))?;
+            let mut response =
+                crate::http::send(|| self.post().json(&request), self.max_retries).await?;
 
-            let status = response.status();
-            if !status.is_success() {
-                Err(LLMError::ApiError(format!("API returned status {status}")))?;
-            }
-
-            let mut stream = response.bytes_stream();
-            let mut buffer = String::new();
-
-            use futures::StreamExt;
-            while let Some(chunk) = stream.next().await {
-                let bytes = chunk.map_err(|e| LLMError::ConnectionError(e.to_string()))?;
-                buffer.push_str(&String::from_utf8_lossy(&bytes));
-
-                // Process complete SSE events
-                while let Some(event_end) = buffer.find("\n\n") {
-                    let event_data = buffer[..event_end].to_string();
-                    buffer = buffer[event_end + 2..].to_string();
-
-                    for line in event_data.lines() {
-                        if let Some(data) = line.strip_prefix("data: ") {
-                            if let Ok(event) = serde_json::from_str::<AnthropicStreamEvent>(data) {
-                                match event.event_type.as_str() {
-                                    "content_block_delta" => {
-                                        if let Some(delta) = event.delta {
-                                            yield StreamChunk {
-                                                content: delta.text,
-                                                done: false,
-                                                tokens_used: None,
-                                                finish_reason: None,
-                                            };
-                                        }
-                                    }
-                                    "message_delta" => {
-                                        if let Some(delta) = event.delta {
-                                            let finish_reason = match delta.stop_reason.as_deref() {
-                                                Some("end_turn") => Some(FinishReason::Stop),
-                                                Some("max_tokens") => Some(FinishReason::Length),
-                                                _ => None,
-                                            };
-                                            yield StreamChunk {
-                                                content: String::new(),
-                                                done: true,
-                                                tokens_used: None,
-                                                finish_reason,
-                                            };
-                                        }
-                                    }
-                                    "message_stop" => {
-                                        yield StreamChunk {
-                                            content: String::new(),
-                                            done: true,
-                                            tokens_used: None,
-                                            finish_reason: Some(FinishReason::Stop),
-                                        };
-                                    }
-                                    _ => {}
-                                }
+            let mut events = crate::http::SseBuffer::default();
+            // Input tokens come with `message_start`, output tokens and the
+            // stop reason with `message_delta`; the answer is over at
+            // `message_stop`, which gets the one final chunk.
+            let mut usage = AnthropicUsage::default();
+            let mut stop_reason: Option<String> = None;
+            let mut finished = false;
+            loop {
+                let chunk = response.chunk().await.map_err(crate::http::transport_error)?;
+                let ready = match &chunk {
+                    Some(bytes) => events.push(bytes)?,
+                    None => events.finish().into_iter().collect(),
+                };
+                for data in ready {
+                    let Ok(event) = serde_json::from_str::<AnthropicStreamEvent>(&data) else {
+                        debug!("Skipping a stream event this adapter cannot read");
+                        continue;
+                    };
+                    match event.event_type.as_str() {
+                        "message_start" => {
+                            if let Some(message) = event.message {
+                                usage = message.usage;
                             }
                         }
+                        "content_block_delta" => {
+                            let text = event.delta.map(|delta| delta.text).unwrap_or_default();
+                            // Thinking and tool-input deltas carry no text.
+                            if !text.is_empty() {
+                                yield StreamChunk {
+                                    content: text,
+                                    done: false,
+                                    tokens_used: None,
+                                    finish_reason: None,
+                                };
+                            }
+                        }
+                        "message_delta" => {
+                            if let Some(delta) = event.delta {
+                                stop_reason = delta.stop_reason.or(stop_reason);
+                            }
+                            if let Some(delta_usage) = event.usage {
+                                usage.output_tokens = delta_usage.output_tokens;
+                            }
+                        }
+                        "message_stop" => {
+                            finished = true;
+                            yield StreamChunk {
+                                content: String::new(),
+                                done: true,
+                                tokens_used: Some(Self::usage(&usage)),
+                                finish_reason: Some(Self::finish_reason(stop_reason.as_deref())),
+                            };
+                        }
+                        "error" => {
+                            let message = event
+                                .error
+                                .map_or_else(|| data.clone(), |error| error.message);
+                            Err(LLMError::ApiError(message))?;
+                        }
+                        _ => {}
                     }
                 }
+                if chunk.is_none() {
+                    break;
+                }
+            }
+            if !finished {
+                // Not a complete answer: do not let it pass for one.
+                Err(LLMError::ConnectionError(
+                    "stream ended before the model finished".into(),
+                ))?;
             }
         })
     }
@@ -423,15 +459,11 @@ impl LLMAdapter for AnthropicAdapter {
         };
 
         let response = self
-            .client
-            .post(ANTHROPIC_API_URL)
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", ANTHROPIC_VERSION)
-            .header("content-type", "application/json")
+            .post()
             .json(&request)
             .send()
             .await
-            .map_err(|e| LLMError::ConnectionError(e.to_string()))?;
+            .map_err(crate::http::transport_error)?;
 
         Ok(response.status().is_success())
     }
@@ -452,11 +484,7 @@ impl LLMAdapter for AnthropicAdapter {
 
         debug!("Generating with {} tools", tools.len());
 
-        // Extract system message
-        let system = messages
-            .iter()
-            .find(|m| m.role == Role::System)
-            .map(|m| m.content.clone());
+        let system = Self::system_prompt(messages);
 
         // Convert messages to Anthropic format with content blocks
         let api_messages: Vec<AnthropicMessageWithContent> = messages
@@ -522,29 +550,12 @@ impl LLMAdapter for AnthropicAdapter {
             tools: Some(anthropic_tools),
         };
 
-        let response = self
-            .client
-            .post(ANTHROPIC_API_URL)
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", ANTHROPIC_VERSION)
-            .header("content-type", "application/json")
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| LLMError::ConnectionError(e.to_string()))?;
-
-        if !response.status().is_success() {
-            let error_text = response.text().await.unwrap_or_default();
-            if let Ok(error) = serde_json::from_str::<AnthropicError>(&error_text) {
-                return Err(LLMError::ApiError(error.error.message));
-            }
-            return Err(LLMError::ApiError(error_text));
-        }
+        let response = crate::http::send(|| self.post().json(&request), self.max_retries).await?;
 
         let api_response: AnthropicResponseWithTools = response
             .json()
             .await
-            .map_err(|e| LLMError::InvalidResponse(e.to_string()))?;
+            .map_err(|e| LLMError::InvalidResponse(e.without_url().to_string()))?;
 
         // Extract text content and tool calls
         let mut content = String::new();
@@ -558,36 +569,15 @@ impl LLMAdapter for AnthropicAdapter {
                 AnthropicContentBlock::ToolUse { id, name, input } => {
                     tool_calls.push(ToolCall::new(id.clone(), name.clone(), input.clone()));
                 }
-                AnthropicContentBlock::ToolResult { .. } => {
-                    // Shouldn't appear in response
-                }
+                // Tool results are ours to send; other blocks are not used.
+                AnthropicContentBlock::ToolResult { .. } | AnthropicContentBlock::Other => {}
             }
         }
 
-        let finish_reason = match api_response.stop_reason.as_deref() {
-            Some("max_tokens") => FinishReason::Length,
-            Some("tool_use") => FinishReason::Stop, // Tool use is a valid stop
-            _ => FinishReason::Stop,
-        };
-
         Ok(LLMResponse {
             content,
-            tokens_used: TokenUsage {
-                details: serde_json::to_value(&api_response.usage).ok(),
-                prompt: api_response
-                    .usage
-                    .input_tokens
-                    .saturating_add(api_response.usage.cache_read_input_tokens.unwrap_or(0))
-                    .saturating_add(api_response.usage.cache_creation_input_tokens.unwrap_or(0)),
-                completion: api_response.usage.output_tokens,
-                total: api_response
-                    .usage
-                    .input_tokens
-                    .saturating_add(api_response.usage.cache_read_input_tokens.unwrap_or(0))
-                    .saturating_add(api_response.usage.cache_creation_input_tokens.unwrap_or(0))
-                    .saturating_add(api_response.usage.output_tokens),
-            },
-            finish_reason,
+            tokens_used: Self::usage(&api_response.usage),
+            finish_reason: Self::finish_reason(api_response.stop_reason.as_deref()),
             model: api_response.model,
             tool_calls,
         })
