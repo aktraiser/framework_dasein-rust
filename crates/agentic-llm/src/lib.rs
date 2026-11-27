@@ -30,6 +30,10 @@
 //! ```
 
 mod error;
+#[allow(dead_code)] // Used by the adapters without native tool history.
+mod history;
+#[allow(dead_code)] // Which helpers are used depends on the enabled providers.
+mod http;
 mod traits;
 
 #[cfg(feature = "openai")]
