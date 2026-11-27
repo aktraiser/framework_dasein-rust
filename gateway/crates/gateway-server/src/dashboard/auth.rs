@@ -81,12 +81,23 @@ pub fn verify_admin_password(password: &str, expected: &str) -> bool {
         == 0
 }
 
-/// Whether the session cookie is restricted to HTTPS. Off by default so the
-/// dashboard works on `http://localhost`; set `GATEWAY_COOKIE_SECURE=true`
-/// when the gateway is served over HTTPS.
-pub fn cookie_secure() -> bool {
-    std::env::var("GATEWAY_COOKIE_SECURE")
-        .is_ok_and(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes"))
+/// Whether the session cookie must be restricted to HTTPS.
+///
+/// Decided per login: the cookie is `Secure` when the browser is on an HTTPS
+/// page (its `Origin` says so) or a trusted proxy reports HTTPS, so it works
+/// on `http://localhost` and is protected everywhere else without any
+/// setting. `GATEWAY_COOKIE_SECURE=true` or `false` forces the choice.
+pub fn cookie_secure(headers: &axum::http::HeaderMap, forwarded_https: bool) -> bool {
+    match std::env::var("GATEWAY_COOKIE_SECURE").as_deref() {
+        Ok("1" | "true" | "TRUE" | "yes") => return true,
+        Ok("0" | "false" | "FALSE" | "no") => return false,
+        _ => {}
+    }
+    forwarded_https
+        || headers
+            .get("origin")
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|origin| origin.starts_with("https://"))
 }
 
 /// Limits failed dashboard logins per client address.

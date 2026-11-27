@@ -12,11 +12,17 @@ Set `GATEWAY_CONFIG=beta-local.toml` for localhost without an LLM provider. An e
 
 Dashboard and key protections:
 
-- The session cookie is `HttpOnly` and `SameSite=Strict`. Set `GATEWAY_COOKIE_SECURE=true` when the gateway is served over HTTPS, so the cookie is never sent in clear.
+- The session cookie is `HttpOnly` and `SameSite=Strict`. It is also `Secure` whenever the dashboard is used over HTTPS (the browser's `Origin` or a trusted proxy says so), and stays usable on `http://localhost`. `GATEWAY_COOKIE_SECURE=true` or `false` forces the choice.
 - State-changing dashboard requests coming from another site are refused.
-- After 5 failed logins from one address, logins from it are refused for 5 minutes. Behind a reverse proxy every user shares the proxy's address.
-- An API key's requests-per-minute and tokens-per-minute limits are enforced on `/v1/chat/completions` and `/v1/embeddings`; an exhausted key gets `429` with `Retry-After`. Counters live in memory, per gateway process. Tokens of streamed answers are not counted.
-- Each LLM call is written to the usage log with its key, provider, model and token counts. Cost is recorded as zero: there is no price table.
+- After 5 failed logins from one address, logins from it are refused for 5 minutes.
+- An API key's requests-per-minute and tokens-per-minute limits are enforced on `/v1/chat/completions` and `/v1/embeddings`; an exhausted key gets `429` with `Retry-After`. Counters are kept in the database per clock minute, so they survive a restart and are shared by every process using that database.
+- Each LLM call is written to the usage log with its key, provider, model, token counts and cost. Streamed answers are metered too: the gateway asks the provider for the usage of the stream.
+- Cost is computed from the prices configured for the model (`input_cost_per_1k` and `output_cost_per_1k`, in USD per 1,000 tokens). A model without configured prices is logged at zero.
+
+Network exposure:
+
+- The server listens on `127.0.0.1` unless `host` says otherwise. Set `host = "0.0.0.0"` (or `GATEWAY_HOST`) deliberately, for example inside a container.
+- Behind a reverse proxy, list the proxy's address or CIDR range in `trusted_proxies` (or `GATEWAY_TRUSTED_PROXIES`, comma-separated). Its `X-Forwarded-For` and `X-Forwarded-Proto` headers are then used for login throttling and the cookie's `Secure` flag. From any other address these headers are ignored.
 
 ```bash
 cargo run --locked -p gateway-server

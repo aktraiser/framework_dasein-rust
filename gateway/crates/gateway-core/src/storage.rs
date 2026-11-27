@@ -233,6 +233,22 @@ impl Storage {
         .execute(&self.pool)
         .await?;
 
+        // Per-key usage in each clock minute, for rate limits that survive a
+        // restart and are shared by every process using this database.
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS key_rate_windows (
+                api_key_id TEXT NOT NULL,
+                minute INTEGER NOT NULL,
+                requests INTEGER NOT NULL DEFAULT 0,
+                tokens INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (api_key_id, minute)
+            )
+            ",
+        )
+        .execute(&self.pool)
+        .await?;
+
         // Create indexes for better query performance
         sqlx::query(
             r"
@@ -777,6 +793,84 @@ impl Storage {
         self.get_sandbox_config(runtime).await
     }
 
+    // ==================== Rate limits ====================
+
+    /// Count one request for an API key, unless its limits for the current
+    /// clock minute are used up. A limit of `None`, zero or less means
+    /// unlimited. The check and the count are one atomic statement, so
+    /// concurrent requests cannot slip past the limit together.
+    ///
+    /// Tokens are only known once a response arrives: the request that
+    /// crosses the token limit goes through, the following ones wait.
+    ///
+    /// Returns `Err(wait)` with the time until the minute ends when refused.
+    ///
+    /// # Errors
+    /// Returns a storage error if the database query or connection fails.
+    pub async fn admit_request(
+        &self,
+        api_key_id: &str,
+        requests_per_minute: Option<i32>,
+        tokens_per_minute: Option<i32>,
+    ) -> StorageResult<Result<(), std::time::Duration>> {
+        let limit = |value: Option<i32>| value.filter(|v| *v > 0).map(i64::from);
+        let now = Utc::now().timestamp();
+        let admitted = sqlx::query(
+            r"
+            INSERT INTO key_rate_windows (api_key_id, minute, requests, tokens)
+            VALUES (?1, ?2, 1, 0)
+            ON CONFLICT (api_key_id, minute) DO UPDATE SET requests = requests + 1
+            WHERE (?3 IS NULL OR requests < ?3) AND (?4 IS NULL OR tokens < ?4)
+            ",
+        )
+        .bind(api_key_id)
+        .bind(now.div_euclid(60))
+        .bind(limit(requests_per_minute))
+        .bind(limit(tokens_per_minute))
+        .execute(&self.pool)
+        .await?
+        .rows_affected()
+            > 0;
+        Ok(if admitted {
+            Ok(())
+        } else {
+            let remaining = 60 - now.rem_euclid(60);
+            Err(std::time::Duration::from_secs(remaining.unsigned_abs()))
+        })
+    }
+
+    /// Add the tokens a request consumed to the key's current minute.
+    ///
+    /// # Errors
+    /// Returns a storage error if the database query or connection fails.
+    pub async fn record_tokens(&self, api_key_id: &str, tokens: u32) -> StorageResult<()> {
+        sqlx::query(
+            r"
+            INSERT INTO key_rate_windows (api_key_id, minute, requests, tokens)
+            VALUES (?1, ?2, 0, ?3)
+            ON CONFLICT (api_key_id, minute) DO UPDATE SET tokens = tokens + excluded.tokens
+            ",
+        )
+        .bind(api_key_id)
+        .bind(Utc::now().timestamp().div_euclid(60))
+        .bind(i64::from(tokens))
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Delete rate-limit counters of minutes that are over.
+    ///
+    /// # Errors
+    /// Returns a storage error if the database query or connection fails.
+    pub async fn cleanup_rate_windows(&self) -> StorageResult<u64> {
+        let result = sqlx::query("DELETE FROM key_rate_windows WHERE minute < ?")
+            .bind(Utc::now().timestamp().div_euclid(60))
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected())
+    }
+
     // ==================== Admin Sessions ====================
 
     /// Create a new admin session
@@ -1112,6 +1206,52 @@ mod tests {
 
         assert!(!updated.enabled);
         assert_eq!(updated.min_ready, 5);
+    }
+
+    #[tokio::test]
+    async fn rate_limits_are_counted_in_the_database() {
+        let storage = Storage::in_memory().await.unwrap();
+        // Tests may straddle a minute boundary; the limits are high enough
+        // for that not to matter except where a refusal is expected.
+        assert!(storage
+            .admit_request("a", Some(2), None)
+            .await
+            .unwrap()
+            .is_ok());
+        assert!(storage
+            .admit_request("a", Some(2), None)
+            .await
+            .unwrap()
+            .is_ok());
+        let third = storage.admit_request("a", Some(2), None).await.unwrap();
+        // Refused, unless the clock minute just rolled over.
+        if let Err(wait) = third {
+            assert!((1..=60).contains(&wait.as_secs()));
+        }
+        // Other keys and unlimited keys are unaffected.
+        assert!(storage
+            .admit_request("b", Some(2), None)
+            .await
+            .unwrap()
+            .is_ok());
+        for _ in 0..50 {
+            assert!(storage
+                .admit_request("c", None, Some(0))
+                .await
+                .unwrap()
+                .is_ok());
+        }
+        // Tokens count against the per-minute token limit.
+        storage.record_tokens("d", 150).await.unwrap();
+        let after_tokens = storage.admit_request("d", None, Some(100)).await.unwrap();
+        assert!(after_tokens.is_err() || Utc::now().timestamp().rem_euclid(60) == 0);
+        // Counters live in the database, not in the process.
+        let (requests, tokens): (i64, i64) =
+            sqlx::query_as("SELECT SUM(requests), SUM(tokens) FROM key_rate_windows")
+                .fetch_one(storage.pool())
+                .await
+                .unwrap();
+        assert!(requests >= 53 && tokens == 150, "{requests} {tokens}");
     }
 
     #[tokio::test]

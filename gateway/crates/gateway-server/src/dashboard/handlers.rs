@@ -33,12 +33,21 @@ pub async fn login_submit(
     State(state): State<AppState>,
     Extension(cookies): Extension<Cookies>,
     extensions: axum::http::Extensions,
+    headers: axum::http::HeaderMap,
     Form(form): Form<LoginForm>,
 ) -> Response {
-    // Failed logins are counted per client address.
-    let client = extensions
+    // Failed logins are counted per client address: the peer, or the address
+    // a trusted reverse proxy reports for it.
+    let peer = extensions
         .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
-        .map_or_else(|| "unknown".to_string(), |info| info.0.ip().to_string());
+        .map(|info| info.0.ip());
+    let client = peer.map_or_else(
+        || "unknown".to_string(),
+        |peer| crate::client_addr::client_ip(peer, &headers, &state.trusted_proxies).to_string(),
+    );
+    let forwarded_https = peer.is_some_and(|peer| {
+        crate::client_addr::forwarded_https(peer, &headers, &state.trusted_proxies)
+    });
     if state.login_throttle.is_blocked(&client) {
         tracing::warn!(%client, "Dashboard login refused: too many failed attempts");
         return (
@@ -76,7 +85,7 @@ pub async fn login_submit(
                     .http_only(true)
                     // Never sent on requests started by another site.
                     .same_site(tower_cookies::cookie::SameSite::Strict)
-                    .secure(cookie_secure())
+                    .secure(cookie_secure(&headers, forwarded_https))
                     .build();
                 cookies.add(cookie);
                 state.login_throttle.record_success(&client);

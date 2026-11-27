@@ -98,12 +98,19 @@ pub async fn auth_middleware(
             {
                 // The key's own limits apply to the calls that cost money.
                 if matches!(path, "/v1/chat/completions" | "/v1/embeddings") {
-                    if let Err(wait) =
-                        state
-                            .key_limits
-                            .admit(&key.id, key.rate_limit_rpm, key.rate_limit_tpm)
+                    // Counted in the database: limits hold across restarts
+                    // and across processes sharing it. If the count cannot
+                    // be taken, the call is refused rather than let through.
+                    match storage
+                        .admit_request(&key.id, key.rate_limit_rpm, key.rate_limit_tpm)
+                        .await
                     {
-                        return Ok(rate_limited(wait));
+                        Ok(Ok(())) => {}
+                        Ok(Err(wait)) => return Ok(rate_limited(wait)),
+                        Err(error) => {
+                            tracing::error!(%error, "Rate limit check failed");
+                            return Err(StatusCode::SERVICE_UNAVAILABLE);
+                        }
                     }
                 }
                 request.extensions_mut().insert(Principal(key.id));

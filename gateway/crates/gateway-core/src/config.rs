@@ -22,10 +22,17 @@ pub struct ServerConfig {
     pub port: u16,
     #[serde(default)]
     pub cors_origins: Vec<String>,
+    /// Addresses or CIDR ranges of reverse proxies in front of the gateway.
+    /// Only their `X-Forwarded-For` and `X-Forwarded-Proto` headers are
+    /// believed; from anyone else these headers are ignored.
+    #[serde(default)]
+    pub trusted_proxies: Vec<String>,
 }
 
+/// Loopback unless the configuration says otherwise: exposing the gateway to
+/// the network is a decision, not a default.
 fn default_host() -> String {
-    "0.0.0.0".to_string()
+    "127.0.0.1".to_string()
 }
 
 fn default_port() -> u16 {
@@ -119,4 +126,22 @@ pub struct RateLimitConfig {
     pub tokens_per_minute: Option<u32>,
     #[serde(default)]
     pub tokens_per_day: Option<u32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn server_listens_on_loopback_unless_told_otherwise() {
+        let config: GatewayConfig =
+            serde_json::from_value(serde_json::json!({ "server": {}, "llm": {}, "sandbox": {} }))
+                .unwrap();
+        assert_eq!(config.server.host, "127.0.0.1");
+        assert_eq!(config.server.trusted_proxies, Vec::<String>::new());
+
+        let exposed: ServerConfig =
+            serde_json::from_value(serde_json::json!({ "host": "0.0.0.0" })).unwrap();
+        assert_eq!(exposed.host, "0.0.0.0");
+    }
 }

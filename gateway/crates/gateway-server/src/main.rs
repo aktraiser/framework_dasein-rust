@@ -88,7 +88,8 @@ async fn main() -> Result<()> {
         info!("Admin dashboard available at /admin");
     }
 
-    // Expired dashboard sessions are refused already; this removes their rows.
+    // Expired sessions and past rate-limit minutes are ignored already; this
+    // removes their rows.
     if let Some(storage) = state.storage.clone() {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
@@ -96,6 +97,9 @@ async fn main() -> Result<()> {
                 interval.tick().await;
                 if let Err(error) = storage.cleanup_expired_sessions().await {
                     tracing::debug!(%error, "Session cleanup failed");
+                }
+                if let Err(error) = storage.cleanup_rate_windows().await {
+                    tracing::debug!(%error, "Rate window cleanup failed");
                 }
             }
         });
@@ -161,6 +165,14 @@ fn load_config() -> Result<GatewayConfig> {
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(8080),
             cors_origins: vec![],
+            trusted_proxies: std::env::var("GATEWAY_TRUSTED_PROXIES")
+                .map(|list| {
+                    list.split(',')
+                        .map(|entry| entry.trim().to_string())
+                        .filter(|entry| !entry.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default(),
         },
         llm: gateway_core::config::LLMConfig {
             providers: Default::default(),
