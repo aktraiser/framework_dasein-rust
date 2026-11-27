@@ -8,7 +8,9 @@ use axum::{
 use serde::Deserialize;
 use tower_cookies::{Cookie, Cookies};
 
-use super::auth::{cookie_secure, get_admin_password, verify_admin_password, SESSION_COOKIE};
+use super::auth::{
+    cookie_secure, get_admin_password, verify_admin_password, LoginThrottle, SESSION_COOKIE,
+};
 use super::templates::{
     ApiKeysTemplate, DashboardTemplate, LayoutData, LoginTemplate, PoolStats, ProvidersTemplate,
     SandboxesTemplate, UsageTemplate,
@@ -54,7 +56,22 @@ pub async fn login_submit(
     let forwarded_https = peer.is_some_and(|peer| {
         crate::client_addr::forwarded_https(peer, &headers, &state.trusted_proxies)
     });
-    if state.login_throttle.is_blocked(&client) {
+    // Counted in the database when there is one, so that gateway processes
+    // sharing it share the limit; in this process otherwise. A database that
+    // cannot be read refuses the login rather than lifting the limit.
+    let blocked = match &state.storage {
+        Some(storage) => storage
+            .login_blocked(
+                &client,
+                LoginThrottle::MAX_FAILURES,
+                LoginThrottle::MAX_TOTAL_FAILURES,
+                LoginThrottle::WINDOW_SECONDS,
+            )
+            .await
+            .unwrap_or(true),
+        None => state.login_throttle.is_blocked(&client),
+    };
+    if blocked {
         tracing::warn!(%client, "Dashboard login refused: too many failed attempts");
         return (
             axum::http::StatusCode::TOO_MANY_REQUESTS,
@@ -75,7 +92,21 @@ pub async fn login_submit(
 
     // Verify password
     if !verify_admin_password(&form.password, &expected_password) {
-        state.login_throttle.record_failure(&client);
+        match &state.storage {
+            Some(storage) => {
+                if let Err(error) = storage
+                    .record_login_failure(
+                        &client,
+                        LoginThrottle::WINDOW_SECONDS,
+                        LoginThrottle::MAX_CLIENTS,
+                    )
+                    .await
+                {
+                    tracing::warn!(%error, "Could not count a failed dashboard login");
+                }
+            }
+            None => state.login_throttle.record_failure(&client),
+        }
         return LoginTemplate {
             error: Some("Invalid password".to_string()),
         }
@@ -94,7 +125,9 @@ pub async fn login_submit(
                     .secure(cookie_secure(&headers, forwarded_https))
                     .build();
                 cookies.add(cookie);
-                state.login_throttle.record_success(&client);
+                if let Err(error) = storage.clear_login_failures(&client).await {
+                    tracing::warn!(%error, "Could not clear failed dashboard logins");
+                }
                 return Redirect::to("/admin").into_response();
             }
             Err(e) => {

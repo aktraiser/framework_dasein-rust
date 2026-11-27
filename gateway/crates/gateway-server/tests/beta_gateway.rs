@@ -180,7 +180,7 @@ async fn boxes_enforce_ownership_recover_metadata_and_isolate_files() {
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
     // Simulate a new process: a fresh manager loads persisted ownership/policy.
-    state.boxes = Arc::new(gateway_server::boxes::Boxes::default());
+    state.boxes = Arc::new(gateway_server::boxes::Boxes);
     let app = create_router(state);
     for code in [
         "open('/workspace/secret','w').write('alice'); print(input())",
@@ -324,4 +324,106 @@ async fn rust_sdk_client_executes_and_cleans_up_gateway_box() {
     sandbox.cleanup().await.unwrap();
     assert!(sandbox.session_id().await.is_none());
     server.abort();
+}
+
+/// Two gateways on one database file, as two processes are: what one does
+/// to a box, the other sees.
+#[tokio::test]
+#[ignore = "Requires Docker and python:3.12-alpine"]
+async fn two_gateways_on_one_database_agree_about_a_box() {
+    let path = std::env::temp_dir().join(format!("gateway-{}.db", uuid::Uuid::new_v4().simple()));
+    let url = format!("sqlite:{}?mode=rwc", path.display());
+    let first = Storage::new(&url).await.unwrap();
+    let second = Storage::new(&url).await.unwrap();
+    let (_, key) = first.create_api_key("owner", None, None).await.unwrap();
+    let gateway = |storage: Storage| {
+        create_router(AppState::new(config("http://127.0.0.1:1")).with_storage(storage))
+    };
+    let (one, two) = (gateway(first.clone()), gateway(second));
+
+    // Created through one, executed through the other.
+    let response = one
+        .clone()
+        .oneshot(request(
+            "POST",
+            "/v1/sandboxes",
+            &key,
+            json!({"runtime":"python"}),
+        ))
+        .await
+        .unwrap();
+    let value = body(response).await;
+    let uri = format!("/v1/sandboxes/{}", value["sandbox_id"].as_str().unwrap());
+    let response = two
+        .clone()
+        .oneshot(request(
+            "POST",
+            &format!("{uri}/execute"),
+            &key,
+            json!({"code":"print(6 * 7)"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(body(response).await["stdout"], "42\n");
+
+    // A long execution through the first gateway.
+    let task = tokio::spawn(one.clone().oneshot(request(
+        "POST",
+        &format!("{uri}/execute"),
+        &key,
+        json!({"code":"import time; time.sleep(25)"}),
+    )));
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        // The second gateway sees it running.
+        let response = two
+            .clone()
+            .oneshot(request("GET", &uri, &key, json!({})))
+            .await
+            .unwrap();
+        if body(response).await["status"] == "running" {
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    // And refuses a second execution in the same box.
+    assert_eq!(
+        two.clone()
+            .oneshot(request(
+                "POST",
+                &format!("{uri}/execute"),
+                &key,
+                json!({"code":"print(1)"})
+            ))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    // Deleted through the second gateway: the execution in the first stops.
+    assert_eq!(
+        two.clone()
+            .oneshot(request("DELETE", &uri, &key, json!({})))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let response = tokio::time::timeout(Duration::from_secs(5), task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    // The claim was given back: nothing is recorded as running.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let claims: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM box_runs")
+        .fetch_one(first.pool())
+        .await
+        .unwrap();
+    assert_eq!(claims, 0);
+    for suffix in ["", "-wal", "-shm"] {
+        let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+    }
 }
