@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Graph: `add_fan_in_edge_with` merges joined messages so the target runs once.
 - Gateway: per-key request and token limits are enforced; usage, cost and streamed tokens are logged; `trusted_proxies`.
 - LLM adapters: `with_base_url`, `with_timeout`, `with_max_retries` on Anthropic, Gemini and Ollama.
+- Gateway: several processes can serve from one SQLite file on a machine. Box executions, the box limit and failed dashboard logins are coordinated through the database, which is opened in WAL mode.
 
 ### Changed
 - A fan-in edge now waits for its sources and delivers their messages together.

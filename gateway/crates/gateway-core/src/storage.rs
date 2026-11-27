@@ -13,7 +13,10 @@ use argon2::{
 use chrono::{DateTime, Utc};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use sqlx::{sqlite::SqlitePoolOptions, FromRow, SqlitePool};
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
+    FromRow, SqlitePool,
+};
 use thiserror::Error;
 
 /// Storage error types
@@ -30,6 +33,19 @@ pub enum StorageError {
 }
 
 pub type StorageResult<T> = Result<T, StorageError>;
+
+/// What became of a request to execute in a box.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoxClaim {
+    /// The caller may execute, and must release the claim afterwards.
+    Claimed,
+    /// The box is already executing.
+    Busy,
+    /// As many boxes as allowed are executing.
+    Full,
+    /// No such box for this owner.
+    Missing,
+}
 
 /// API Key record
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -114,9 +130,39 @@ impl Storage {
     /// # Errors
     /// Returns an error if the database connection or schema migrations fail.
     pub async fn new(database_url: &str) -> StorageResult<Self> {
+        // Gateway processes started together meet here: switching a new
+        // file to WAL and creating the schema need the database to
+        // themselves for a moment, and the loser is told "locked" at once.
+        let mut pause = std::time::Duration::from_millis(50);
+        let mut attempts = 0;
+        loop {
+            attempts += 1;
+            match Self::open(database_url).await {
+                Err(StorageError::Database(sqlx::Error::Database(error)))
+                    if attempts < 20
+                        && matches!(error.code().as_deref(), Some("5" | "6" | "261" | "517")) =>
+                {
+                    tracing::debug!(%error, attempts, "Database busy at start, trying again");
+                    tokio::time::sleep(pause).await;
+                    pause = (pause * 2).min(std::time::Duration::from_secs(1));
+                }
+                opened => return opened,
+            }
+        }
+    }
+
+    async fn open(database_url: &str) -> StorageResult<Self> {
+        // Several gateway processes may share the file: readers do not
+        // block the writer in WAL mode, and a writer waits for another
+        // instead of failing at once.
+        let options: SqliteConnectOptions = database_url.parse()?;
+        let options = options
+            .journal_mode(SqliteJournalMode::Wal)
+            .synchronous(SqliteSynchronous::Normal)
+            .busy_timeout(std::time::Duration::from_secs(10));
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
-            .connect(database_url)
+            .connect_with(options)
             .await?;
 
         let storage = Self {
@@ -155,6 +201,10 @@ impl Storage {
     #[allow(clippy::too_many_lines)] // Keep the initial schema migration together.
     async fn run_migrations(&self) -> StorageResult<()> {
         sqlx::query("CREATE TABLE IF NOT EXISTS docker_boxes (id TEXT PRIMARY KEY, owner TEXT NOT NULL, policy TEXT NOT NULL)").execute(&self.pool).await?;
+        // Which box is executing, in which gateway process, until when.
+        sqlx::query("CREATE TABLE IF NOT EXISTS box_runs (box_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, expires_at INTEGER NOT NULL)").execute(&self.pool).await?;
+        // Failed dashboard logins per client; `*` counts everyone.
+        sqlx::query("CREATE TABLE IF NOT EXISTS login_failures (client TEXT PRIMARY KEY, failures INTEGER NOT NULL, window_start INTEGER NOT NULL)").execute(&self.pool).await?;
         sqlx::query(
             r"
             CREATE TABLE IF NOT EXISTS api_keys (
@@ -934,6 +984,219 @@ impl Storage {
         Ok(result.rows_affected())
     }
 
+    // ==================== Boxes ====================
+
+    /// Record a new box unless `maximum` boxes exist already. Returns whether
+    /// it was recorded. One statement, so that gateway processes creating
+    /// boxes together cannot go over the maximum.
+    ///
+    /// # Errors
+    /// Returns a storage error if the database query or connection fails.
+    pub async fn create_box(
+        &self,
+        id: &str,
+        owner: &str,
+        policy: &str,
+        maximum: i64,
+    ) -> StorageResult<bool> {
+        let created = sqlx::query(
+            "INSERT INTO docker_boxes (id, owner, policy) SELECT ?1, ?2, ?3 \
+             WHERE (SELECT COUNT(*) FROM docker_boxes) < ?4",
+        )
+        .bind(id)
+        .bind(owner)
+        .bind(policy)
+        .bind(maximum)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        Ok(created > 0)
+    }
+
+    /// Take the right to execute in a box for `seconds`, for the run
+    /// `run_id`. A box runs one execution at a time and at most `capacity`
+    /// boxes execute at once, counted over every gateway process sharing the
+    /// database. A claim nobody released, because its process died, ends by
+    /// itself after `seconds`.
+    ///
+    /// # Errors
+    /// Returns a storage error if the database query or connection fails.
+    pub async fn claim_box_run(
+        &self,
+        box_id: &str,
+        owner: &str,
+        run_id: &str,
+        seconds: i64,
+        capacity: i64,
+    ) -> StorageResult<BoxClaim> {
+        let now = Utc::now().timestamp();
+        let claimed = sqlx::query(
+            r"
+            INSERT INTO box_runs (box_id, run_id, expires_at)
+            SELECT ?1, ?2, ?3
+            WHERE EXISTS (SELECT 1 FROM docker_boxes WHERE id = ?1 AND owner = ?4)
+              AND (SELECT COUNT(*) FROM box_runs WHERE expires_at > ?5 AND box_id != ?1) < ?6
+            ON CONFLICT (box_id) DO UPDATE
+              SET run_id = excluded.run_id, expires_at = excluded.expires_at
+              WHERE box_runs.expires_at <= ?5
+            ",
+        )
+        .bind(box_id)
+        .bind(run_id)
+        .bind(now + seconds)
+        .bind(owner)
+        .bind(now)
+        .bind(capacity)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        if claimed > 0 {
+            return Ok(BoxClaim::Claimed);
+        }
+        // Refused: say why.
+        if !self.box_exists(box_id, owner).await? {
+            return Ok(BoxClaim::Missing);
+        }
+        Ok(if self.box_is_running(box_id).await? {
+            BoxClaim::Busy
+        } else {
+            BoxClaim::Full
+        })
+    }
+
+    /// Give back the right taken with [`claim_box_run`](Self::claim_box_run).
+    ///
+    /// # Errors
+    /// Returns a storage error if the database query or connection fails.
+    pub async fn release_box_run(&self, box_id: &str, run_id: &str) -> StorageResult<()> {
+        sqlx::query("DELETE FROM box_runs WHERE box_id = ? AND run_id = ?")
+            .bind(box_id)
+            .bind(run_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Whether some gateway process is executing in the box.
+    ///
+    /// # Errors
+    /// Returns a storage error if the database query or connection fails.
+    pub async fn box_is_running(&self, box_id: &str) -> StorageResult<bool> {
+        let running: Option<i64> =
+            sqlx::query_scalar("SELECT 1 FROM box_runs WHERE box_id = ? AND expires_at > ?")
+                .bind(box_id)
+                .bind(Utc::now().timestamp())
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(running.is_some())
+    }
+
+    /// Whether the box exists and belongs to `owner`.
+    ///
+    /// # Errors
+    /// Returns a storage error if the database query or connection fails.
+    pub async fn box_exists(&self, box_id: &str, owner: &str) -> StorageResult<bool> {
+        let exists: Option<i64> =
+            sqlx::query_scalar("SELECT 1 FROM docker_boxes WHERE id = ? AND owner = ?")
+                .bind(box_id)
+                .bind(owner)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(exists.is_some())
+    }
+
+    // ==================== Dashboard login failures ====================
+
+    /// Whether dashboard logins from `client` are refused: it reached
+    /// `per_client` failures, or everyone together reached `overall`, in a
+    /// window of `window_seconds` that is still open. Counted over every
+    /// gateway process sharing the database.
+    ///
+    /// # Errors
+    /// Returns a storage error if the database query or connection fails.
+    pub async fn login_blocked(
+        &self,
+        client: &str,
+        per_client: u32,
+        overall: u32,
+        window_seconds: i64,
+    ) -> StorageResult<bool> {
+        let blocked: Option<i64> = sqlx::query_scalar(
+            r"
+            SELECT 1 FROM login_failures
+            WHERE window_start > ?1
+              AND ((client = ?2 AND failures >= ?3) OR (client = '*' AND failures >= ?4))
+            LIMIT 1
+            ",
+        )
+        .bind(Utc::now().timestamp() - window_seconds)
+        .bind(client)
+        .bind(per_client)
+        .bind(overall)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(blocked.is_some())
+    }
+
+    /// Count a failed dashboard login for `client` and for everyone. At most
+    /// `max_clients` clients are remembered: closed windows go first, then
+    /// the oldest.
+    ///
+    /// # Errors
+    /// Returns a storage error if the database query or connection fails.
+    pub async fn record_login_failure(
+        &self,
+        client: &str,
+        window_seconds: i64,
+        max_clients: i64,
+    ) -> StorageResult<()> {
+        let now = Utc::now().timestamp();
+        let closed = now - window_seconds;
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query("DELETE FROM login_failures WHERE window_start <= ?")
+            .bind(closed)
+            .execute(&mut *transaction)
+            .await?;
+        for counted in [client, "*"] {
+            sqlx::query(
+                r"
+                INSERT INTO login_failures (client, failures, window_start) VALUES (?1, 1, ?2)
+                ON CONFLICT (client) DO UPDATE SET failures = failures + 1
+                ",
+            )
+            .bind(counted)
+            .bind(now)
+            .execute(&mut *transaction)
+            .await?;
+        }
+        // `*` and `max_clients` clients, the most recent windows.
+        sqlx::query(
+            r"
+            DELETE FROM login_failures WHERE client IN (
+                SELECT client FROM login_failures WHERE client != '*'
+                ORDER BY window_start DESC LIMIT -1 OFFSET ?
+            )
+            ",
+        )
+        .bind(max_clients)
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        Ok(())
+    }
+
+    /// Forget a client's failed dashboard logins, after a successful one.
+    ///
+    /// # Errors
+    /// Returns a storage error if the database query or connection fails.
+    pub async fn clear_login_failures(&self, client: &str) -> StorageResult<()> {
+        sqlx::query("DELETE FROM login_failures WHERE client = ? AND client != '*'")
+            .bind(client)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     // ==================== Admin Sessions ====================
 
     /// Create a new admin session
@@ -1352,5 +1615,268 @@ mod tests {
         storage.delete_admin_session(&session.id).await.unwrap();
         let valid = storage.validate_admin_session(&session.id).await.unwrap();
         assert!(!valid);
+    }
+}
+
+/// Two handles on one database file stand for two gateway processes: each
+/// has its own connections, and they only meet in the file.
+#[cfg(test)]
+mod shared_database_tests {
+    use super::*;
+
+    struct Shared {
+        path: std::path::PathBuf,
+        first: Storage,
+        second: Storage,
+    }
+
+    impl Shared {
+        async fn new() -> Self {
+            let path =
+                std::env::temp_dir().join(format!("gateway-{}.db", uuid::Uuid::new_v4().simple()));
+            let url = format!("sqlite:{}?mode=rwc", path.display());
+            // Opened together, as processes started together are.
+            let (first, second) = tokio::join!(Storage::new(&url), Storage::new(&url));
+            Self {
+                path,
+                first: first.unwrap(),
+                second: second.unwrap(),
+            }
+        }
+    }
+
+    impl Drop for Shared {
+        fn drop(&mut self) {
+            for suffix in ["", "-wal", "-shm"] {
+                let _ = std::fs::remove_file(format!("{}{suffix}", self.path.display()));
+            }
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn request_limit_is_shared() {
+        let shared = Shared::new().await;
+        let (key, _) = shared
+            .first
+            .create_api_key("shared", Some(40), None)
+            .await
+            .unwrap();
+        // Not across a minute boundary, where a new window would start.
+        while Utc::now().timestamp().rem_euclid(60) > 50 {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        let mut attempts = Vec::new();
+        for n in 0..200 {
+            let storage = if n % 2 == 0 {
+                shared.first.clone()
+            } else {
+                shared.second.clone()
+            };
+            let id = key.id.clone();
+            attempts.push(tokio::spawn(async move {
+                storage.admit_request(&id, Some(40), None).await.unwrap()
+            }));
+        }
+        let mut admitted = 0;
+        for attempt in attempts {
+            if attempt.await.unwrap().is_ok() {
+                admitted += 1;
+            }
+        }
+        assert_eq!(admitted, 40);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_box_executes_in_one_process_at_a_time() {
+        let shared = Shared::new().await;
+        assert!(shared
+            .first
+            .create_box("box", "alice", "{}", 10)
+            .await
+            .unwrap());
+
+        let mut claims = Vec::new();
+        for n in 0..20 {
+            let storage = if n % 2 == 0 {
+                shared.first.clone()
+            } else {
+                shared.second.clone()
+            };
+            claims.push(tokio::spawn(async move {
+                storage
+                    .claim_box_run("box", "alice", &format!("run-{n}"), 60, 16)
+                    .await
+                    .unwrap()
+            }));
+        }
+        let mut outcomes = Vec::new();
+        for claim in claims {
+            outcomes.push(claim.await.unwrap());
+        }
+        let claimed = outcomes
+            .iter()
+            .filter(|outcome| **outcome == BoxClaim::Claimed)
+            .count();
+        assert_eq!(claimed, 1, "{outcomes:?}");
+        assert!(outcomes
+            .iter()
+            .all(|outcome| matches!(outcome, BoxClaim::Claimed | BoxClaim::Busy)));
+        // Seen as running from the other process, whichever claimed it.
+        assert!(shared.second.box_is_running("box").await.unwrap());
+        assert!(shared.first.box_is_running("box").await.unwrap());
+
+        // Someone else's run ID does not release it; the right one does.
+        shared
+            .second
+            .release_box_run("box", "not-the-run")
+            .await
+            .unwrap();
+        assert!(shared.first.box_is_running("box").await.unwrap());
+        for n in 0..20 {
+            shared
+                .second
+                .release_box_run("box", &format!("run-{n}"))
+                .await
+                .unwrap();
+        }
+        assert!(!shared.first.box_is_running("box").await.unwrap());
+        assert_eq!(
+            shared
+                .first
+                .claim_box_run("box", "alice", "again", 60, 16)
+                .await
+                .unwrap(),
+            BoxClaim::Claimed
+        );
+    }
+
+    #[tokio::test]
+    async fn box_claims_respect_owner_capacity_and_expiry() {
+        let shared = Shared::new().await;
+        for id in ["a", "b", "c"] {
+            assert!(shared.first.create_box(id, "alice", "{}", 3).await.unwrap());
+        }
+        // The fourth box is one too many, from either process.
+        assert!(!shared
+            .second
+            .create_box("d", "alice", "{}", 3)
+            .await
+            .unwrap());
+
+        assert_eq!(
+            shared
+                .first
+                .claim_box_run("a", "mallory", "r", 60, 2)
+                .await
+                .unwrap(),
+            BoxClaim::Missing
+        );
+        assert_eq!(
+            shared
+                .first
+                .claim_box_run("a", "alice", "r1", 60, 2)
+                .await
+                .unwrap(),
+            BoxClaim::Claimed
+        );
+        // A claim whose process died: it ends at its expiry.
+        assert_eq!(
+            shared
+                .second
+                .claim_box_run("b", "alice", "r2", 1, 2)
+                .await
+                .unwrap(),
+            BoxClaim::Claimed
+        );
+        assert_eq!(
+            shared
+                .first
+                .claim_box_run("c", "alice", "r3", 60, 2)
+                .await
+                .unwrap(),
+            BoxClaim::Full
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(2100)).await;
+        assert_eq!(
+            shared
+                .first
+                .claim_box_run("c", "alice", "r3", 60, 2)
+                .await
+                .unwrap(),
+            BoxClaim::Claimed
+        );
+        assert_eq!(
+            shared
+                .second
+                .claim_box_run("b", "alice", "r4", 60, 3)
+                .await
+                .unwrap(),
+            BoxClaim::Claimed
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_logins_are_counted_together() {
+        let shared = Shared::new().await;
+        let blocked = |storage: &Storage, client: &'static str| {
+            let storage = storage.clone();
+            async move { storage.login_blocked(client, 5, 12, 300).await.unwrap() }
+        };
+        // Five failures spread over two processes block the client on both.
+        for n in 0..5 {
+            assert!(!blocked(&shared.first, "10.0.0.1").await);
+            let storage = if n % 2 == 0 {
+                &shared.first
+            } else {
+                &shared.second
+            };
+            storage
+                .record_login_failure("10.0.0.1", 300, 100)
+                .await
+                .unwrap();
+        }
+        assert!(blocked(&shared.first, "10.0.0.1").await);
+        assert!(blocked(&shared.second, "10.0.0.1").await);
+        assert!(!blocked(&shared.second, "10.0.0.2").await);
+
+        // A successful login clears the client, not the overall count.
+        shared
+            .second
+            .clear_login_failures("10.0.0.1")
+            .await
+            .unwrap();
+        assert!(!blocked(&shared.first, "10.0.0.1").await);
+        shared.second.clear_login_failures("*").await.unwrap();
+
+        // Many addresses: the overall limit blocks everyone.
+        for n in 0..7 {
+            shared
+                .second
+                .record_login_failure(&format!("10.1.0.{n}"), 300, 100)
+                .await
+                .unwrap();
+        }
+        assert!(blocked(&shared.first, "10.9.9.9").await);
+
+        // Only so many clients are remembered.
+        for n in 0..30 {
+            shared
+                .first
+                .record_login_failure(&format!("10.2.0.{n}"), 300, 10)
+                .await
+                .unwrap();
+        }
+        let remembered: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM login_failures WHERE client != '*'")
+                .fetch_one(shared.first.pool())
+                .await
+                .unwrap();
+        assert_eq!(remembered, 10);
+        // A closed window no longer blocks.
+        assert!(!shared
+            .first
+            .login_blocked("10.9.9.9", 5, 12, 0)
+            .await
+            .unwrap());
     }
 }

@@ -30,7 +30,22 @@ Network exposure:
 cargo run --locked -p gateway-server
 ```
 
-Firecracker execution, other Box runtimes, Anthropic streaming, global spending limits and multi-process Box leases are not qualified or enabled by this profile. It is not a production readiness or latency claim. LLM tests use local mock HTTP servers and incur no provider usage.
+## Several processes on one machine
+
+Several gateway processes can serve from the same SQLite file, each on its own port behind a reverse proxy or load balancer of your choice. Give them the same `DATABASE_URL`, `GATEWAY_MASTER_KEY`, `GATEWAY_ADMIN_PASSWORD` and configuration. A process that crashes or restarts does not affect the others, and what must be agreed on is kept in the database:
+
+- API keys, providers, dashboard sessions and the usage log, as before. A provider changed in the dashboard of one process is used by all of them at the next request.
+- A key's request and token limits: the processes count against the same per-minute counters.
+- Failed dashboard logins: five failures block a client whichever processes took them.
+- Boxes: one execution at a time per box and at most 16 boxes executing at once, over all processes. A box deleted through one process stops executing in another within about half a second. An execution whose process dies gives its place back when its timeout, plus 30 seconds, has passed.
+
+The database is opened in WAL mode and a process waits up to ten seconds for another one's write. Processes started together on a new file take turns creating it.
+
+Tried with three processes on one file: started together, a session made on one accepted by the others, 150 calls sent at once over the three with a key limited to 30 a minute (30 let through, 120 refused), one process killed with `kill -9` and restarted while the others served, and wrong passwords spread over the three (the sixth attempt refused).
+
+This is not high availability across machines: the SQLite file and the Docker daemon are on one host, and losing that host loses the service. `/metrics` reports each process on its own. No load balancer is provided.
+
+Firecracker execution, other Box runtimes, Anthropic streaming and global spending limits are not qualified or enabled by this profile. It is not a production readiness or latency claim. LLM tests use local mock HTTP servers and incur no provider usage.
 
 ```bash
 cargo fmt --all -- --check

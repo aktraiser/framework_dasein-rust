@@ -143,8 +143,11 @@ impl LoginThrottle {
     pub const MAX_TOTAL_FAILURES: u32 = 300;
     /// Length of the counting window, and of the lockout.
     pub const WINDOW: std::time::Duration = std::time::Duration::from_secs(300);
+    /// The same window in seconds, for counts kept in the database.
+    pub const WINDOW_SECONDS: i64 = 300;
     /// Clients tracked at most; the oldest windows make room for new ones.
-    const MAX_CLIENTS: usize = 10_000;
+    pub const MAX_CLIENTS: i64 = 10_000;
+    const MAX_CLIENTS_IN_MEMORY: usize = 10_000;
 
     /// Key under which a client's failures are counted. IPv6 clients are
     /// grouped by /64: one subscriber controls a whole /64 and could
@@ -186,13 +189,14 @@ impl LoginThrottle {
         }
         total.0 += 1;
 
-        if !state.clients.contains_key(client) && state.clients.len() >= Self::MAX_CLIENTS {
+        if !state.clients.contains_key(client) && state.clients.len() >= Self::MAX_CLIENTS_IN_MEMORY
+        {
             state
                 .clients
                 .retain(|_, (_, since)| since.elapsed() < Self::WINDOW);
             // Still full of live windows: drop the oldest, so the table
             // cannot grow without bound. The overall limit still applies.
-            if state.clients.len() >= Self::MAX_CLIENTS {
+            if state.clients.len() >= Self::MAX_CLIENTS_IN_MEMORY {
                 let oldest = state
                     .clients
                     .iter()
@@ -326,6 +330,6 @@ mod tests {
             throttle.record_failure(&format!("client-{n}"));
         }
         assert!(throttle.is_blocked("fresh"));
-        assert!(throttle.state().clients.len() <= LoginThrottle::MAX_CLIENTS);
+        assert!(throttle.state().clients.len() <= LoginThrottle::MAX_CLIENTS_IN_MEMORY);
     }
 }

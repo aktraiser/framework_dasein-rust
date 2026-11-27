@@ -88,7 +88,7 @@ impl AppState {
         ));
 
         Self {
-            boxes: Arc::new(crate::boxes::Boxes::default()),
+            boxes: Arc::new(crate::boxes::Boxes),
             operator_api_key: std::env::var("GATEWAY_API_KEY")
                 .ok()
                 .filter(|k| !k.is_empty()),
