@@ -66,7 +66,9 @@ let workflow = Workflow::with_config(
 - **Results have a size limit.** A result that does not fit in one queue record (900 kB with its task by default, `RemoteWorker::with_max_result_bytes`) is a final failure with a clear reason. Keep large data in a store and pass a reference.
 - **Timeouts.** A remote step waits 50 s for its result by default, under the workflow's 60 s executor timeout. Raise both for longer work. When the wait runs out the step fails as a timeout; a retry resumes waiting for the same task.
 - **Shared state needs a shared backend.** Without `with_state_backend` on both sides, a remote executor sees an empty state of its own.
-- **Shared state in NATS is kept until you remove it.** `NatsStateBackend::forget(&workflow_id, &task_id)` removes the state of one run; call it when the run is finished and will not be resumed.
+- **Shared state in a backend you give is kept until you remove it.** `forget(&workflow_id, &task_id)`, on `NatsStateBackend` and `InMemoryStateBackend`, removes the state of one run; call it when the run is finished and will not be resumed. A workflow without `with_state_backend` keeps state in a private store and drops the state of each run when it ends.
+- **Results are kept for an hour.** `DurableQueueConfig::result_ttl` is how long the record of a task and its result stay in the ledger, counted from its last change. A task that waits and runs for longer still completes, but keep the lifetime above the time your tasks take. After that the task is forgotten: a retry or resume that sends it again runs it again. The ledger must hold every task of that period within `max_result_bytes` (512 MiB by default, about 700 bytes per small task): when it is full, tasks can neither be submitted nor completed until records expire. Shorten the lifetime or enlarge the ledger for a high rate.
+- **Waiting costs one subscription per process.** Every wait of a `DurableQueue` and its clones shares one subscription to the results, and reads the record again every two seconds in case that subscription is being re-established.
 - **One group, one set of executors.** Any worker of a group may receive any of its tasks: workers of a group must host the same executors. Use several groups to give different executors to different machines.
 - **One task at a time per `serve`.** Run several `serve` loops, or several workers, for more parallelism.
 
@@ -104,6 +106,37 @@ This was run with NATS 2.15.3 and one worker in a Linux virtual machine, and a s
 | NATS stopped for 3 s, then restarted | Both workers kept running and served the next run |
 
 The two systems were on one physical machine: a slow or lossy network between distant machines has not been tried.
+
+## Load and duration test
+
+The example [`soak`](../crates/agentic-core/examples/soak.rs) runs a small workflow with a remote step over and over, from several tasks at once, for a given time. It checks every result (outputs in order, built from the shared state of their own run), and prints throughput, latencies, failures and its memory every ten seconds.
+
+```sh
+# Everything in one process:
+cargo run --release -p dasein-agentic-core --example soak -- memory 600
+
+# Queue, results and shared state on a NATS server:
+DASEIN_NATS_URL=nats://127.0.0.1:4222 \
+  cargo run --release -p dasein-agentic-core --example soak -- nats 600
+```
+
+Measured on an Apple M4, with 8 workflows at once, 4 workers and 4 remote inputs per run, the NATS 2.15.3 server on the same machine:
+
+| Run | Workflow runs | Failed or wrong | Rate | Median / 99 % | Memory of the process |
+|---|---|---|---|---|---|
+| In memory, 10 min | 8 126 225 | 0 | 13 500 /s | 0.5 ms / 1.3 ms | 34 MiB at the end, flat |
+| Through NATS, 10 min | 814 840 | 0 | 1 360 /s | 5.3 ms / 18 ms | 8 MiB, flat |
+| Through NATS, 1 min, server killed for 3 s | 68 985 | 0 | 1 150 /s | 5.8 ms / 18 ms | 9 MiB |
+| Through NATS, 90 s, server down for 40 s | 89 720 | 1 | 1 000 /s | 4.0 ms / 9 ms | 9 MiB |
+
+Two things this showed about sizing:
+
+- In the 10 minute run the result ledger (512 MiB, results kept 120 s for the test) was full after 100 s, at 7 400 tasks a second. Everything waited 25 s, until the first records expired, then went on at the rate the ledger allowed. Nothing failed, because the steps were given 120 s to wait. Size `max_result_bytes` and `result_ttl` for your rate.
+- The NATS server used 1.2 GiB of memory by the end of that run, against 11 MiB at the start, and gave it back only as records expired. Plan the server's memory for the number of records kept.
+
+- In the run with the server down for 40 s, the steps waiting for a result went on waiting and got it when the server was back. The one failure was a local step that writes shared state: it used up its four attempts during the outage. A step that must write state or submit a task while NATS is away fails once its retries are spent; give it more retries if it has to ride out long outages.
+
+These are short runs on one machine: they say nothing about days of operation, a real network, or several workflow processes at once.
 
 ## Without NATS
 

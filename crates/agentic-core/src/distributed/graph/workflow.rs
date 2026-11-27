@@ -427,6 +427,9 @@ where
     config: WorkflowConfig,
     /// Shared state backend.
     state_backend: Arc<dyn SharedStateBackend>,
+    /// Whether the state backend is the private one created with the
+    /// workflow, which nothing else can read or clean.
+    owns_state: bool,
     /// Checkpoint backend (if checkpointing enabled).
     checkpoint_backend: Option<Arc<dyn CheckpointBackend>>,
     /// Persistent checkpoint backend for durable storage.
@@ -448,6 +451,7 @@ where
             registry,
             config: WorkflowConfig::default(),
             state_backend: Arc::new(super::context::InMemoryStateBackend::new()),
+            owns_state: true,
             checkpoint_backend: None,
             persistent_backend: None,
         }
@@ -471,14 +475,22 @@ where
             registry,
             config,
             state_backend: Arc::new(super::context::InMemoryStateBackend::new()),
+            owns_state: true,
             checkpoint_backend,
             persistent_backend: None,
         }
     }
 
     /// Set the shared state backend.
+    ///
+    /// The state of a run stays in a backend given here after the run, for
+    /// other processes to read or for a later resume: remove it when it is no
+    /// longer needed (`forget` on the in-memory and NATS backends). Without
+    /// this call the workflow keeps state in a private store and drops the
+    /// state of each run when it ends.
     pub fn with_state_backend(mut self, backend: Arc<dyn SharedStateBackend>) -> Self {
         self.state_backend = backend;
+        self.owns_state = false;
         self
     }
 
@@ -531,8 +543,28 @@ where
     {
         let started = std::time::Instant::now();
         let result = self.run_unobserved(input).await;
+        self.drop_private_state(&result).await;
         self.observe_run(started, &result);
         result
+    }
+
+    /// Drop the state of a finished run from the workflow's private store,
+    /// which would otherwise grow with every run. A resume gets its state
+    /// back from the checkpoint it starts from.
+    async fn drop_private_state(&self, result: &GraphResult<WorkflowResult<TOutput>>) {
+        if !self.owns_state {
+            return;
+        }
+        if let Ok(result) = result {
+            let namespace = super::context::state_namespace(&result.workflow_id, &result.task_id);
+            if let Err(error) = self
+                .state_backend
+                .restore(&namespace, &HashMap::new())
+                .await
+            {
+                tracing::debug!(%error, "Could not drop the state of a finished run");
+            }
+        }
     }
 
     /// Record a finished run in the metrics.
@@ -694,6 +726,7 @@ where
         let result = self
             .run_with_resume_unobserved(task_id, checkpoint_id, fallback_input)
             .await;
+        self.drop_private_state(&result).await;
         self.observe_run(started, &result);
         result
     }
@@ -1359,6 +1392,77 @@ mod tests {
             ctx.send_message(result).await?;
             Ok(())
         }
+    }
+
+    // Test executor that leaves a note in shared state
+    struct NoteExecutor {
+        id: ExecutorId,
+    }
+
+    #[async_trait]
+    impl Executor for NoteExecutor {
+        type Input = String;
+        type Message = String;
+        type Output = String;
+
+        fn id(&self) -> &ExecutorId {
+            &self.id
+        }
+
+        fn kind(&self) -> ExecutorKind {
+            ExecutorKind::Worker
+        }
+
+        async fn handle<Ctx>(&self, input: Self::Input, ctx: &mut Ctx) -> Result<(), ExecutorError>
+        where
+            Ctx: ExecutorContext<Self::Message, Self::Output> + Send,
+        {
+            ctx.set_shared_state("note", input.clone()).await?;
+            ctx.yield_output(input).await
+        }
+    }
+
+    fn note_workflow() -> Workflow<String, String> {
+        let definition = WorkflowBuilder::<String>::new("notes")
+            .set_start("note")
+            .build()
+            .unwrap();
+        let mut registry = ExecutorRegistry::new();
+        registry.register(NoteExecutor {
+            id: ExecutorId::new("note"),
+        });
+        Workflow::new(definition, registry)
+    }
+
+    #[tokio::test]
+    async fn state_of_a_finished_run_leaves_the_private_store() {
+        let workflow = note_workflow();
+        for run in 0..3 {
+            assert!(workflow.run(format!("run {run}")).await.unwrap().success);
+        }
+        // Nothing accumulates in a process that runs workflows for a long time.
+        assert!(workflow
+            .state_backend
+            .snapshot("")
+            .await
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn state_in_a_given_backend_stays_until_forgotten() {
+        let state = Arc::new(super::super::context::InMemoryStateBackend::new());
+        let workflow = note_workflow().with_state_backend(state.clone());
+        let first = workflow.run("first".to_string()).await.unwrap();
+        let second = workflow.run("second".to_string()).await.unwrap();
+        assert_eq!(state.snapshot("").await.unwrap().len(), 2);
+
+        state.forget(&first.workflow_id, &first.task_id).await;
+        let left = state.snapshot("").await.unwrap();
+        assert_eq!(left.len(), 1);
+        let namespace =
+            super::super::context::state_namespace(&second.workflow_id, &second.task_id);
+        assert!(left.keys().all(|key| key.starts_with(&namespace)));
     }
 
     // Test executor that counts characters

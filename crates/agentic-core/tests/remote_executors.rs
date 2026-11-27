@@ -598,3 +598,29 @@ async fn local_step_still_takes_its_inputs_one_at_a_time() {
     assert_eq!(result.outputs, ["SAME"; 4]);
     assert_eq!(slow.most_in_hand.load(Ordering::SeqCst), 1);
 }
+
+#[tokio::test]
+async fn in_memory_queue_forgets_the_oldest_results() {
+    use dasein_agentic_core::distributed::bus::{Task, TaskOutcome};
+    // Asking for fewer than 100 still keeps 100.
+    let queue = InMemoryTaskQueue::new().remembering(2);
+    for n in 0..150 {
+        let id = n.to_string();
+        queue
+            .submit(Task::new(id.clone(), "group", serde_json::json!(n)))
+            .await
+            .unwrap();
+        let claim = queue.next(Duration::from_secs(1)).await.unwrap().unwrap();
+        claim.complete(serde_json::json!(n)).await.unwrap();
+    }
+    // A queue serving for a long time keeps the latest results only.
+    for forgotten in ["0", "49"] {
+        assert!(queue.outcome(forgotten).await.unwrap().is_none());
+    }
+    for kept in ["50", "149"] {
+        assert!(matches!(
+            queue.outcome(kept).await.unwrap(),
+            Some(TaskOutcome::Completed(_))
+        ));
+    }
+}

@@ -184,13 +184,26 @@ impl TaskClaim for TaskDelivery {
 struct MemoryQueueState {
     /// Tasks waiting for a worker, oldest first.
     waiting: std::collections::VecDeque<Task>,
-    /// Every accepted task and what became of it.
+    /// Accepted tasks and what became of them.
     records: std::collections::HashMap<String, (Task, TaskOutcome)>,
+    /// Finished tasks, oldest first: the ones forgotten when there are too
+    /// many.
+    finished: std::collections::VecDeque<String>,
+    /// How many finished tasks are remembered; 0 stands for the default.
+    remembered: usize,
 }
+
+/// Finished tasks an [`InMemoryTaskQueue`] remembers unless told otherwise.
+const REMEMBERED_RESULTS: usize = 10_000;
 
 /// A task queue living in one process, with the same contract as the durable
 /// one except durability: results are remembered, a dropped claim puts the
 /// task back, and a known task ID is not run twice.
+///
+/// Only the results of the last 10 000 finished tasks are kept
+/// ([`remembering`](Self::remembering) changes that), so that a process
+/// which runs for a long time does not grow without end. A task forgotten
+/// this way and submitted again would run again.
 ///
 /// It is both the [`TaskQueue`] and a [`TaskSource`]. As a source the queue
 /// itself hands out the tasks of every group; [`worker`](Self::worker) gives
@@ -219,6 +232,15 @@ impl InMemoryTaskQueue {
             group: Some(group.into()),
             ..self.clone()
         }
+    }
+
+    /// Keep the results of the last `tasks` finished tasks instead of
+    /// 10 000. At least 100 are kept: a result must still be there when the
+    /// step waiting for it looks, after the tasks that finished meanwhile.
+    #[must_use]
+    pub fn remembering(self, tasks: usize) -> Self {
+        self.state().remembered = tasks.max(100);
+        self
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, MemoryQueueState> {
@@ -317,8 +339,21 @@ pub struct InMemoryClaim {
 impl InMemoryClaim {
     fn finish(mut self, outcome: TaskOutcome) {
         if let Some(task) = self.task.take() {
-            if let Some(record) = self.queue.state().records.get_mut(&task.id) {
-                record.1 = outcome;
+            {
+                let mut state = self.queue.state();
+                if let Some(record) = state.records.get_mut(&task.id) {
+                    record.1 = outcome;
+                    state.finished.push_back(task.id);
+                }
+                let kept = match state.remembered {
+                    0 => REMEMBERED_RESULTS,
+                    kept => kept,
+                };
+                while state.finished.len() > kept {
+                    if let Some(oldest) = state.finished.pop_front() {
+                        state.records.remove(&oldest);
+                    }
+                }
             }
             self.queue.finished.notify_waiters();
         }
@@ -778,8 +813,16 @@ where
                     executor.handle_dyn(call.input.clone(), &mut ctx),
                 );
                 tokio::pin!(work);
-                let mut beat = tokio::time::interval(self.heartbeat);
-                beat.tick().await; // the first tick is immediate
+                // Starting at the first beat, not now: the immediate tick
+                // of a plain interval still goes through the timer, and
+                // costs every task about a millisecond.
+                // A period too long to add to the clock means no beat.
+                let now = tokio::time::Instant::now();
+                let never = Duration::from_secs(30 * 365 * 24 * 60 * 60);
+                let mut beat = tokio::time::interval_at(
+                    now.checked_add(self.heartbeat).unwrap_or(now + never),
+                    self.heartbeat.max(Duration::from_millis(1)),
+                );
                 loop {
                     tokio::select! {
                         result = &mut work => break result,

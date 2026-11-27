@@ -24,9 +24,8 @@
 //! enough workers for the load, or raise it.
 //!
 //! The shared state of a run is removed when it ends. The results of the
-//! tasks stay in the bucket `DASEIN_RESULTS_<name>` of the server, as the
-//! queue needs them to recognise a task it has already run: delete the bucket
-//! when you are done with a name.
+//! tasks stay an hour in the bucket `DASEIN_RESULTS_<name>` of the server, as
+//! the queue needs them to recognise a task it has already run.
 
 use async_trait::async_trait;
 use dasein_agentic_core::distributed::bus::{

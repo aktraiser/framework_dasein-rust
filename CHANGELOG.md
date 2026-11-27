@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dependencies with known advisories are updated.
 
 ### Added
+- `soak` example: a load and duration test of workflows with a remote step, in memory or through NATS.
+- `DurableQueueConfig::result_ttl`, `InMemoryStateBackend::forget`, `InMemoryTaskQueue::remembering`.
 - MCP client: stdio transport, `initialize` handshake, sessions, reconnection, all content types.
 - Graph: `add_fan_in_edge_with` merges joined messages so the target runs once.
 - Gateway: per-key request and token limits are enforced; usage, cost and streamed tokens are logged; `trusted_proxies`.
@@ -31,6 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Rust toolchain is pinned in `rust-toolchain.toml`.
 
 ### Fixed
+- Remote steps over NATS no longer fail with "maximum consumers limit reached" under load: waits share one subscription instead of creating one each.
+- The result ledger of a `DurableQueue` no longer fills up for good: records expire after `result_ttl` (one hour by default), and a full ledger is reported as such.
+- A workflow no longer keeps the shared state of every run it ever made in memory, and `InMemoryTaskQueue` remembers the last 10 000 results instead of all of them.
+- A remote worker no longer spends a millisecond per task on its heartbeat timer.
 - Streams from Gemini, Anthropic and Ollama no longer lose or corrupt text split across network chunks.
 - A durable `ChatAgent` run can resume after a crash during a model call.
 - Text previews no longer panic on non-ASCII input.

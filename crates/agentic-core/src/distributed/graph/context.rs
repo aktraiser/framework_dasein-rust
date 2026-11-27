@@ -148,6 +148,17 @@ impl InMemoryStateBackend {
             state: RwLock::new(HashMap::new()),
         }
     }
+
+    /// Remove the shared state of one workflow run. State is otherwise kept
+    /// for as long as the backend lives: call this when a run is finished
+    /// and will not be resumed.
+    pub async fn forget(&self, workflow_id: &WorkflowId, task_id: &TaskId) {
+        let namespace = state_namespace(workflow_id, task_id);
+        self.state
+            .write()
+            .await
+            .retain(|key, _| !key.starts_with(&namespace));
+    }
 }
 
 #[async_trait]

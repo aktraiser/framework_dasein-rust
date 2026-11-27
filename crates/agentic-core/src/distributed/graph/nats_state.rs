@@ -123,17 +123,25 @@ impl NatsStateBackend {
     /// for as long as the bucket exists: call this when a run is finished and
     /// will not be resumed.
     ///
+    /// The entries are removed from the bucket in one request, without
+    /// leaving deletion markers behind.
+    ///
     /// # Errors
-    /// Fails if the state cannot be listed or removed.
+    /// Fails if the state cannot be removed.
     pub async fn forget(
         &self,
         workflow_id: &WorkflowId,
         task_id: &TaskId,
     ) -> Result<(), ExecutorError> {
         let namespace = state_namespace(workflow_id, task_id);
-        for key in self.entries(&namespace).await?.into_keys() {
-            self.store.purge(encode(&key)).await.map_err(failed)?;
-        }
+        let (namespace, _) = split_namespace(&namespace)
+            .ok_or_else(|| failed("not the state namespace of a run"))?;
+        self.store
+            .stream
+            .purge()
+            .filter(format!("{}n_{}.>", self.store.prefix, hex(namespace)))
+            .await
+            .map_err(failed)?;
         Ok(())
     }
 
@@ -163,6 +171,23 @@ impl NatsStateBackend {
             })
             .await
             .map_err(failed)?;
+        // The server would keep the consumer for a while after this call:
+        // remove it, so that many listings in a row do not pile them up.
+        let name = consumer.cached_info().name.clone();
+        let values = Self::read_listing(&self.store.prefix, prefix, consumer).await;
+        if let Err(error) = self.store.stream.delete_consumer(&name).await {
+            tracing::debug!(%error, "Could not remove a state listing consumer");
+        }
+        values
+    }
+
+    /// Read what a listing consumer delivers, up to the last entry it had
+    /// when it was created.
+    async fn read_listing(
+        bucket_prefix: &str,
+        prefix: &str,
+        consumer: async_nats::jetstream::consumer::Consumer<push::OrderedConfig>,
+    ) -> Result<HashMap<String, serde_json::Value>, ExecutorError> {
         let mut values = HashMap::new();
         if consumer.cached_info().num_pending == 0 {
             return Ok(values);
@@ -179,10 +204,7 @@ impl NatsStateBackend {
             let deleted = message.headers.as_ref().is_some_and(|headers| {
                 headers.get("KV-Operation").is_some() || headers.get("Nats-Marker-Reason").is_some()
             });
-            let key = message
-                .subject
-                .strip_prefix(self.store.prefix.as_str())
-                .and_then(decode);
+            let key = message.subject.strip_prefix(bucket_prefix).and_then(decode);
             if let (false, Some(key)) = (deleted, key) {
                 if key.starts_with(prefix) {
                     values.insert(
