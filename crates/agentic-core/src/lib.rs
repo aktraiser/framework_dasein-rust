@@ -51,13 +51,13 @@
 
 pub mod agent;
 pub mod behavior;
-pub mod swarm;
 pub mod distributed;
 pub mod error;
 pub mod forum;
 pub mod patterns;
 pub mod prelude;
 pub mod protocol;
+pub mod swarm;
 pub mod types;
 
 pub use agent::Agent;

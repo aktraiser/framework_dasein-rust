@@ -627,7 +627,10 @@ mod tests {
             agent.run(vec![ChatMessage::user("hi")], &mut AgentThread::new()),
         )
         .await;
-        assert!(interrupted.is_err(), "first run should be cut mid model call");
+        assert!(
+            interrupted.is_err(),
+            "first run should be cut mid model call"
+        );
         // Checkpoints from earlier versions marked the model call in flight.
         store.0.lock().unwrap().as_mut().unwrap().in_flight = Some("model:round:0".into());
 
@@ -652,7 +655,10 @@ mod tests {
             agent.run(vec![ChatMessage::user("find")], &mut AgentThread::new()),
         )
         .await;
-        assert!(interrupted.is_err(), "first run should be cut mid tool call");
+        assert!(
+            interrupted.is_err(),
+            "first run should be cut mid tool call"
+        );
 
         let error = agent
             .run(vec![ChatMessage::user("find")], &mut AgentThread::new())

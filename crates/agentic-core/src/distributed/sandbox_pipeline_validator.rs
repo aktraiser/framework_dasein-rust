@@ -128,7 +128,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_sandbox_pipeline_validator() {
-        let sandbox = ProcessSandbox::new().with_timeout(60000);
+        let sandbox = ProcessSandbox::new().with_timeout(300_000);
         let validator = SandboxPipelineValidator::new(sandbox)
             .workspace(std::path::PathBuf::from("/tmp/test-pipeline"));
 

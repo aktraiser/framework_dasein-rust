@@ -98,7 +98,11 @@ impl<L: LLMAdapter + 'static> ChatAgent<L> {
         }
         // A model call has no external effect, so an interrupted one is simply
         // replayed. Checkpoints written by earlier versions may carry the marker.
-        if state.in_flight.as_deref().is_some_and(|a| a.starts_with("model:")) {
+        if state
+            .in_flight
+            .as_deref()
+            .is_some_and(|a| a.starts_with("model:"))
+        {
             state.in_flight = None;
         }
         if let Some(action) = &state.in_flight {

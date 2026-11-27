@@ -180,7 +180,6 @@ impl SandboxSession {
         match request.send().await {
             Ok(response) if response.status().is_success() => {
                 info!(sandbox_id = %self.id, "Sandbox session cleaned up");
-                Ok(())
             }
             Ok(response) => {
                 warn!(
@@ -188,13 +187,13 @@ impl SandboxSession {
                     status = %response.status(),
                     "Failed to cleanup sandbox"
                 );
-                Ok(()) // Don't fail on cleanup errors
             }
             Err(e) => {
                 warn!(sandbox_id = %self.id, error = %e, "Failed to cleanup sandbox");
-                Ok(()) // Don't fail on cleanup errors
             }
         }
+        // Cleanup is best effort: a failure is logged, never returned.
+        Ok(())
     }
 }
 

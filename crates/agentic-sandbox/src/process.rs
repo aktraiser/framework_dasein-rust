@@ -171,7 +171,12 @@ mod tests {
 
     #[test]
     fn test_secret_env_names() {
-        for name in ["OPENAI_API_KEY", "github_token", "DB_PASSWORD", "AWS_SECRET"] {
+        for name in [
+            "OPENAI_API_KEY",
+            "github_token",
+            "DB_PASSWORD",
+            "AWS_SECRET",
+        ] {
             assert!(is_secret_env_name(name), "{name}");
         }
         for name in ["PATH", "HOME", "CARGO_HOME", "LANG"] {

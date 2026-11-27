@@ -544,9 +544,8 @@ mod tests {
         fn generate_stream(
             &self,
             _: &[LLMMessage],
-        ) -> std::pin::Pin<
-            Box<dyn futures::Stream<Item = Result<StreamChunk, LLMError>> + Send + '_>,
-        > {
+        ) -> std::pin::Pin<Box<dyn futures::Stream<Item = Result<StreamChunk, LLMError>> + Send + '_>>
+        {
             Box::pin(futures::stream::empty())
         }
         async fn health_check(&self) -> Result<bool, LLMError> {

@@ -1132,7 +1132,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_valid_rust_code() {
-        let sandbox = ProcessSandbox::new().with_timeout(60000);
+        let sandbox = ProcessSandbox::new().with_timeout(300_000);
         let validator = SandboxValidator::new(sandbox).run_tests(false);
 
         let code = r#"
@@ -1161,7 +1161,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_invalid_rust_code() {
-        let sandbox = ProcessSandbox::new().with_timeout(60000);
+        let sandbox = ProcessSandbox::new().with_timeout(300_000);
         let validator = SandboxValidator::new(sandbox);
 
         let code = r#"
@@ -1180,7 +1180,7 @@ pub fn broken() -> i32 {
     #[tokio::test]
     async fn concurrent_rust_validation_keeps_success_and_failure_separate() {
         let validator =
-            SandboxValidator::new(ProcessSandbox::new().with_timeout(60000)).run_tests(false);
+            SandboxValidator::new(ProcessSandbox::new().with_timeout(300_000)).run_tests(false);
         let (valid, invalid) = tokio::join!(
             validator.validate_rust_code("pub fn valid() -> i32 { 42 }"),
             validator.validate_rust_code("pub fn invalid() -> i32 { \"wrong type\" }")

@@ -222,14 +222,16 @@ impl GmailSendTool {
 
     /// Check that `to` is one plain address covered by the allow-list.
     fn check_recipient(&self, to: &str) -> Result<(), ToolError> {
-        let invalid = |reason: &str| ToolError::InvalidArgument("to".to_string(), reason.to_string());
+        let invalid =
+            |reason: &str| ToolError::InvalidArgument("to".to_string(), reason.to_string());
         let to = to.to_ascii_lowercase();
         // One bare address only: no lists, display names or option-like values.
         let plain = to.matches('@').count() == 1
             && !to.starts_with('-')
             && !to.starts_with('@')
             && !to.ends_with('@')
-            && !to.contains(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | '<' | '>' | '"'));
+            && !to
+                .contains(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | '<' | '>' | '"'));
         if !plain {
             return Err(invalid("expected a single email address"));
         }
@@ -243,7 +245,9 @@ impl GmailSendTool {
         if allowed {
             Ok(())
         } else {
-            Err(invalid("recipient is not in the allow-list configured by the host"))
+            Err(invalid(
+                "recipient is not in the allow-list configured by the host",
+            ))
         }
     }
 }
@@ -556,7 +560,9 @@ mod tests {
 
     #[test]
     fn gmail_send_refuses_everything_by_default() {
-        assert!(GmailSendTool::new().check_recipient("alice@example.com").is_err());
+        assert!(GmailSendTool::new()
+            .check_recipient("alice@example.com")
+            .is_err());
     }
 
     #[test]

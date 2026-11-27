@@ -135,7 +135,6 @@ pub async fn ensure_vm(State(state): State<AppState>) -> Result<Json<VmActionRes
     }))
 }
 
-
 // ==================== Request/Response Types ====================
 
 #[derive(Debug, Serialize)]
@@ -149,4 +148,3 @@ pub struct VmStatusResponse {
     pub status: VmStatus,
     pub orchestrator_enabled: bool,
 }
-
