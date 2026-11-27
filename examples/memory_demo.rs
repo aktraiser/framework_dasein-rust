@@ -233,7 +233,7 @@ fn demo_reducers() {
         } else {
             &reduced[0].content
         },
-        &reduced.last().unwrap().content
+        reduced.last().unwrap().content
     );
 
     // TokenCountingReducer

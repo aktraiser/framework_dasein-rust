@@ -1,3 +1,5 @@
+# Pinned so CI and local builds use the same compiler and the same clippy
+# lints. Raise it deliberately, fixing any new lints in the same change.
 [toolchain]
-channel = "stable"
+channel = "1.100.0"
 components = ["rustfmt", "clippy"]
