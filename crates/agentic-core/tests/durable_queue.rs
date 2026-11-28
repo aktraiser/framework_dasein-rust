@@ -437,7 +437,14 @@ async fn a_task_delivered_before_whose_record_is_gone_is_not_run_again() {
     // Taken, and never reported on: as after a worker that died, or one
     // whose acknowledgement was lost after it had recorded its result.
     let first = worker.next(Duration::from_secs(2)).await.unwrap().unwrap();
-    tokio::time::sleep(Duration::from_millis(1800)).await;
+    // The server removes an expired record when it gets to it, not on the
+    // dot: wait until it has.
+    for _ in 0..100 {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        if queue.outcome("once").await.unwrap().is_none() {
+            break;
+        }
+    }
     assert!(queue.outcome("once").await.unwrap().is_none());
 
     // Nobody can tell whether it ran: it is not handed out a second time,
