@@ -135,7 +135,25 @@ Measured on an Apple M4, with 8 workflows at once, 4 workers and 4 remote inputs
 Two things this showed about sizing:
 
 - In the 10 minute run the result ledger (512 MiB, results kept 120 s for the test) was full after 100 s, at 7 400 tasks a second. Everything waited 25 s, until the first records expired, then went on at the rate the ledger allowed. Nothing failed, because the steps were given 120 s to wait. Size `max_result_bytes` and `result_ttl` for your rate.
-- The NATS server used 1.2 GiB of memory by the end of that run, against 11 MiB at the start, and gave it back only as records expired. Plan the server's memory for the number of records kept.
+- The NATS server's memory follows the size of the result ledger, not the length of the run. Peak memory of the server (NATS 2.15.3, started fresh for each run, 13 MiB when idle), one run per line:
+
+  | Ledger limit (`max_result_bytes`) | Results kept | Run | Server peak | Workflow runs | Failed |
+  |---|---|---|---|---|---|
+  | 512 MiB | 120 s | 150 s | 1 152 MiB | 242 543 | 0 |
+  | 128 MiB | 30 s | 110 s | 575 MiB | 171 906 | 0 |
+  | 128 MiB | 30 s | 110 s | 582 MiB | 162 686 | 6 |
+  | 128 MiB, `GOMEMLIMIT=300MiB` | 30 s | 110 s | 381 MiB | 167 258 | 0 |
+  | 128 MiB, `GOMEMLIMIT=300MiB` | 30 s | 110 s | 393 MiB | 167 278 | 0 |
+  | 32 MiB | 30 s | 110 s | 193 MiB | 23 204 | 22 |
+
+  What these runs support, and what they do not:
+
+  - **It is not a leak.** In each run the ledger reached its limit and the memory then stayed level. A sampled heap profile of the server under this load attributed 96 % of what it sampled to message block buffers, which is why we read it as the server's cache of the ledger's storage; the sample covered about a fifth of the heap, and the task IDs kept to refuse duplicates were 3 % of it.
+  - **A smaller ledger means less memory**, but not in proportion: a quarter of the ledger gave half the memory. The first row kept results four times longer than the others, so the rows are not a clean comparison of the limit alone.
+  - **The server's Go memory limit lowers it** (about 390 MiB against 580 MiB), at the same rate of runs in these two pairs. It is a target, not a cap: the server went about 30 % over the 300 MiB asked for, so leave room above it.
+  - **Whether the memory is given back afterwards varied.** Right after the load stopped, the server was back near its idle size in two runs and still near its peak in four (on macOS; not checked on Linux).
+  - **A ledger that is far too small costs more than memory.** With 32 MiB the load ran at a tenth of the rate, since every task waits for room.
+  - **Some runs failed in two of these runs.** Both had the ledger full for most of the run. Their messages were not kept and the failures did not come back in ten further runs made before the fix below, so the cause of those two is not proved. A defect that produces exactly this was then found and fixed: a task that waited in the queue for longer than its record was kept (30 s here, about as long as a full ledger makes tasks wait) was refused by every worker it was handed to, again and again, and the steps waiting for it timed out. Forced on purpose (tasks of 2.5 s, records kept 6 s), it gave one run and five failures in a minute before the fix, and 31 runs without failure after it.
 
 - In the run with the server down for 40 s, the steps waiting for a result went on waiting and got it when the server was back. The one failure, in the first measurement, was a local step that writes shared state: it used up its four attempts during the outage. Since then a read or write of shared state, and the submission of a remote task, wait for the server instead of failing at once (see below); run again with the server down for 25 s and for 40 s, nothing failed.
 
