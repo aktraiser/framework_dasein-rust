@@ -27,6 +27,8 @@ use crate::distributed::bus::{BusError, NatsClient};
 #[derive(Clone)]
 pub struct NatsStateBackend {
     store: kv::Store,
+    /// How long one read or write goes on trying while NATS is away.
+    patience: Duration,
 }
 
 fn failed(error: impl std::fmt::Display) -> ExecutorError {
@@ -116,7 +118,28 @@ impl NatsStateBackend {
                     .map_err(|_| error(&create_error))?,
             },
         };
-        Ok(Self { store })
+        Ok(Self {
+            store,
+            patience: Duration::from_secs(30),
+        })
+    }
+
+    /// How long a read or a write of one key goes on trying while NATS
+    /// cannot be reached, before it fails: 30 seconds unless set here.
+    ///
+    /// A step that reads or writes shared state then rides out a server
+    /// restart or a short network cut instead of failing and using up its
+    /// retries. Keep it under the time the step is given
+    /// (`executor_timeout_ms`), which still applies.
+    ///
+    /// A write that is tried again may land after a newer write of the same
+    /// key by another step: values are last-writer-wins, and waiting makes
+    /// "last" span the outage. Do not let two steps write one key if the
+    /// order matters.
+    #[must_use]
+    pub const fn with_patience(mut self, patience: Duration) -> Self {
+        self.patience = patience;
+        self
     }
 
     /// Remove the shared state of one workflow run. State is otherwise kept
@@ -136,13 +159,17 @@ impl NatsStateBackend {
         let namespace = state_namespace(workflow_id, task_id);
         let (namespace, _) = split_namespace(&namespace)
             .ok_or_else(|| failed("not the state namespace of a run"))?;
-        self.store
-            .stream
-            .purge()
-            .filter(format!("{}n_{}.>", self.store.prefix, hex(namespace)))
-            .await
-            .map_err(failed)?;
-        Ok(())
+        let subject = format!("{}n_{}.>", self.store.prefix, hex(namespace));
+        let patience = crate::distributed::bus::patience::Patience::new(self.patience);
+        loop {
+            match self.store.stream.purge().filter(&subject).await {
+                Ok(_) => return Ok(()),
+                Err(error) => match patience.pause_for(&error) {
+                    Some(pause) => tokio::time::sleep(pause).await,
+                    None => return Err(failed(error)),
+                },
+            }
+        }
     }
 
     /// Live entries whose key starts with `prefix`.
@@ -150,6 +177,23 @@ impl NatsStateBackend {
     /// When `prefix` is the namespace of a workflow run, only that run's
     /// entries are read from the server; otherwise the whole bucket is.
     async fn entries(
+        &self,
+        prefix: &str,
+    ) -> Result<HashMap<String, serde_json::Value>, ExecutorError> {
+        // A listing reads; it can be started again while the server is away.
+        let patience = crate::distributed::bus::patience::Patience::new(self.patience);
+        loop {
+            match self.list(prefix).await {
+                Ok(values) => return Ok(values),
+                Err(error) => match patience.pause_for(&error) {
+                    Some(pause) => tokio::time::sleep(pause).await,
+                    None => return Err(error),
+                },
+            }
+        }
+    }
+
+    async fn list(
         &self,
         prefix: &str,
     ) -> Result<HashMap<String, serde_json::Value>, ExecutorError> {
@@ -224,18 +268,34 @@ impl NatsStateBackend {
 impl SharedStateBackend for NatsStateBackend {
     async fn set(&self, key: &str, value: serde_json::Value) -> Result<(), ExecutorError> {
         let bytes = serde_json::to_vec(&value).map_err(failed)?;
-        self.store
-            .put(encode(key), bytes.into())
-            .await
-            .map_err(failed)?;
-        Ok(())
+        let key = encode(key);
+        // Writing the same value again is harmless: it can be repeated
+        // until the server is back.
+        let patience = crate::distributed::bus::patience::Patience::new(self.patience);
+        loop {
+            match self.store.put(&key, bytes.clone().into()).await {
+                Ok(_) => return Ok(()),
+                Err(error) => match patience.pause_for(&error) {
+                    Some(pause) => tokio::time::sleep(pause).await,
+                    None => return Err(failed(error)),
+                },
+            }
+        }
     }
 
     async fn get(&self, key: &str) -> Result<Option<serde_json::Value>, ExecutorError> {
-        self.store
-            .get(encode(key))
-            .await
-            .map_err(failed)?
+        let key = encode(key);
+        let patience = crate::distributed::bus::patience::Patience::new(self.patience);
+        let found = loop {
+            match self.store.get(&key).await {
+                Ok(found) => break found,
+                Err(error) => match patience.pause_for(&error) {
+                    Some(pause) => tokio::time::sleep(pause).await,
+                    None => return Err(failed(error)),
+                },
+            }
+        };
+        found
             .map(|bytes| serde_json::from_slice(&bytes).map_err(failed))
             .transpose()
     }
@@ -264,7 +324,17 @@ impl SharedStateBackend for NatsStateBackend {
     }
 
     async fn delete(&self, key: &str) -> Result<(), ExecutorError> {
-        self.store.delete(encode(key)).await.map_err(failed)
+        let key = encode(key);
+        let patience = crate::distributed::bus::patience::Patience::new(self.patience);
+        loop {
+            match self.store.delete(&key).await {
+                Ok(()) => return Ok(()),
+                Err(error) => match patience.pause_for(&error) {
+                    Some(pause) => tokio::time::sleep(pause).await,
+                    None => return Err(failed(error)),
+                },
+            }
+        }
     }
 }
 

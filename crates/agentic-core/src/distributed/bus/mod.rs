@@ -28,6 +28,7 @@ mod error_fingerprint;
 mod linter;
 mod log_collector;
 mod nats_client;
+pub(crate) mod patience;
 mod pipeline_tracer;
 mod rollback;
 mod sequencer;
