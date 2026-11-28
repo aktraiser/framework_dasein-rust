@@ -30,6 +30,12 @@ pub struct DurableQueueConfig {
     /// and runs for longer still completes, but may be accepted a second
     /// time meanwhile: keep this above the time your tasks take.
     ///
+    /// A task still waiting in the queue when its record expires is run all
+    /// the same when a worker first takes it. Delivered again after that
+    /// with no record, it is dropped: it may have run. A task whose
+    /// dependency (`depends_on`) is unknown for longer than this fails with
+    /// that reason, so keep it above the time dependencies take.
+    ///
     /// The ledger must hold every task of that period within
     /// `max_result_bytes`. When it is full, tasks can neither be submitted
     /// nor completed until records expire.
@@ -625,14 +631,72 @@ impl DurableWorker {
                 return Ok(None);
             };
             let message = message.map_err(error)?;
-            let task: Task = serde_json::from_slice(&message.payload).map_err(error)?;
+            // A message that is not a task we can record will never become
+            // one: it is removed, not handed out again and again.
+            let task = match serde_json::from_slice::<Task>(&message.payload) {
+                Ok(task) if key(&task.id).is_ok() => task,
+                unreadable => {
+                    let reason = match unreadable {
+                        Ok(_) => "its task ID cannot be recorded".to_owned(),
+                        Err(e) => e.to_string(),
+                    };
+                    tracing::warn!(subject = %message.subject, %reason, "Removing a message that is not a task");
+                    message
+                        .ack_with(jetstream::AckKind::Term)
+                        .await
+                        .map_err(error)?;
+                    continue;
+                }
+            };
             match self.queue.outcome(&task.id).await? {
                 Some(TaskOutcome::Pending) => (),
                 Some(_) => {
                     message.double_ack().await.map_err(error)?;
                     continue;
                 }
-                None => return Err(error("Task ledger missing; delivery left unacknowledged")),
+                None => {
+                    // No record. On a first delivery the task waited here
+                    // for longer than its record is kept (busy workers, or a
+                    // ledger that was full): the message is the task itself,
+                    // so it is run. Refused, it would be handed out again
+                    // and again.
+                    //
+                    // Delivered before, nobody can tell whether it ran: its
+                    // record may have been written and have expired. It is
+                    // dropped rather than run twice; a step still waiting
+                    // for it sends it again when its wait is over.
+                    //
+                    // A task put back while it waited for its dependencies
+                    // was delivered before without ever running: it goes on
+                    // to the check of its dependencies below.
+                    let delivered = message.info().map_or(1, |info| info.delivered);
+                    if delivered > 1 && task.depends_on.is_empty() {
+                        tracing::warn!(
+                            task = %task.id,
+                            delivered,
+                            "Dropping a task delivered before whose record is gone"
+                        );
+                        message
+                            .ack_with(jetstream::AckKind::Term)
+                            .await
+                            .map_err(error)?;
+                        continue;
+                    }
+                    // Its record is written anew if there is room; if not,
+                    // the result will bring it when the task is done.
+                    let record = Record {
+                        task: task.clone(),
+                        outcome: TaskOutcome::Pending,
+                    };
+                    let _ = self
+                        .queue
+                        .ledger
+                        .create(
+                            key(&task.id)?,
+                            serde_json::to_vec(&record).map_err(error)?.into(),
+                        )
+                        .await;
+                }
             }
             let mut blocked = false;
             let mut failed = None;
@@ -643,7 +707,20 @@ impl DurableWorker {
                         failed = Some(format!("Dependency {dependency} failed"));
                         break;
                     }
-                    _ => blocked = true,
+                    Some(TaskOutcome::Pending) => blocked = true,
+                    // Unknown: not submitted yet, or done and forgotten.
+                    // Waited for as long as its record could still exist.
+                    None => {
+                        let age = chrono::Utc::now().signed_duration_since(task.created_at);
+                        if age.to_std().unwrap_or_default() > self.queue.config.result_ttl {
+                            failed = Some(format!(
+                                "Dependency {dependency} is unknown: it was never submitted, \
+                                 or its record expired before this task could run"
+                            ));
+                            break;
+                        }
+                        blocked = true;
+                    }
                 }
             }
             if let Some(reason) = failed {

@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A live test of an agent answering from an Obsidian vault through a third-party MCP server, with a small vault as fixture.
 
 ### Fixed
+- A remote task that waited in the queue for longer than `result_ttl` is run when a worker takes it, instead of being refused by every worker for ever.
+- `DurableQueue`: a message that is not a task is removed instead of being handed out for ever, and a task whose dependency stays unknown for longer than `result_ttl` fails with that reason.
 - A step that reads or writes shared state in NATS, or submits a remote task, waits for a server that is away instead of failing at once and using up its retries (`NatsStateBackend::with_patience`, 30 seconds by default).
 - A worker goes on trying to record the result of a finished task while NATS is away, instead of leaving the task to be run again.
 - Ollama: the reasoning a thinking model writes before its answer (`<think>...</think>`) is no longer part of the answer.
