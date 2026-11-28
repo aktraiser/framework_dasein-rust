@@ -75,6 +75,10 @@ pub struct DurableQueue {
     hub: Arc<Hub>,
 }
 
+/// How long a worker goes on trying to record a result while the server is
+/// away.
+const REPORT_PATIENCE: Duration = Duration::from_secs(30);
+
 /// How often a wait reads the record itself, whatever the subscription says.
 const RECHECK: Duration = Duration::from_secs(2);
 
@@ -406,7 +410,8 @@ impl DurableQueue {
             // be pushed: give it a moment to start.
             let mut watching = self.hub.watching.subscribe();
             let _ = tokio::time::timeout(
-                Duration::from_secs(1),
+                // Never longer than the caller is ready to wait at all.
+                Duration::from_secs(1).min(timeout),
                 watching.wait_for(|watching| *watching),
             )
             .await;
@@ -674,22 +679,57 @@ pub struct TaskDelivery {
 }
 impl TaskDelivery {
     /// Persist completion before confirming ACK; duplicate deliveries skip work.
+    ///
+    /// If the server is away, this goes on trying for 30 seconds:
+    /// work that is done should not be done again because its result could
+    /// not be written at that moment. A task whose acknowledgement deadline
+    /// passes meanwhile may still be delivered again; it is skipped if this
+    /// record lands first: keep `ack_wait` above the outages you want
+    /// finished work to survive without being done twice.
     pub async fn complete(self, result: Value) -> Result<(), BusError> {
-        self.queue
-            .finish(&self.task_id, &self.task, TaskOutcome::Completed(result))
-            .await?;
-        self.message.double_ack().await.map_err(error)
+        self.report(TaskOutcome::Completed(result)).await
     }
     /// Persist a terminal failure and remove the message from the work queue.
+    /// Tried again like [`complete`](Self::complete) while the server is away.
     pub async fn fail(self, reason: impl Into<String>) -> Result<(), BusError> {
-        self.queue
-            .finish(
-                &self.task_id,
-                &self.task,
-                TaskOutcome::Failed(reason.into()),
-            )
-            .await?;
-        self.message.double_ack().await.map_err(error)
+        self.report(TaskOutcome::Failed(reason.into())).await
+    }
+    async fn report(self, outcome: TaskOutcome) -> Result<(), BusError> {
+        let patience = super::patience::Patience::new(REPORT_PATIENCE);
+        // Both steps can be repeated: a record already final is left alone,
+        // and so is a message already acknowledged.
+        let mut tried = false;
+        loop {
+            if tried {
+                // The server may be back: say first that the task is still
+                // ours, so that it is not handed to another worker while its
+                // result is being written. If its deadline passed during the
+                // outage it may have been handed out already; delivery is at
+                // least once, as the module says.
+                let _ = self.message.ack_with(jetstream::AckKind::Progress).await;
+            }
+            tried = true;
+            match self
+                .queue
+                .finish(&self.task_id, &self.task, outcome.clone())
+                .await
+            {
+                Ok(()) => break,
+                Err(e) => match patience.pause_for(&e) {
+                    Some(pause) => tokio::time::sleep(pause).await,
+                    None => return Err(e),
+                },
+            }
+        }
+        loop {
+            match self.message.double_ack().await {
+                Ok(()) => return Ok(()),
+                Err(e) => match patience.pause_for(&e) {
+                    Some(pause) => tokio::time::sleep(pause).await,
+                    None => return Err(error(e)),
+                },
+            }
+        }
     }
     /// Return work for a later attempt after a transient error.
     pub async fn retry(self, delay: Duration) -> Result<(), BusError> {
