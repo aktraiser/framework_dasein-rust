@@ -720,3 +720,34 @@ async fn ollama_answer_does_not_carry_the_model_reasoning() {
         expected
     );
 }
+
+#[tokio::test]
+async fn ollama_stream_does_not_carry_the_model_reasoning() {
+    let server = MockServer::start().await;
+    // The reasoning and its tags, cut across lines as a model sends them.
+    let lines = [
+        json!({ "message": { "content": "<thi" }, "done": false }),
+        json!({ "message": { "content": "nk>\nA city is asked" }, "done": false }),
+        json!({ "message": { "content": " for.\n</th" }, "done": false }),
+        json!({ "message": { "content": "ink>\n\n" }, "done": false }),
+        json!({ "message": { "content": "Paris" }, "done": false }),
+        json!({ "message": { "content": "." }, "done": false }),
+        json!({ "message": { "content": "" }, "done": true, "done_reason": "stop",
+                "prompt_eval_count": 4, "eval_count": 9 }),
+    ];
+    let body = lines.map(|line| line.to_string()).join("\n") + "\n";
+    Mock::given(method("POST"))
+        .and(path("/api/chat"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(body, "application/x-ndjson"))
+        .mount(&server)
+        .await;
+
+    let chunks = collect(&ollama(&server)).await;
+    assert_eq!(text(&chunks), "Paris.");
+    // Nothing is yielded for the reasoning, and the stream still ends with
+    // one final chunk carrying the usage.
+    assert_eq!(chunks.len(), 3);
+    let last = chunks.last().unwrap().as_ref().unwrap();
+    assert!(last.done);
+    assert_eq!(last.tokens_used.as_ref().unwrap().total, 13);
+}
