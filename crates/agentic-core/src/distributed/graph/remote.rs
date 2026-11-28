@@ -51,6 +51,7 @@
 //! - Workers of one group must host the same executors: any of them may
 //!   receive any task of the group.
 
+use crate::distributed::bus::patience::Patience;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
@@ -590,6 +591,12 @@ where
         };
         // Tasks of this invocation that ended without running, in an earlier
         // attempt, are passed over: this attempt sends the next one.
+        // A queue that cannot be reached for a while (the server restarts,
+        // the network is down) is waited for, within the time this step has
+        // to get its result: both calls can be repeated safely. That time
+        // is one budget, for sending the task and for its result.
+        let deadline = tokio::time::Instant::now() + self.wait;
+        let patience = Patience::until(deadline);
         let id = loop {
             let id = task_id_for(&call);
             match self.queue.outcome(&id).await {
@@ -599,16 +606,35 @@ where
                     call.generation += 1;
                 }
                 Ok(_) => break id,
-                Err(e) => return Err(retriable(format!("could not read remote result: {e}"))),
+                Err(e) => match patience.pause_for(&e) {
+                    Some(pause) => tokio::time::sleep(pause).await,
+                    None => return Err(retriable(format!("could not read remote result: {e}"))),
+                },
             }
         };
         let payload = serde_json::to_value(&call).map_err(|e| fatal(e.to_string()))?;
-        self.queue
-            .submit(Task::new(id.clone(), self.group.clone(), payload))
-            .await
-            .map_err(|e| retriable(format!("could not submit remote task: {e}")))?;
+        loop {
+            match self
+                .queue
+                .submit(Task::new(id.clone(), self.group.clone(), payload.clone()))
+                .await
+            {
+                Ok(()) => break,
+                Err(e) => match patience.pause_for(&e) {
+                    Some(pause) => tokio::time::sleep(pause).await,
+                    None => return Err(retriable(format!("could not submit remote task: {e}"))),
+                },
+            }
+        }
 
-        let reply = match self.queue.wait(&id, self.wait).await {
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let outcome = if left.is_zero() {
+            // The time went into reaching the queue: look once, do not wait.
+            self.queue.outcome(&id).await
+        } else {
+            self.queue.wait(&id, left).await
+        };
+        let reply = match outcome {
             Ok(Some(TaskOutcome::Completed(value))) => value,
             Ok(Some(TaskOutcome::Failed(reason))) => {
                 return Err(fatal(format!("remote executor failed: {reason}")));
@@ -719,6 +745,12 @@ where
     ///
     /// Tasks are run one at a time; call `serve` from several tasks, or start
     /// several workers, to run more in parallel.
+    ///
+    /// `shutdown` is looked at between tasks: the task in hand is finished
+    /// and its result reported first. While NATS is away that report is
+    /// tried for up to 30 seconds, so stopping can take that much longer;
+    /// give the process that long before killing it, or the finished task
+    /// is run again elsewhere.
     pub async fn serve<S: TaskSource>(
         &self,
         source: &S,
